@@ -17,6 +17,7 @@
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/tag_allocator.h"
 
@@ -29,7 +30,10 @@ template <typename Family>
 const AuxTranslationMode HwHelperHw<Family>::defaultAuxTranslationMode = AuxTranslationMode::Builtin;
 
 template <typename Family>
-bool HwHelperHw<Family>::isBufferSizeSuitableForRenderCompression(const size_t size) const {
+bool HwHelperHw<Family>::isBufferSizeSuitableForRenderCompression(const size_t size, const HardwareInfo &hwInfo) const {
+    if (DebugManager.flags.OverrideBufferSuitableForRenderCompression.get() != -1) {
+        return !!DebugManager.flags.OverrideBufferSuitableForRenderCompression.get();
+    }
     return size > KB;
 }
 
@@ -79,11 +83,6 @@ uint32_t HwHelperHw<Family>::getMaxNumSamplers() const {
 template <typename Family>
 const AubMemDump::LrcaHelper &HwHelperHw<Family>::getCsTraits(aub_stream::EngineType engineType) const {
     return *AUBFamilyMapper<Family>::csTraits[engineType];
-}
-
-template <typename Family>
-bool HwHelperHw<Family>::isPageTableManagerSupported(const HardwareInfo &hwInfo) const {
-    return false;
 }
 
 template <typename Family>
@@ -160,9 +159,9 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(const RootDeviceEnvironm
         EncodeSurfaceState<Family>::setCoherencyType(&state, RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT);
         state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
     }
-    *surfaceState = state;
+    setL1CachePolicy(useL1Cache, &state, rootDeviceEnvironment.getHardwareInfo());
 
-    setL1CachePolicy(useL1Cache, surfaceState, rootDeviceEnvironment.getHardwareInfo());
+    *surfaceState = state;
 }
 
 template <typename GfxFamily>
@@ -374,38 +373,10 @@ inline bool HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(const Hardw
 }
 
 template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const {
-    return CommonConstants::invalidStepping;
-}
-
-template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::getSteppingFromHwRevId(const HardwareInfo &hwInfo) const {
-    return CommonConstants::invalidStepping;
-}
-
-template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::getAubStreamSteppingFromHwRevId(const HardwareInfo &hwInfo) const {
-    switch (getSteppingFromHwRevId(hwInfo)) {
-    default:
-    case REVISION_A0:
-    case REVISION_A1:
-    case REVISION_A3:
-        return AubMemDump::SteppingValues::A;
-    case REVISION_B:
-        return AubMemDump::SteppingValues::B;
-    case REVISION_C:
-        return AubMemDump::SteppingValues::C;
-    case REVISION_D:
-        return AubMemDump::SteppingValues::D;
-    case REVISION_K:
-        return AubMemDump::SteppingValues::K;
-    }
-}
-
-template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isWorkaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) const {
-    auto lowestHwRevIdWithBug = getHwRevIdFromStepping(lowestSteppingWithBug, hwInfo);
-    auto hwRevIdWithFix = getHwRevIdFromStepping(steppingWithFix, hwInfo);
+    const auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    auto lowestHwRevIdWithBug = hwInfoConfig->getHwRevIdFromStepping(lowestSteppingWithBug, hwInfo);
+    auto hwRevIdWithFix = hwInfoConfig->getHwRevIdFromStepping(steppingWithFix, hwInfo);
     if ((lowestHwRevIdWithBug == CommonConstants::invalidStepping) || (hwRevIdWithFix == CommonConstants::invalidStepping)) {
         return false;
     }
@@ -443,19 +414,10 @@ inline bool HwHelperHw<GfxFamily>::isSpecialWorkgroupSizeRequired(const Hardware
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::allowRenderCompression(const HardwareInfo &hwInfo) const {
-    return true;
-}
-
-template <typename GfxFamily>
 inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const {
     return allocation.isAllocatedInLocalMemoryPool() &&
-           (getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed || !allocation.isAllocationLockable());
-}
-
-template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::additionalKernelExecInfoSupported(const HardwareInfo &hwInfo) const {
-    return false;
+           (HwInfoConfig::get(hwInfo.platform.eProductFamily)->getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed ||
+            !allocation.isAllocationLockable());
 }
 
 template <typename GfxFamily>
@@ -502,22 +464,6 @@ size_t HwHelperHw<GfxFamily>::getSingleTimestampPacketSize() const {
     }
 
     return TimestampPackets<typename GfxFamily::TimestampPacketType>::getSinglePacketSize();
-}
-
-template <typename GfxFamily>
-LocalMemoryAccessMode HwHelperHw<GfxFamily>::getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
-    switch (static_cast<LocalMemoryAccessMode>(DebugManager.flags.ForceLocalMemoryAccessMode.get())) {
-    case LocalMemoryAccessMode::Default:
-    case LocalMemoryAccessMode::CpuAccessAllowed:
-    case LocalMemoryAccessMode::CpuAccessDisallowed:
-        return static_cast<LocalMemoryAccessMode>(DebugManager.flags.ForceLocalMemoryAccessMode.get());
-    }
-    return getDefaultLocalMemoryAccessMode(hwInfo);
-}
-
-template <typename GfxFamily>
-inline LocalMemoryAccessMode HwHelperHw<GfxFamily>::getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
-    return LocalMemoryAccessMode::Default;
 }
 
 template <typename GfxFamily>
@@ -589,8 +535,19 @@ bool MemorySynchronizationCommands<GfxFamily>::isPipeControlPriorToPipelineSelec
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const PRODUCT_FAMILY productFamily) const {
+bool HwHelperHw<GfxFamily>::isRcsAvailable(const HardwareInfo &hwInfo) const {
     return true;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const HardwareInfo &hwInfo) const {
+    return true;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::adjustMaxWorkGroupCount(uint32_t maxWorkGroupCount, const EngineGroupType engineGroupType,
+                                                        const HardwareInfo &hwInfo, bool isEngineInstanced) const {
+    return maxWorkGroupCount;
 }
 
 template <typename GfxFamily>
@@ -599,22 +556,18 @@ bool HwHelperHw<GfxFamily>::isKmdMigrationSupported(const HardwareInfo &hwInfo) 
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isNewResidencyModelSupported() const {
+bool HwHelperHw<GfxFamily>::isCooperativeEngineSupported(const HardwareInfo &hwInfo) const {
     return false;
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isDirectSubmissionSupported() const {
+bool HwHelperHw<GfxFamily>::isDirectSubmissionSupported(const HardwareInfo &hwInfo) const {
     return false;
 }
 
 template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isCopyOnlyEngineType(EngineGroupType type) const {
     return NEO::EngineGroupType::Copy == type;
-}
-
-template <typename GfxFamily>
-void HwHelperHw<GfxFamily>::adjustAddressWidthForCanonize(uint32_t &addressWidth) const {
 }
 
 template <typename GfxFamily>
@@ -658,6 +611,29 @@ void HwHelperHw<GfxFamily>::applyAdditionalCompressionSettings(Gmm &gmm, bool is
 template <typename GfxFamily>
 void HwHelperHw<GfxFamily>::applyRenderCompressionFlag(Gmm &gmm, uint32_t isRenderCompressed) const {
     gmm.resourceParams.Flags.Info.RenderCompressed = isRenderCompressed;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isEngineTypeRemappingToHwSpecificRequired() const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isMidThreadPreemptionSupported(const HardwareInfo &hwInfo) const {
+    return static_cast<bool>(hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt);
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isSipKernelAsHexadecimalArrayPreferred() const {
+    return false;
+}
+
+template <typename GfxFamily>
+void HwHelperHw<GfxFamily>::setSipKernelData(uint32_t *&sipKernelBinary, size_t &kernelBinarySize) const {
+}
+
+template <typename GfxFamily>
+void HwHelperHw<GfxFamily>::adjustPreemptionSurfaceSize(size_t &csrSize) const {
 }
 
 } // namespace NEO

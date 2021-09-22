@@ -7,7 +7,11 @@
 
 #pragma once
 #include "level_zero/core/source/debugger/debugger_l0.h"
+#include "level_zero/tools/source/debug/eu_thread.h"
+#include <level_zero/ze_api.h>
 #include <level_zero/zet_api.h>
+
+#include <memory>
 
 struct _zet_debug_session_handle_t {};
 
@@ -36,25 +40,52 @@ struct DebugSession : _zet_debug_session_handle_t {
     virtual ze_result_t readRegisters(ze_device_thread_t thread, uint32_t type, uint32_t start, uint32_t count, void *pRegisterValues) = 0;
     virtual ze_result_t writeRegisters(ze_device_thread_t thread, uint32_t type, uint32_t start, uint32_t count, void *pRegisterValues) = 0;
     static ze_result_t getRegisterSetProperties(Device *device, uint32_t *pCount, zet_debug_regset_properties_t *pRegisterSetProperties);
+    MOCKABLE_VIRTUAL bool areRequestedThreadsStopped(ze_device_thread_t thread);
 
     Device *getConnectedDevice() { return connectedDevice; }
 
+    static bool isThreadAll(ze_device_thread_t thread) {
+        return thread.slice == UINT32_MAX && thread.subslice == UINT32_MAX && thread.eu == UINT32_MAX && thread.thread == UINT32_MAX;
+    }
+
+    static bool isSingleThread(ze_device_thread_t thread) {
+        return thread.slice != UINT32_MAX && thread.subslice != UINT32_MAX && thread.eu != UINT32_MAX && thread.thread != UINT32_MAX;
+    }
+
+    static bool areThreadsEqual(ze_device_thread_t thread, ze_device_thread_t thread2) {
+        return thread.slice == thread2.slice && thread.subslice == thread2.subslice && thread.eu == thread2.eu && thread.thread == thread2.thread;
+    }
+
+    static bool checkSingleThreadWithinDeviceThread(ze_device_thread_t checkedThread, ze_device_thread_t thread) {
+        if (DebugSession::isThreadAll(thread)) {
+            return true;
+        }
+
+        bool threadMatch = (thread.thread == checkedThread.thread) || thread.thread == UINT32_MAX;
+        bool euMatch = (thread.eu == checkedThread.eu) || thread.eu == UINT32_MAX;
+        bool subsliceMatch = (thread.subslice == checkedThread.subslice) || thread.subslice == UINT32_MAX;
+        bool sliceMatch = (thread.slice == checkedThread.slice) || thread.slice == UINT32_MAX;
+
+        return threadMatch && euMatch && subsliceMatch && sliceMatch;
+    }
+
+    virtual ze_device_thread_t convertToPhysical(ze_device_thread_t thread, uint32_t &deviceIndex);
+    virtual EuThread::ThreadId convertToThreadId(ze_device_thread_t thread);
+    virtual ze_device_thread_t convertToApi(EuThread::ThreadId threadId);
+
   protected:
-    DebugSession(const zet_debug_config_t &config, Device *device) : connectedDevice(device){};
+    DebugSession(const zet_debug_config_t &config, Device *device);
     virtual void startAsyncThread() = 0;
 
-    Device *connectedDevice = nullptr;
-};
-
-struct RootDebugSession : DebugSession {
-    virtual ~RootDebugSession() = default;
-    RootDebugSession() = delete;
-
-  protected:
-    RootDebugSession(const zet_debug_config_t &config, Device *device) : DebugSession(config, device){};
-
+    virtual bool isBindlessSystemRoutine();
     virtual bool readModuleDebugArea() = 0;
+
+    std::vector<EuThread::ThreadId> getSingleThreadsForDevice(uint32_t deviceIndex, ze_device_thread_t physicalThread, const NEO::HardwareInfo &hwInfo);
+
     DebugAreaHeader debugArea;
+
+    Device *connectedDevice = nullptr;
+    std::map<uint64_t, std::unique_ptr<EuThread>> allThreads;
 };
 
 } // namespace L0

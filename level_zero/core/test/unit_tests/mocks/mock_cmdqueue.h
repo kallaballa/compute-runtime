@@ -27,8 +27,10 @@ struct WhiteBox<::L0::CommandQueue> : public ::L0::CommandQueueImp {
     using BaseClass::printfFunctionContainer;
     using BaseClass::submitBatchBuffer;
     using BaseClass::synchronizeByPollingForTaskCount;
+    using BaseClass::taskCount;
     using CommandQueue::commandQueuePreemptionMode;
     using CommandQueue::internalUsage;
+    using CommandQueue::partitionCount;
 
     WhiteBox(Device *device, NEO::CommandStreamReceiver *csr,
              const ze_command_queue_desc_t *desc);
@@ -85,6 +87,7 @@ struct MockCommandQueueHw : public L0::CommandQueueHw<gfxCoreFamily> {
     using BaseClass::commandStream;
     using BaseClass::printfFunctionContainer;
     using L0::CommandQueue::internalUsage;
+    using L0::CommandQueue::partitionCount;
     using L0::CommandQueue::preemptionCmdSyncProgramming;
     using L0::CommandQueueImp::csr;
 
@@ -95,9 +98,9 @@ struct MockCommandQueueHw : public L0::CommandQueueHw<gfxCoreFamily> {
         return ZE_RESULT_SUCCESS;
     }
 
-    void submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr) override {
+    void submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr, bool isCooperative) override {
         residencyContainerSnapshot = residencyContainer;
-        BaseClass::submitBatchBuffer(offset, residencyContainer, endingCmdPtr);
+        BaseClass::submitBatchBuffer(offset, residencyContainer, endingCmdPtr, isCooperative);
     }
 
     uint32_t synchronizedCalled = 0;

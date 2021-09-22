@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/csr_definitions.h"
 #include "shared/source/command_stream/csr_properties_flags.h"
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/command_stream/stream_properties.h"
 #include "shared/source/command_stream/submissions_aggregator.h"
 #include "shared/source/command_stream/thread_arbitration_policy.h"
 #include "shared/source/helpers/aligned_memory.h"
@@ -83,7 +84,7 @@ class CommandStreamReceiver {
                                       uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) = 0;
 
     virtual bool flushBatchedSubmissions() = 0;
-    bool submitBatchBuffer(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency);
+    MOCKABLE_VIRTUAL bool submitBatchBuffer(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency);
     virtual void programHardwareContext(LinearStream &cmdStream) = 0;
     virtual size_t getCmdsSizeForHardwareContext() const = 0;
 
@@ -123,7 +124,7 @@ class CommandStreamReceiver {
     MOCKABLE_VIRTUAL volatile uint32_t *getTagAddress() const { return tagAddress; }
     uint64_t getDebugPauseStateGPUAddress() const { return tagAllocation->getGpuAddress() + debugPauseStateAddressOffset; }
 
-    virtual bool waitForFlushStamp(FlushStamp &flushStampToWait) { return true; };
+    virtual bool waitForFlushStamp(FlushStamp &flushStampToWait, uint32_t partitionCount, uint32_t offsetSize) { return true; };
 
     uint32_t peekTaskCount() const { return taskCount; }
 
@@ -155,8 +156,9 @@ class CommandStreamReceiver {
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
     bool isStallingPipeControlOnNextFlushRequired() const { return stallingPipeControlOnNextFlushRequired; }
 
-    virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) = 0;
+    virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode, uint32_t partitionCount, uint32_t offsetSize) = 0;
     virtual bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait);
+    MOCKABLE_VIRTUAL bool waitForCompletionWithTimeout(volatile uint32_t *pollAddress, bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait, uint32_t partitionCount, uint32_t offsetSize);
     virtual void downloadAllocations(){};
 
     void setSamplerCacheFlushRequired(SamplerCacheFlushState value) { this->samplerCacheFlushRequired = value; }
@@ -204,13 +206,13 @@ class CommandStreamReceiver {
 
     virtual bool isMultiOsContextCapable() const = 0;
 
-    virtual MemoryCompressionState getMemoryCompressionState(bool auxTranslationRequired) const = 0;
+    virtual MemoryCompressionState getMemoryCompressionState(bool auxTranslationRequired, const HardwareInfo &hwInfo) const = 0;
 
     void setLatestSentTaskCount(uint32_t latestSentTaskCount) {
         this->latestSentTaskCount = latestSentTaskCount;
     }
 
-    virtual uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) = 0;
+    virtual uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled, Device &device) = 0;
 
     virtual void flushTagUpdate() = 0;
     virtual void flushNonKernelTask(GraphicsAllocation *eventAlloc, uint64_t immediateGpuAddress, uint64_t immediateData, PipeControlArgs &args, bool isWaitOnEvents, bool isStartOfDispatch, bool isEndOfDispatch) = 0;
@@ -241,6 +243,8 @@ class CommandStreamReceiver {
         return false;
     }
 
+    virtual void stopDirectSubmission() {}
+
     bool isStaticWorkPartitioningEnabled() const {
         return staticWorkPartitioningEnabled;
     }
@@ -257,6 +261,10 @@ class CommandStreamReceiver {
 
     bool isUsedNotifyEnableForPostSync() const {
         return useNotifyEnableForPostSync;
+    }
+
+    NEO::StreamProperties &getStreamProperties() {
+        return this->streamProperties;
     }
 
   protected:
@@ -285,11 +293,11 @@ class CommandStreamReceiver {
     LinearStream commandStream;
 
     // offset for debug state must be 8 bytes, if only 4 bytes are used tag writes overwrite it
-    const uint64_t debugPauseStateAddressOffset = 8;
+    const uint64_t debugPauseStateAddressOffset = MemoryConstants::cacheLineSize;
     uint64_t totalMemoryUsed = 0u;
 
     volatile uint32_t *tagAddress = nullptr;
-    volatile DebugPauseState *debugPauseStateAddress;
+    volatile DebugPauseState *debugPauseStateAddress = nullptr;
     SpinLock debugPauseStateLock;
     static void *asyncDebugBreakConfirmation(void *arg);
     std::function<void()> debugConfirmationFunction = []() { std::cin.get(); };
@@ -330,6 +338,7 @@ class CommandStreamReceiver {
     uint32_t lastAdditionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
     KernelExecutionType lastKernelExecutionType = KernelExecutionType::Default;
     MemoryCompressionState lastMemoryCompressionState = MemoryCompressionState::NotApplicable;
+    StreamProperties streamProperties{};
 
     const uint32_t rootDeviceIndex;
     const DeviceBitfield deviceBitfield;

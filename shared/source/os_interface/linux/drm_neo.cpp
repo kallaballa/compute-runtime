@@ -19,6 +19,7 @@
 #include "shared/source/os_interface/linux/drm_gem_close_worker.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
+#include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_inc.h"
 #include "shared/source/os_interface/linux/pci_path.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
@@ -179,6 +180,10 @@ std::string getIoctlString(unsigned long request) {
         return "DRM_IOCTL_I915_QUERY";
     case DRM_IOCTL_I915_GEM_MMAP:
         return "DRM_IOCTL_I915_GEM_MMAP";
+    case DRM_IOCTL_PRIME_FD_TO_HANDLE:
+        return "DRM_IOCTL_PRIME_FD_TO_HANDLE";
+    case DRM_IOCTL_PRIME_HANDLE_TO_FD:
+        return "DRM_IOCTL_PRIME_HANDLE_TO_FD";
     default:
         return getIoctlStringRemaining(request);
     }
@@ -202,39 +207,41 @@ int Drm::ioctl(unsigned long request, void *arg) {
         std::chrono::steady_clock::time_point start;
         std::chrono::steady_clock::time_point end;
 
-        if (measureTime) {
-            start = std::chrono::steady_clock::now();
-        }
-
         auto printIoctl = DebugManager.flags.PrintIoctlEntries.get();
 
         if (printIoctl) {
             printf("IOCTL %s called\n", IoctlHelper::getIoctlString(request).c_str());
         }
 
+        if (measureTime) {
+            start = std::chrono::steady_clock::now();
+        }
         ret = SysCalls::ioctl(getFileDescriptor(), request, arg);
 
         returnedErrno = errno;
 
-        if (printIoctl) {
-            printf("IOCTL %s returns %d, errno %d(%s)\n", IoctlHelper::getIoctlString(request).c_str(), ret, returnedErrno, strerror(returnedErrno));
-        }
-
         if (measureTime) {
             end = std::chrono::steady_clock::now();
-            auto elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+            long long elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
-            std::pair<long long, uint64_t> ioctlData{};
+            IoctlStatisticsEntry ioctlData{};
             auto ioctlDataIt = this->ioctlStatistics.find(request);
             if (ioctlDataIt != this->ioctlStatistics.end()) {
                 ioctlData = ioctlDataIt->second;
             }
 
-            ioctlData.first += elapsedTime;
-            ioctlData.second++;
+            ioctlData.totalTime += elapsedTime;
+            ioctlData.count++;
+            ioctlData.minTime = std::min(ioctlData.minTime, elapsedTime);
+            ioctlData.maxTime = std::max(ioctlData.maxTime, elapsedTime);
 
             this->ioctlStatistics[request] = ioctlData;
         }
+
+        if (printIoctl) {
+            printf("IOCTL %s returns %d, errno %d(%s)\n", IoctlHelper::getIoctlString(request).c_str(), ret, returnedErrno, strerror(returnedErrno));
+        }
+
     } while (ret == -1 && (returnedErrno == EINTR || returnedErrno == EAGAIN || returnedErrno == EBUSY));
     SYSTEM_LEAVE(request);
     return ret;
@@ -374,6 +381,16 @@ void Drm::setNonPersistentContext(uint32_t drmContextId) {
     ioctl(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM, &contextParam);
 }
 
+void Drm::setUnrecoverableContext(uint32_t drmContextId) {
+    drm_i915_gem_context_param contextParam = {};
+    contextParam.ctx_id = drmContextId;
+    contextParam.param = I915_CONTEXT_PARAM_RECOVERABLE;
+    contextParam.value = 0;
+    contextParam.size = 0;
+
+    ioctl(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM, &contextParam);
+}
+
 uint32_t Drm::createDrmContext(uint32_t drmVmId, bool isSpecialContextRequested) {
     drm_i915_gem_context_create_ext gcc = {};
 
@@ -418,6 +435,10 @@ int Drm::queryVmId(uint32_t drmContextId, uint32_t &vmId) {
     vmId = static_cast<uint32_t>(param.value);
 
     return retVal;
+}
+
+std::unique_lock<std::mutex> Drm::lockBindFenceMutex() {
+    return std::unique_lock<std::mutex>(this->bindFenceMutex);
 }
 
 int Drm::getEuTotal(int &euTotal) {
@@ -595,9 +616,15 @@ void Drm::printIoctlStatistics() {
     }
 
     printf("\n--- Ioctls statistics ---\n");
-    printf("%40s %15s %10s %20s", "Request", "Total time(ns)", "Count", "Avg time per ioctl\n");
+    printf("%41s %15s %10s %20s %20s %20s", "Request", "Total time(ns)", "Count", "Avg time per ioctl", "Min", "Max\n");
     for (const auto &ioctlData : this->ioctlStatistics) {
-        printf("%40s %15llu %10lu %20f\n", IoctlHelper::getIoctlString(ioctlData.first).c_str(), ioctlData.second.first, static_cast<unsigned long>(ioctlData.second.second), ioctlData.second.first / static_cast<double>(ioctlData.second.second));
+        printf("%41s %15llu %10lu %20f %20lld %20lld\n",
+               IoctlHelper::getIoctlString(ioctlData.first).c_str(),
+               ioctlData.second.totalTime,
+               static_cast<unsigned long>(ioctlData.second.count),
+               ioctlData.second.totalTime / static_cast<double>(ioctlData.second.count),
+               ioctlData.second.minTime,
+               ioctlData.second.maxTime);
     }
     printf("\n");
 }
@@ -625,6 +652,19 @@ uint32_t Drm::getVirtualMemoryAddressSpace(uint32_t vmId) {
         return virtualMemoryIds[vmId];
     }
     return 0;
+}
+
+void Drm::setNewResourceBoundToVM(uint32_t vmHandleId) {
+    const auto &engines = this->rootDeviceEnvironment.executionEnvironment.memoryManager->getRegisteredEngines();
+    for (const auto &engine : engines) {
+        if (engine.osContext->getDeviceBitfield().test(vmHandleId)) {
+            auto osContextLinux = static_cast<OsContextLinux *>(engine.osContext);
+
+            if (&osContextLinux->getDrm() == this) {
+                osContextLinux->setNewResourceBound(true);
+            }
+        }
+    }
 }
 
 bool Drm::translateTopologyInfo(const drm_i915_query_topology_info *queryTopologyInfo, QueryTopologyData &data, TopologyMapping &mapping) {
@@ -734,6 +774,8 @@ const TopologyMap &Drm::getTopologyMap() {
 }
 
 int Drm::waitHandle(uint32_t waitHandle, int64_t timeout) {
+    UNRECOVERABLE_IF(isVmBindAvailable());
+
     drm_i915_gem_wait wait = {};
     wait.bo_handle = waitHandle;
     wait.timeout_ns = timeout;
@@ -750,6 +792,60 @@ int Drm::waitHandle(uint32_t waitHandle, int64_t timeout) {
 int Drm::getTimestampFrequency(int &frequency) {
     frequency = 0;
     return getParamIoctl(I915_PARAM_CS_TIMESTAMP_FREQUENCY, &frequency);
+}
+
+bool Drm::queryEngineInfo() {
+    return Drm::queryEngineInfo(false);
+}
+
+bool Drm::sysmanQueryEngineInfo() {
+    return Drm::queryEngineInfo(true);
+}
+
+int getMaxGpuFrequencyOfDevice(Drm &drm, std::string &sysFsPciPath, int &maxGpuFrequency) {
+    maxGpuFrequency = 0;
+    std::string clockSysFsPath = sysFsPciPath + "/gt_max_freq_mhz";
+
+    std::ifstream ifs(clockSysFsPath.c_str(), std::ifstream::in);
+    if (ifs.fail()) {
+        return -1;
+    }
+
+    ifs >> maxGpuFrequency;
+    ifs.close();
+    return 0;
+}
+
+int getMaxGpuFrequencyOfSubDevice(Drm &drm, std::string &sysFsPciPath, int subDeviceId, int &maxGpuFrequency) {
+    maxGpuFrequency = 0;
+    std::string clockSysFsPath = sysFsPciPath + "/gt/gt" + std::to_string(subDeviceId) + "/rps_max_freq_mhz";
+
+    std::ifstream ifs(clockSysFsPath.c_str(), std::ifstream::in);
+    if (ifs.fail()) {
+        return -1;
+    }
+
+    ifs >> maxGpuFrequency;
+    ifs.close();
+    return 0;
+}
+
+int Drm::getMaxGpuFrequency(HardwareInfo &hwInfo, int &maxGpuFrequency) {
+    int ret = 0;
+    std::string sysFsPciPath = getSysFsPciPath();
+    auto tileCount = hwInfo.gtSystemInfo.MultiTileArchInfo.TileCount;
+
+    if (hwInfo.gtSystemInfo.MultiTileArchInfo.IsValid && tileCount > 0) {
+        for (auto tileId = 0; tileId < tileCount; tileId++) {
+            int maxGpuFreqOfSubDevice = 0;
+            ret |= getMaxGpuFrequencyOfSubDevice(*this, sysFsPciPath, tileId, maxGpuFreqOfSubDevice);
+            maxGpuFrequency = std::max(maxGpuFrequency, maxGpuFreqOfSubDevice);
+        }
+        if (ret == 0) {
+            return 0;
+        }
+    }
+    return getMaxGpuFrequencyOfDevice(*this, sysFsPciPath, maxGpuFrequency);
 }
 
 } // namespace NEO

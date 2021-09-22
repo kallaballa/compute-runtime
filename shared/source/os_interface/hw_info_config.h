@@ -8,6 +8,7 @@
 #pragma once
 
 #include "shared/source/helpers/hw_info.h"
+#include "shared/source/helpers/local_memory_access_modes.h"
 #include "shared/source/unified_memory/usm_memory_support.h"
 
 #include "igfxfmid.h"
@@ -15,6 +16,8 @@
 namespace NEO {
 
 struct HardwareInfo;
+struct StateComputeModeProperties;
+struct PipelineSelectArgs;
 class OSInterface;
 class HwInfoConfig;
 
@@ -35,10 +38,36 @@ class HwInfoConfig {
     virtual uint64_t getSingleDeviceSharedMemCapabilities() = 0;
     virtual uint64_t getCrossDeviceSharedMemCapabilities() = 0;
     virtual void getKernelExtendedProperties(uint32_t *fp16, uint32_t *fp32, uint32_t *fp64) = 0;
+    virtual std::vector<uint32_t> getKernelSupportedThreadArbitrationPolicies() = 0;
     virtual uint64_t getSharedSystemMemCapabilities() = 0;
     virtual void convertTimestampsFromOaToCsDomain(uint64_t &timestampData) = 0;
     virtual uint32_t getDeviceMemoryMaxClkRate(const HardwareInfo *hwInfo) = 0;
     virtual bool isAdditionalStateBaseAddressWARequired(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isMaxThreadsForWorkgroupWARequired(const HardwareInfo &hwInfo) const = 0;
+    virtual uint32_t getMaxThreadsForWorkgroupInDSSOrSS(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice, uint32_t maxNumEUsPerDualSubSlice) const = 0;
+    virtual uint32_t getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const = 0;
+    virtual void setForceNonCoherent(void *const commandPtr, const StateComputeModeProperties &properties) = 0;
+    virtual bool obtainBlitterPreference(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
+    virtual uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const = 0;
+    virtual uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo) const = 0;
+    virtual uint32_t getAubStreamSteppingFromHwRevId(const HardwareInfo &hwInfo) const = 0;
+    virtual void setAdditionalPipelineSelectFields(void *pipelineSelectCmd, const PipelineSelectArgs &pipelineSelectArgs, const HardwareInfo &hwInfo) = 0;
+    virtual bool isDefaultEngineTypeAdjustmentRequired(const HardwareInfo &hwInfo) const = 0;
+    virtual std::string getDeviceMemoryName() const = 0;
+    virtual bool isDisableOverdispatchAvailable(const HardwareInfo &hwInfo) const = 0;
+    virtual bool allowRenderCompression(const HardwareInfo &hwInfo) const = 0;
+    virtual bool allowStatelessCompression(const HardwareInfo &hwInfo) const = 0;
+    virtual LocalMemoryAccessMode getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isAllocationSizeAdjustmentRequired(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isPrefetchDisablingRequired(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isNewResidencyModelSupported() const = 0;
+    virtual bool isPipeControlPriorToNonPipelinedStateCommandsWARequired(const HardwareInfo &hwInfo) const = 0;
+
+  protected:
+    virtual LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const = 0;
+
+  public:
     uint32_t threadsPerEu;
 };
 
@@ -57,10 +86,31 @@ class HwInfoConfigHw : public HwInfoConfig {
     uint64_t getSingleDeviceSharedMemCapabilities() override;
     uint64_t getCrossDeviceSharedMemCapabilities() override;
     void getKernelExtendedProperties(uint32_t *fp16, uint32_t *fp32, uint32_t *fp64) override;
+    std::vector<uint32_t> getKernelSupportedThreadArbitrationPolicies() override;
     uint64_t getSharedSystemMemCapabilities() override;
     void convertTimestampsFromOaToCsDomain(uint64_t &timestampData) override;
     uint32_t getDeviceMemoryMaxClkRate(const HardwareInfo *hwInfo) override;
     bool isAdditionalStateBaseAddressWARequired(const HardwareInfo &hwInfo) const override;
+    bool isMaxThreadsForWorkgroupWARequired(const HardwareInfo &hwInfo) const override;
+    uint32_t getMaxThreadsForWorkgroupInDSSOrSS(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice, uint32_t maxNumEUsPerDualSubSlice) const override;
+    uint32_t getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const override;
+    void setForceNonCoherent(void *const commandPtr, const StateComputeModeProperties &properties) override;
+    bool obtainBlitterPreference(const HardwareInfo &hwInfo) const override;
+    bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
+    uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const override;
+    uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo) const override;
+    uint32_t getAubStreamSteppingFromHwRevId(const HardwareInfo &hwInfo) const override;
+    void setAdditionalPipelineSelectFields(void *pipelineSelectCmd, const PipelineSelectArgs &pipelineSelectArgs, const HardwareInfo &hwInfo) override;
+    bool isDefaultEngineTypeAdjustmentRequired(const HardwareInfo &hwInfo) const override;
+    std::string getDeviceMemoryName() const override;
+    bool isDisableOverdispatchAvailable(const HardwareInfo &hwInfo) const override;
+    bool allowRenderCompression(const HardwareInfo &hwInfo) const override;
+    bool allowStatelessCompression(const HardwareInfo &hwInfo) const override;
+    LocalMemoryAccessMode getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;
+    bool isAllocationSizeAdjustmentRequired(const HardwareInfo &hwInfo) const override;
+    bool isPrefetchDisablingRequired(const HardwareInfo &hwInfo) const override;
+    bool isNewResidencyModelSupported() const override;
+    bool isPipeControlPriorToNonPipelinedStateCommandsWARequired(const HardwareInfo &hwInfo) const override;
 
   protected:
     HwInfoConfigHw() = default;
@@ -69,6 +119,7 @@ class HwInfoConfigHw : public HwInfoConfig {
     void enableBlitterOperationsSupport(HardwareInfo *hwInfo);
     uint64_t getHostMemCapabilitiesValue();
     bool getHostMemCapabilitiesSupported(const HardwareInfo *hwInfo);
+    LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;
 };
 
 template <PRODUCT_FAMILY gfxProduct>

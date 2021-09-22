@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/helpers/local_memory_access_modes.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
@@ -14,6 +15,7 @@
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/program/printf_handler.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
+#include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
@@ -24,6 +26,22 @@
 using namespace NEO;
 
 using PrintfHandlerTests = ::testing::Test;
+
+TEST_F(PrintfHandlerTests, givenPrintfHandlerWhenBeingConstructedThenStorePrintfSurfaceInitialDataSize) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+    struct MockPrintfHandler : public PrintfHandler {
+        using PrintfHandler::PrintfHandler;
+        using PrintfHandler::printfSurfaceInitialDataSizePtr;
+
+        MockPrintfHandler(ClDevice &device) : PrintfHandler(device) {}
+    };
+
+    MockPrintfHandler printfHandler(*device);
+
+    EXPECT_NE(nullptr, printfHandler.printfSurfaceInitialDataSizePtr);
+    EXPECT_EQ(sizeof(uint32_t), *printfHandler.printfSurfaceInitialDataSizePtr);
+}
 
 TEST_F(PrintfHandlerTests, givenNotPreparedPrintfHandlerWhenGetSurfaceIsCalledThenResultIsNullptr) {
     MockClDevice *device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)};
@@ -47,7 +65,7 @@ TEST_F(PrintfHandlerTests, givenNotPreparedPrintfHandlerWhenGetSurfaceIsCalledTh
     delete device;
 }
 
-TEST_F(PrintfHandlerTests, givenPreparedPrintfHandlerWithUndefinedSshOffsetWhenGetSurfaceIsCalledThenResultIsNullptr) {
+TEST_F(PrintfHandlerTests, givenPreparedPrintfHandlerWithUndefinedSshOffsetWhenGetSurfaceIsCalledThenResultIsNotNullptr) {
     MockClDevice *device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)};
     MockContext context;
 
@@ -70,6 +88,76 @@ TEST_F(PrintfHandlerTests, givenPreparedPrintfHandlerWithUndefinedSshOffsetWhenG
 
     delete pProgram;
     delete device;
+}
+
+TEST_F(PrintfHandlerTests, givenKernelWithImplicitArgsWhenPreparingPrintfHandlerThenProperAddressIsPatchedInImplicitArgsStruct) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockContext context(device.get());
+
+    auto pKernelInfo = std::make_unique<MockKernelInfo>();
+    pKernelInfo->setPrintfSurface(sizeof(uintptr_t), 0);
+    pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 16;
+    pKernelInfo->kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs = true;
+
+    MockProgram program{&context, false, toClDeviceVector(*device)};
+
+    uint64_t crossThread[10];
+    MockKernel kernel{&program, *pKernelInfo, *device};
+    kernel.setCrossThreadData(&crossThread, sizeof(uint64_t) * 10);
+    kernel.initialize();
+
+    MockMultiDispatchInfo multiDispatchInfo(device.get(), &kernel);
+    auto printfHandler = std::unique_ptr<PrintfHandler>(PrintfHandler::create(multiDispatchInfo, *device));
+    printfHandler->prepareDispatch(multiDispatchInfo);
+
+    auto printfSurface = printfHandler->getSurface();
+    ASSERT_NE(nullptr, printfSurface);
+
+    auto pImplicitArgs = kernel.getImplicitArgs();
+    ASSERT_NE(nullptr, pImplicitArgs);
+
+    EXPECT_EQ(printfSurface->getGpuAddress(), pImplicitArgs->printfBufferPtr);
+}
+
+HWTEST_F(PrintfHandlerTests, givenEnabledStatelessCompressionWhenPrintEnqueueOutputIsCalledThenBCSEngineIsUsedToDecompressPrintfOutput) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+    REQUIRE_BLITTER_OR_SKIP(&hwInfo);
+
+    DebugManagerStateRestore restore;
+
+    for (auto enable : {-1, 0, 1}) {
+        DebugManager.flags.EnableStatelessCompression.set(enable);
+
+        auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+        MockContext context;
+
+        auto kernelInfo = std::make_unique<MockKernelInfo>();
+        kernelInfo->setPrintfSurface(sizeof(uintptr_t), 0);
+
+        auto program = std::make_unique<MockProgram>(&context, false, toClDeviceVector(*device));
+
+        uint64_t crossThread[10];
+        auto kernel = std::make_unique<MockKernel>(program.get(), *kernelInfo, *device);
+        kernel->setCrossThreadData(&crossThread, sizeof(uint64_t) * 8);
+
+        MockMultiDispatchInfo multiDispatchInfo(device.get(), kernel.get());
+        std::unique_ptr<PrintfHandler> printfHandler(PrintfHandler::create(multiDispatchInfo, *device));
+        printfHandler->prepareDispatch(multiDispatchInfo);
+        EXPECT_NE(nullptr, printfHandler->getSurface());
+
+        printfHandler->printEnqueueOutput();
+
+        auto &bcsEngine = device->getEngine(EngineHelpers::getBcsEngineType(device->getHardwareInfo(), device->getDeviceBitfield(), device->getSelectorCopyEngine(), true), EngineUsage::Regular);
+        auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsEngine.commandStreamReceiver);
+
+        if (enable > 0) {
+            EXPECT_EQ(1u, bcsCsr->blitBufferCalled);
+            EXPECT_EQ(BlitterConstants::BlitDirection::BufferToHostPtr, bcsCsr->receivedBlitProperties[0].blitDirection);
+        } else {
+            EXPECT_EQ(0u, bcsCsr->blitBufferCalled);
+        }
+    }
 }
 
 HWTEST_F(PrintfHandlerTests, givenPrintfHandlerWhenEnqueueIsBlockedThenDontUsePrintfObjectAfterMove) {
@@ -117,11 +205,34 @@ HWTEST_F(PrintfHandlerTests, givenPrintfHandlerWhenEnqueueIsBlockedThenDontUsePr
     EXPECT_FALSE(cmdQ.isQueueBlocked());
 }
 
-TEST_F(PrintfHandlerTests, givenParentKernelWihoutPrintfAndBlockKernelWithPrintfWhenPrintfHandlerCreateCalledThenResaultIsAnObject) {
+TEST_F(PrintfHandlerTests, givenParentKernelWithoutPrintfAndBlockKernelWithPrintfWhenPrintfHandlerCreateCalledThenResultIsAnObject) {
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext context(device.get());
-    std::unique_ptr<MockParentKernel> parentKernelWithoutPrintf(MockParentKernel::create(context, false, false, false, false));
+    MockParentKernel::CreateParams createParams{};
+    createParams.addPrintfForParent = false;
+    createParams.addPrintfForBlock = true;
+    std::unique_ptr<MockParentKernel> parentKernelWithoutPrintf(MockParentKernel::create(context, createParams));
+
+    MockMultiDispatchInfo multiDispatchInfo(device.get(), parentKernelWithoutPrintf.get());
+
+    std::unique_ptr<PrintfHandler> printfHandler(PrintfHandler::create(multiDispatchInfo, *device));
+
+    ASSERT_NE(nullptr, printfHandler.get());
+}
+
+TEST_F(PrintfHandlerTests, givenKernelWithImplicitArgsButWithoutPrintfWhenPrintfHandlerCreateCalledThenResultIsAnObject) {
+
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockContext context(device.get());
+    MockParentKernel::CreateParams createParams{};
+    createParams.addPrintfForParent = false;
+    createParams.addPrintfForBlock = false;
+    std::unique_ptr<MockParentKernel> parentKernelWithoutPrintf(MockParentKernel::create(context, createParams));
+
+    parentKernelWithoutPrintf->pImplicitArgs = std::make_unique<ImplicitArgs>();
+
+    *parentKernelWithoutPrintf->pImplicitArgs = {};
 
     MockMultiDispatchInfo multiDispatchInfo(device.get(), parentKernelWithoutPrintf.get());
 
@@ -134,7 +245,10 @@ TEST_F(PrintfHandlerTests, givenParentKernelAndBlockKernelWithoutPrintfWhenPrint
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext context(device.get());
-    std::unique_ptr<MockParentKernel> blockKernelWithoutPrintf(MockParentKernel::create(context, false, false, false, false, false));
+    MockParentKernel::CreateParams createParams{};
+    createParams.addPrintfForBlock = false;
+    createParams.addPrintfForParent = false;
+    std::unique_ptr<MockParentKernel> blockKernelWithoutPrintf(MockParentKernel::create(context, createParams));
 
     MockMultiDispatchInfo multiDispatchInfo(device.get(), blockKernelWithoutPrintf.get());
 
@@ -146,7 +260,10 @@ TEST_F(PrintfHandlerTests, givenParentKernelWithPrintfAndBlockKernelWithoutPrint
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext context(device.get());
-    std::unique_ptr<MockParentKernel> parentKernelWithPrintfBlockKernelWithoutPrintf(MockParentKernel::create(context, false, false, false, true, false));
+    MockParentKernel::CreateParams createParams{};
+    createParams.addPrintfForBlock = false;
+    createParams.addPrintfForParent = true;
+    std::unique_ptr<MockParentKernel> parentKernelWithPrintfBlockKernelWithoutPrintf(MockParentKernel::create(context, createParams));
 
     MockMultiDispatchInfo multiDispatchInfo(device.get(), parentKernelWithPrintfBlockKernelWithoutPrintf.get());
 

@@ -51,6 +51,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     ClDevice(const ClDevice &) = delete;
 
     explicit ClDevice(Device &device, Platform *platformId);
+    explicit ClDevice(Device &device, ClDevice &rootClDevice, Platform *platformId);
     ~ClDevice() override;
 
     void incRefInternal();
@@ -69,7 +70,6 @@ class ClDevice : public BaseObject<_cl_device_id> {
     EngineControl &getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
-    EngineControl *getInternalCopyEngine();
     SelectorCopyEngine &getSelectorCopyEngine();
     MemoryManager *getMemoryManager() const;
     GmmHelper *getGmmHelper() const;
@@ -89,7 +89,8 @@ class ClDevice : public BaseObject<_cl_device_id> {
     bool isFullRangeSvm() const;
     bool areSharedSystemAllocationsAllowed() const;
     uint32_t getRootDeviceIndex() const;
-    uint32_t getNumAvailableDevices() const;
+    uint32_t getNumGenericSubDevices() const;
+    uint32_t getNumSubDevices() const;
 
     // API entry points
     cl_int getDeviceInfo(cl_device_info paramName,
@@ -116,7 +117,8 @@ class ClDevice : public BaseObject<_cl_device_id> {
     Device &getDevice() const noexcept { return device; }
     const ClDeviceInfo &getDeviceInfo() const { return deviceInfo; }
     const DeviceInfo &getSharedDeviceInfo() const;
-    ClDevice *getDeviceById(uint32_t deviceId);
+    ClDevice *getSubDevice(uint32_t deviceId) const;
+    ClDevice *getNearestGenericSubDevice(uint32_t deviceId);
     const std::string &peekCompilerExtensions() const;
     const std::string &peekCompilerExtensionsWithFeatures() const;
     DeviceBitfield getDeviceBitfield() const;
@@ -126,7 +128,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
 
     static cl_command_queue_capabilities_intel getQueueFamilyCapabilitiesAll();
     MOCKABLE_VIRTUAL cl_command_queue_capabilities_intel getQueueFamilyCapabilities(EngineGroupType type);
-    void getQueueFamilyName(char *outputName, size_t maxOutputNameLength, EngineGroupType type);
+    void getQueueFamilyName(char *outputName, EngineGroupType type);
     Platform *getPlatform() const;
 
   protected:
@@ -138,6 +140,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     const std::string getClDeviceName(const HardwareInfo &hwInfo) const;
 
     Device &device;
+    ClDevice &rootClDevice;
     std::vector<std::unique_ptr<ClDevice>> subDevices;
     cl_platform_id platformId;
 

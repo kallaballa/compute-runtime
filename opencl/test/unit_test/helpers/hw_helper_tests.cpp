@@ -82,6 +82,11 @@ HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForTimestampPacketAlignmentThenRet
     EXPECT_EQ(expectedAlignment, helper.getTimestampPacketAllocatorAlignment());
 }
 
+HWTEST_F(HwHelperTest, givenHwHelperWhenGettingISAPaddingThenCorrectValueIsReturned) {
+    auto &hwHelper = HwHelper::get(pDevice->getHardwareInfo().platform.eRenderCoreFamily);
+    EXPECT_EQ(hwHelper.getPaddingForISAAllocation(), 512u);
+}
+
 HWTEST_F(HwHelperTest, WhenSettingRenderSurfaceStateForBufferThenL1CachePolicyIsSet) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
@@ -177,11 +182,6 @@ HWTEST2_F(HwHelperTest, givenHwHelperWhenGettingThreadsPerEUConfigsThenNoConfigs
 
     auto &configs = helper.getThreadsPerEUConfigs();
     EXPECT_EQ(0U, configs.size());
-}
-
-HWTEST_F(HwHelperTest, givenHwHelperWhenAskedForPageTableManagerSupportThenReturnCorrectValue) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-    EXPECT_EQ(helper.isPageTableManagerSupported(hardwareInfo), UnitTestHelper<FamilyType>::isPageTableManagerSupported(hardwareInfo));
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenGetGpuTimeStampInNSIsCalledThenCorrectValueIsReturned) {
@@ -794,6 +794,21 @@ HWTEST_F(HwHelperTest, whenQueryingMaxNumSamplersThenReturnSixteen) {
     EXPECT_EQ(16u, helper.getMaxNumSamplers());
 }
 
+HWTEST_F(HwHelperTest, givenKernelInfoWhenCheckingRequiresAuxResolvesThenCorrectValuesAreReturned) {
+    auto &clHwHelper = ClHwHelper::get(renderCoreFamily);
+    HardwareInfo hwInfo = *defaultHwInfo;
+    KernelInfo kernelInfo{};
+
+    ArgDescriptor argDescriptorValue(ArgDescriptor::ArgType::ArgTValue);
+    kernelInfo.kernelDescriptor.payloadMappings.explicitArgs.push_back(argDescriptorValue);
+    EXPECT_FALSE(clHwHelper.requiresAuxResolves(kernelInfo, hwInfo));
+
+    ArgDescriptor argDescriptorPointer(ArgDescriptor::ArgType::ArgTPointer);
+    argDescriptorPointer.as<ArgDescPointer>().accessedUsingStatelessAddressingMode = true;
+    kernelInfo.kernelDescriptor.payloadMappings.explicitArgs.push_back(argDescriptorPointer);
+    EXPECT_TRUE(clHwHelper.requiresAuxResolves(kernelInfo, hwInfo));
+}
+
 HWTEST_F(HwHelperTest, givenDebugVariableSetWhenAskingForAuxTranslationModeThenReturnCorrectValue) {
     DebugManagerStateRestore restore;
 
@@ -821,6 +836,22 @@ HWTEST_F(HwHelperTest, givenDebugVariableSetWhenAskingForAuxTranslationModeThenR
 
     DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
     EXPECT_EQ(AuxTranslationMode::Builtin, HwHelperHw<FamilyType>::getAuxTranslationMode(hwInfo));
+}
+
+HWTEST_F(HwHelperTest, givenDebugFlagWhenCheckingIfBufferIsSuitableForRenderCompressionThenReturnCorrectValue) {
+    DebugManagerStateRestore restore;
+
+    auto &helper = HwHelper::get(renderCoreFamily);
+
+    DebugManager.flags.OverrideBufferSuitableForRenderCompression.set(0);
+    EXPECT_FALSE(helper.isBufferSizeSuitableForRenderCompression(0, *defaultHwInfo));
+    EXPECT_FALSE(helper.isBufferSizeSuitableForRenderCompression(KB, *defaultHwInfo));
+    EXPECT_FALSE(helper.isBufferSizeSuitableForRenderCompression(KB + 1, *defaultHwInfo));
+
+    DebugManager.flags.OverrideBufferSuitableForRenderCompression.set(1);
+    EXPECT_TRUE(helper.isBufferSizeSuitableForRenderCompression(0, *defaultHwInfo));
+    EXPECT_TRUE(helper.isBufferSizeSuitableForRenderCompression(KB, *defaultHwInfo));
+    EXPECT_TRUE(helper.isBufferSizeSuitableForRenderCompression(KB + 1, *defaultHwInfo));
 }
 
 HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForTilingSupportThenReturnValidValue) {
@@ -860,11 +891,6 @@ HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForTilingSupportThenReturnValidVal
         imgDesc.buffer = buffer.get();
         EXPECT_FALSE(helper.tilingAllowed(false, Image::isImage1d(imgDesc), false));
     }
-}
-
-HWTEST_F(HwHelperTest, WhenAllowRenderCompressionIsCalledThenTrueIsReturned) {
-    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    EXPECT_TRUE(hwHelper.allowRenderCompression(hardwareInfo));
 }
 
 HWTEST_F(HwHelperTest, WhenIsBankOverrideRequiredIsCalledThenFalseIsReturned) {
@@ -911,58 +937,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenDefaultHwHelperHwWhenIsWorkaround
     EXPECT_FALSE(helper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
 }
 
-HWTEST_F(HwHelperTest, givenVariousValuesWhenConvertingHwRevIdAndSteppingThenConversionIsCorrect) {
-    auto &helper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    for (uint32_t testValue = 0; testValue < 0x10; testValue++) {
-        auto hwRevIdFromStepping = helper.getHwRevIdFromStepping(testValue, hardwareInfo);
-        if (hwRevIdFromStepping != CommonConstants::invalidStepping) {
-            hardwareInfo.platform.usRevId = hwRevIdFromStepping;
-            EXPECT_EQ(testValue, helper.getSteppingFromHwRevId(hardwareInfo));
-        }
-        hardwareInfo.platform.usRevId = testValue;
-        auto steppingFromHwRevId = helper.getSteppingFromHwRevId(hardwareInfo);
-        if (steppingFromHwRevId != CommonConstants::invalidStepping) {
-            EXPECT_EQ(testValue, helper.getHwRevIdFromStepping(steppingFromHwRevId, hardwareInfo));
-        }
-    }
-}
-
-HWTEST_F(HwHelperTest, givenInvalidProductFamilyWhenConvertingHwRevIdAndSteppingThenConversionFails) {
-    auto &helper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    hardwareInfo.platform.eProductFamily = IGFX_UNKNOWN;
-    for (uint32_t testValue = 0; testValue < 0x10; testValue++) {
-        EXPECT_EQ(CommonConstants::invalidStepping, helper.getHwRevIdFromStepping(testValue, hardwareInfo));
-        hardwareInfo.platform.usRevId = testValue;
-        EXPECT_EQ(CommonConstants::invalidStepping, helper.getSteppingFromHwRevId(hardwareInfo));
-    }
-}
-
-HWTEST_F(HwHelperTest, givenVariousValuesWhenGettingAubStreamSteppingFromHwRevIdThenReturnValuesAreCorrect) {
-    struct MockHwHelper : HwHelperHw<FamilyType> {
-        uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo) const override {
-            return returnedStepping;
-        }
-        uint32_t returnedStepping = 0;
-    };
-    MockHwHelper mockHwHelper;
-    mockHwHelper.returnedStepping = REVISION_A0;
-    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = REVISION_A1;
-    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = REVISION_A3;
-    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = REVISION_B;
-    EXPECT_EQ(AubMemDump::SteppingValues::B, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = REVISION_C;
-    EXPECT_EQ(AubMemDump::SteppingValues::C, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = REVISION_D;
-    EXPECT_EQ(AubMemDump::SteppingValues::D, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = REVISION_K;
-    EXPECT_EQ(AubMemDump::SteppingValues::K, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-    mockHwHelper.returnedStepping = CommonConstants::invalidStepping;
-    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwHelper.getAubStreamSteppingFromHwRevId(hardwareInfo));
-}
-
 HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenIsForceEmuInt32DivRemSPWARequiredCalledThenFalseIsReturned) {
     if (hardwareInfo.platform.eRenderCoreFamily == IGFX_GEN12LP_CORE) {
         GTEST_SKIP();
@@ -979,6 +953,7 @@ HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenMinimalSIMDSizeIsQueriedThen8Is
 HWTEST_F(HwHelperTest, givenLockableAllocationWhenGettingIsBlitCopyRequiredForLocalMemoryThenCorrectValuesAreReturned) {
     DebugManagerStateRestore restore{};
     auto &helper = HwHelper::get(renderCoreFamily);
+    const auto &hwInfoConfig = *HwInfoConfig::get(productFamily);
     HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.blitterOperationsSupported = true;
 
@@ -987,7 +962,7 @@ HWTEST_F(HwHelperTest, givenLockableAllocationWhenGettingIsBlitCopyRequiredForLo
     EXPECT_TRUE(GraphicsAllocation::isLockable(graphicsAllocation.getAllocationType()));
     graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
 
-    auto expectedDefaultValue = (helper.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
+    auto expectedDefaultValue = (hwInfoConfig.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
     EXPECT_EQ(expectedDefaultValue, helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
 
     DebugManager.flags.ForceLocalMemoryAccessMode.set(0);
@@ -1039,23 +1014,6 @@ HWTEST_F(HwHelperTest, givenNotLockableAllocationWhenGettingIsBlitCopyRequiredFo
     EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
 }
 
-HWTEST_F(HwHelperTest, givenVariousDebugKeyValuesWhenGettingLocalMemoryAccessModeThenCorrectValueIsReturned) {
-    struct MockHwHelper : HwHelperHw<FamilyType> {
-        using HwHelper::getDefaultLocalMemoryAccessMode;
-    };
-
-    DebugManagerStateRestore restore{};
-    auto hwHelper = static_cast<MockHwHelper &>(HwHelper::get(renderCoreFamily));
-    EXPECT_EQ(hwHelper.getDefaultLocalMemoryAccessMode(*defaultHwInfo), hwHelper.getLocalMemoryAccessMode(*defaultHwInfo));
-
-    DebugManager.flags.ForceLocalMemoryAccessMode.set(0);
-    EXPECT_EQ(LocalMemoryAccessMode::Default, hwHelper.getLocalMemoryAccessMode(*defaultHwInfo));
-    DebugManager.flags.ForceLocalMemoryAccessMode.set(1);
-    EXPECT_EQ(LocalMemoryAccessMode::CpuAccessAllowed, hwHelper.getLocalMemoryAccessMode(*defaultHwInfo));
-    DebugManager.flags.ForceLocalMemoryAccessMode.set(3);
-    EXPECT_EQ(LocalMemoryAccessMode::CpuAccessDisallowed, hwHelper.getLocalMemoryAccessMode(*defaultHwInfo));
-}
-
 HWTEST2_F(HwHelperTest, givenDefaultHwHelperHwWhenGettingIsBlitCopyRequiredForLocalMemoryThenFalseIsReturned, IsAtMostGen11) {
     auto &helper = HwHelper::get(renderCoreFamily);
     MockGraphicsAllocation graphicsAllocation;
@@ -1063,6 +1021,19 @@ HWTEST2_F(HwHelperTest, givenDefaultHwHelperHwWhenGettingIsBlitCopyRequiredForLo
     graphicsAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
 
     EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo, graphicsAllocation));
+}
+
+HWTEST_F(HwHelperTest, whenIsMidThreadPreemptionSupportedIsCalledThenCorrectResultIsReturned) {
+    auto hwInfo = *defaultHwInfo;
+    const auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = true;
+    auto midThreadPreemptionSupported = hwHelper.isMidThreadPreemptionSupported(hwInfo);
+    EXPECT_TRUE(midThreadPreemptionSupported);
+
+    hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = false;
+    midThreadPreemptionSupported = hwHelper.isMidThreadPreemptionSupported(hwInfo);
+    EXPECT_FALSE(midThreadPreemptionSupported);
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, WhenIsFusedEuDispatchEnabledIsCalledThenFalseIsReturned) {
@@ -1109,7 +1080,7 @@ HWTEST2_F(HwInfoConfigCommonTest, givenBlitterPreferenceWhenEnablingBlitterOpera
 
     hwInfoConfig->configureHardwareCustom(&hardwareInfo, nullptr);
 
-    const auto expectedBlitterSupport = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily).obtainBlitterPreference(hardwareInfo);
+    const auto expectedBlitterSupport = hwInfoConfig->obtainBlitterPreference(hardwareInfo);
     EXPECT_EQ(expectedBlitterSupport, hardwareInfo.capabilityTable.blitterOperationsSupported);
 }
 
@@ -1136,18 +1107,10 @@ HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForIsaSystemMemoryPlacementThenRet
     EXPECT_NE(localMemoryEnabled, hwHelper.useSystemMemoryPlacementForISA(hardwareInfo));
 }
 
-HWTEST_F(HwHelperTest, givenHwHelperWhenAdjustAddressWidthForCanonizeThenAddressWidthDoesntChange) {
-    HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    uint32_t addressWidth = 48;
-
-    hwHelper.adjustAddressWidthForCanonize(addressWidth);
-    EXPECT_EQ(48u, addressWidth);
-}
-
 TEST_F(HwHelperTest, givenInvalidEngineTypeWhenGettingEngineGroupTypeThenThrow) {
     HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    EXPECT_ANY_THROW(hwHelper.getEngineGroupType(aub_stream::EngineType::NUM_ENGINES, hardwareInfo));
-    EXPECT_ANY_THROW(hwHelper.getEngineGroupType(aub_stream::EngineType::ENGINE_VECS, hardwareInfo));
+    EXPECT_ANY_THROW(hwHelper.getEngineGroupType(aub_stream::EngineType::NUM_ENGINES, EngineUsage::Regular, hardwareInfo));
+    EXPECT_ANY_THROW(hwHelper.getEngineGroupType(aub_stream::EngineType::ENGINE_VECS, EngineUsage::Regular, hardwareInfo));
 }
 
 HWTEST2_F(HwInfoConfigCommonTest, givenDebugFlagSetWhenEnablingBlitterOperationsSupportThenHonorTheFlag, IsAtLeastGen12lp) {
@@ -1270,12 +1233,6 @@ HWTEST_F(HwHelperTest, givenHwHelperWhenIsBlitterForImagesSupportedIsCalledThenF
     EXPECT_FALSE(helper.isBlitterForImagesSupported(*defaultHwInfo));
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenAdditionalKernelExecInfoSupportCheckedThenReturnFalse) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-
-    EXPECT_FALSE(helper.additionalKernelExecInfoSupported(*defaultHwInfo));
-}
-
 TEST_F(HwHelperTest, WhenGettingIsCpuImageTransferPreferredThenFalseIsReturned) {
     REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
     auto &hwHelper = HwHelper::get(renderCoreFamily);
@@ -1319,13 +1276,13 @@ TEST_F(HwHelperTest, givenGenHelperWhenKernelArgumentIsNotPureStatefulThenRequir
         ArgDescPointer argAsPtr{};
         argAsPtr.accessedUsingStatelessAddressingMode = !isPureStateful;
 
-        EXPECT_EQ(!argAsPtr.isPureStateful(), clHwHelper.requiresNonAuxMode(argAsPtr));
+        EXPECT_EQ(!argAsPtr.isPureStateful(), clHwHelper.requiresNonAuxMode(argAsPtr, *defaultHwInfo));
     }
 }
 
 HWTEST_F(HwHelperTest, whenSetRenderCompressedFlagThenProperFlagSet) {
     auto &hwHelper = HwHelper::get(renderCoreFamily);
-    auto gmm = std::make_unique<MockGmm>();
+    auto gmm = std::make_unique<MockGmm>(pDevice->getGmmClientContext());
     gmm->resourceParams.Flags.Info.RenderCompressed = 0;
 
     hwHelper.applyRenderCompressionFlag(*gmm, 1);
@@ -1335,18 +1292,37 @@ HWTEST_F(HwHelperTest, whenSetRenderCompressedFlagThenProperFlagSet) {
     EXPECT_EQ(0u, gmm->resourceParams.Flags.Info.RenderCompressed);
 }
 
-HWTEST_F(HwHelperTest, givenRcsOrCcsEnabledWhenQueryingGpgpuEngineCountThenReturnCorrectValue) {
-    HardwareInfo hwInfo = *defaultHwInfo;
+HWTEST_F(HwHelperTest, whenAdjustPreemptionSurfaceSizeIsCalledThenCsrSizeDoesntChange) {
+    auto &hwHelper = HwHelper::get(renderCoreFamily);
+    size_t csrSize = 1024;
+    size_t oldCsrSize = csrSize;
+    hwHelper.adjustPreemptionSurfaceSize(csrSize);
+    EXPECT_EQ(oldCsrSize, csrSize);
+}
 
-    hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 3;
-    hwInfo.featureTable.ftrRcsNode = false;
-    hwInfo.featureTable.ftrCCSNode = false;
+HWTEST_F(HwHelperTest, whenSetSipKernelDataIsCalledThenSipKernelDataDoesntChange) {
+    auto &hwHelper = HwHelper::get(renderCoreFamily);
+    uint32_t *sipKernelBinary = nullptr;
+    uint32_t *oldSipKernelBinary = sipKernelBinary;
+    size_t kernelBinarySize = 1024;
+    size_t oldKernelBinarySize = kernelBinarySize;
+    hwHelper.setSipKernelData(sipKernelBinary, kernelBinarySize);
+    EXPECT_EQ(oldKernelBinarySize, kernelBinarySize);
+    EXPECT_EQ(oldSipKernelBinary, sipKernelBinary);
+}
 
-    EXPECT_EQ(0u, HwHelper::getGpgpuEnginesCount(hwInfo));
+HWTEST_F(HwHelperTest, whenIsSipKernelAsHexadecimalArrayPreferredIsCalledThenReturnFalse) {
+    auto &hwHelper = HwHelper::get(renderCoreFamily);
+    EXPECT_FALSE(hwHelper.isSipKernelAsHexadecimalArrayPreferred());
+}
 
-    hwInfo.featureTable.ftrCCSNode = true;
-    EXPECT_EQ(3u, HwHelper::getGpgpuEnginesCount(hwInfo));
+using isXeHpCoreOrBelow = IsAtMostProduct<IGFX_XE_HP_SDV>;
+HWTEST2_F(HwHelperTest, givenXeHPAndBelowPlatformWhenCheckingIfAdditionalPipeControlArgsAreRequiredThenReturnFalse, isXeHpCoreOrBelow) {
+    const auto &hwHelper = HwHelper::get(renderCoreFamily);
+    EXPECT_FALSE(hwHelper.additionalPipeControlArgsRequired());
+}
 
-    hwInfo.featureTable.ftrRcsNode = true;
-    EXPECT_EQ(4u, HwHelper::getGpgpuEnginesCount(hwInfo));
+HWTEST2_F(HwHelperTest, givenXeHPAndBelowPlatformPlatformWhenCheckingIfEngineTypeRemappingIsRequiredThenReturnFalse, isXeHpCoreOrBelow) {
+    const auto &hwHelper = HwHelper::get(renderCoreFamily);
+    EXPECT_FALSE(hwHelper.isEngineTypeRemappingToHwSpecificRequired());
 }

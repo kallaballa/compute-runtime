@@ -50,7 +50,7 @@ TEST(GetDeviceInfo, GivenInvalidParametersWhenGettingDeviceInfoThenValueSizeRetI
     EXPECT_EQ(0x1234u, valueSizeRet);
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, GetDeviceInfoMemCapabilitiesTest, GivenValidParametersWhenGetDeviceInfoIsCalledForBdwPlusThenClSuccessIsReturned) {
+HWCMDTEST_F(IGFX_GEN8_CORE, GetDeviceInfoMemCapabilitiesTest, GivenValidParametersWhenGetDeviceInfoIsCalledForBdwAndLaterThenClSuccessIsReturned) {
 
     std::vector<TestParams> params = {
         {CL_DEVICE_HOST_MEM_CAPABILITIES_INTEL,
@@ -678,8 +678,8 @@ TEST(GetDeviceInfo, WhenQueryingGenericAddressSpaceSupportThenProperValueIsRetur
 template <typename GfxFamily, int ccsCount, int bcsCount>
 class MockHwHelper : public HwHelperHw<GfxFamily> {
   public:
-    const HwHelper::EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const override {
-        HwHelper::EngineInstancesContainer result{};
+    const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const override {
+        EngineInstancesContainer result{};
         for (int i = 0; i < ccsCount; i++) {
             result.push_back({aub_stream::ENGINE_CCS, EngineUsage::Regular});
         }
@@ -689,7 +689,7 @@ class MockHwHelper : public HwHelperHw<GfxFamily> {
         return result;
     }
 
-    EngineGroupType getEngineGroupType(aub_stream::EngineType engineType, const HardwareInfo &hwInfo) const override {
+    EngineGroupType getEngineGroupType(aub_stream::EngineType engineType, EngineUsage engineUsage, const HardwareInfo &hwInfo) const override {
         switch (engineType) {
         case aub_stream::ENGINE_RCS:
             return EngineGroupType::RenderCompute;
@@ -727,7 +727,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSingleDeviceWhenInitializingCapsThen
     size_t paramRetSize{};
     cl_int retVal{};
 
-    cl_queue_family_properties_intel families[static_cast<int>(EngineGroupType::MaxEngineGroups)];
+    cl_queue_family_properties_intel families[CommonConstants::engineGroupCount];
     retVal = clDevice.getDeviceInfo(CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL, sizeof(families), families, &paramRetSize);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(2u, paramRetSize / sizeof(cl_queue_family_properties_intel));
@@ -748,7 +748,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWhenInitializingCapsThenRet
     size_t paramRetSize{};
     cl_int retVal{};
 
-    cl_queue_family_properties_intel families[static_cast<int>(EngineGroupType::MaxEngineGroups)];
+    cl_queue_family_properties_intel families[CommonConstants::engineGroupCount];
     retVal = clDevice.getDeviceInfo(CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL, sizeof(families), families, &paramRetSize);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(2u, paramRetSize / sizeof(cl_queue_family_properties_intel));
@@ -781,7 +781,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWithoutSupportedEngineWhenI
 
     // subdevice 0
     {
-        cl_queue_family_properties_intel families[static_cast<int>(EngineGroupType::MaxEngineGroups)];
+        cl_queue_family_properties_intel families[CommonConstants::engineGroupCount];
         retVal = clDevice0.getDeviceInfo(CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL, sizeof(families), families, &paramRetSize);
         EXPECT_EQ(CL_SUCCESS, retVal);
         EXPECT_EQ(2u, paramRetSize / sizeof(cl_queue_family_properties_intel));
@@ -797,7 +797,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWithoutSupportedEngineWhenI
 
     // subdevice 1
     {
-        cl_queue_family_properties_intel families[static_cast<int>(EngineGroupType::MaxEngineGroups)];
+        cl_queue_family_properties_intel families[CommonConstants::engineGroupCount];
         retVal = clDevice1.getDeviceInfo(CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL, sizeof(families), families, &paramRetSize);
         EXPECT_EQ(CL_SUCCESS, retVal);
         EXPECT_EQ(1u, paramRetSize / sizeof(cl_queue_family_properties_intel));
@@ -809,9 +809,9 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWithoutSupportedEngineWhenI
         clDevice1.getExecutionEnvironment()->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = true;
 
         MockContext context(&clDevice1);
-        MockCommandQueue cmdQ(&context, &clDevice1, nullptr);
+        MockCommandQueue cmdQ(&context, &clDevice1, nullptr, false);
 
-        EXPECT_EQ(nullptr, cmdQ.getBcsCommandStreamReceiver());
+        EXPECT_EQ(nullptr, cmdQ.getBcsCommandStreamReceiver(aub_stream::EngineType::ENGINE_BCS));
     }
 }
 
@@ -821,7 +821,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenDeviceRootDeviceWhenInitializingCaps
     size_t paramRetSize{};
     cl_int retVal{};
 
-    cl_queue_family_properties_intel families[static_cast<int>(EngineGroupType::MaxEngineGroups)];
+    cl_queue_family_properties_intel families[CommonConstants::engineGroupCount];
     retVal = clDevice.getDeviceInfo(CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL, sizeof(families), families, &paramRetSize);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(1u, paramRetSize / sizeof(cl_queue_family_properties_intel));
@@ -1080,7 +1080,7 @@ struct DeviceAttributeQueryTest : public ::testing::TestWithParam<uint32_t /*cl_
         case CL_DEVICE_NUM_SLICES_INTEL: {
             auto pNumSlices = reinterpret_cast<cl_uint *>(object.get());
             const auto &gtSysInfo = device.getHardwareInfo().gtSystemInfo;
-            EXPECT_EQ(gtSysInfo.SliceCount * device.getNumAvailableDevices(), *pNumSlices);
+            EXPECT_EQ(gtSysInfo.SliceCount * std::max(device.getNumGenericSubDevices(), 1u), *pNumSlices);
             EXPECT_EQ(sizeof(cl_uint), sizeReturned);
             break;
         }

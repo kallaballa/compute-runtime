@@ -14,10 +14,10 @@
 using Family = NEO::TGLLPFamily;
 
 #include "shared/source/command_container/command_encoder.inl"
-#include "shared/source/command_container/command_encoder_bdw_plus.inl"
-#include "shared/source/command_container/encode_compute_mode_tgllp_plus.inl"
-#include "shared/source/command_container/image_surface_state/compression_params_bdw_plus.inl"
-#include "shared/source/command_container/image_surface_state/compression_params_tgllp_plus.inl"
+#include "shared/source/command_container/command_encoder_bdw_and_later.inl"
+#include "shared/source/command_container/encode_compute_mode_tgllp_and_later.inl"
+#include "shared/source/command_container/image_surface_state/compression_params_bdw_and_later.inl"
+#include "shared/source/command_container/image_surface_state/compression_params_tgllp_and_later.inl"
 #include "shared/source/command_stream/command_stream_receiver.h"
 
 namespace NEO {
@@ -36,7 +36,7 @@ size_t EncodeStates<Family>::getAdjustStateComputeModeSize() {
 }
 
 template <>
-void EncodeComputeMode<Family>::adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties) {
+void EncodeComputeMode<Family>::adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo) {
     using STATE_COMPUTE_MODE = typename Family::STATE_COMPUTE_MODE;
     using FORCE_NON_COHERENT = typename STATE_COMPUTE_MODE::FORCE_NON_COHERENT;
 

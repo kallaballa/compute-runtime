@@ -13,8 +13,6 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/utilities/wait_util.h"
 
-#include "hw_helpers.h"
-
 namespace L0 {
 
 Fence *Fence::create(CommandQueueImp *cmdQueue, const ze_fence_desc_t *desc) {
@@ -37,9 +35,15 @@ ze_result_t FenceImp::queryStatus() {
         csr->downloadAllocations();
     }
 
-    uint64_t *hostAddr = static_cast<uint64_t *>(allocation->getUnderlyingBuffer());
+    volatile uint32_t *hostAddr = static_cast<uint32_t *>(allocation->getUnderlyingBuffer());
     uint32_t queryVal = Fence::STATE_CLEARED;
-    memcpy_s(static_cast<void *>(&queryVal), sizeof(uint32_t), static_cast<void *>(hostAddr), sizeof(uint32_t));
+    for (uint32_t i = 0; i < partitionCount; i++) {
+        queryVal = *hostAddr;
+        if (queryVal == Fence::STATE_CLEARED) {
+            break;
+        }
+        hostAddr = ptrOffset(hostAddr, CommandQueueImp::addressOffset);
+    }
     return queryVal == Fence::STATE_CLEARED ? ZE_RESULT_NOT_READY : ZE_RESULT_SUCCESS;
 }
 
@@ -49,16 +53,17 @@ void FenceImp::initialize() {
     properties.alignment = MemoryConstants::cacheLineSize;
     allocation = cmdQueue->getDevice()->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
     UNRECOVERABLE_IF(allocation == nullptr);
-
     reset();
 }
 
 ze_result_t FenceImp::reset() {
-    auto hostAddress = static_cast<uint64_t *>(allocation->getUnderlyingBuffer());
-    *(hostAddress) = Fence::STATE_CLEARED;
-
-    NEO::CpuIntrinsics::clFlush(hostAddress);
-
+    volatile uint32_t *hostAddress = static_cast<uint32_t *>(allocation->getUnderlyingBuffer());
+    for (uint32_t i = 0; i < partitionCount; i++) {
+        *hostAddress = Fence::STATE_CLEARED;
+        NEO::CpuIntrinsics::clFlush(const_cast<uint32_t *>(hostAddress));
+        hostAddress = ptrOffset(hostAddress, CommandQueueImp::addressOffset);
+    }
+    partitionCount = 1;
     return ZE_RESULT_SUCCESS;
 }
 

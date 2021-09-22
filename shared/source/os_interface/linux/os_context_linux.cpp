@@ -19,17 +19,15 @@
 
 namespace NEO {
 
-OsContext *OsContextLinux::create(OSInterface *osInterface, uint32_t contextId, DeviceBitfield deviceBitfield,
-                                  EngineTypeUsage typeUsage, PreemptionMode preemptionMode, bool rootDevice) {
+OsContext *OsContextLinux::create(OSInterface *osInterface, uint32_t contextId, const EngineDescriptor &engineDescriptor) {
     if (osInterface) {
-        return new OsContextLinux(*osInterface->getDriverModel()->as<Drm>(), contextId, deviceBitfield, typeUsage, preemptionMode, rootDevice);
+        return new OsContextLinux(*osInterface->getDriverModel()->as<Drm>(), contextId, engineDescriptor);
     }
-    return new OsContext(contextId, deviceBitfield, typeUsage, preemptionMode, rootDevice);
+    return new OsContext(contextId, engineDescriptor);
 }
 
-OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, DeviceBitfield deviceBitfield,
-                               EngineTypeUsage typeUsage, PreemptionMode preemptionMode, bool rootDevice)
-    : OsContext(contextId, deviceBitfield, typeUsage, preemptionMode, rootDevice),
+OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, const EngineDescriptor &engineDescriptor)
+    : OsContext(contextId, engineDescriptor),
       drm(drm) {}
 
 void OsContextLinux::initializeContext() {
@@ -55,15 +53,18 @@ void OsContextLinux::initializeContext() {
                 drm.setNonPersistentContext(drmContextId);
             }
 
-            if (drm.getRootDeviceEnvironment().executionEnvironment.isDebuggingEnabled() && !isInternalEngine()) {
-                drm.setContextDebugFlag(drmContextId);
+            if (drm.getRootDeviceEnvironment().executionEnvironment.isDebuggingEnabled()) {
+                drm.setUnrecoverableContext(drmContextId);
+                if (!isInternalEngine()) {
+                    drm.setContextDebugFlag(drmContextId);
+                }
             }
 
             if (drm.isPreemptionSupported() && isLowPriority()) {
                 drm.setLowPriorityContextParam(drmContextId);
             }
 
-            this->engineFlag = drm.bindDrmContext(drmContextId, deviceIndex, engineType, engineInstancedDevice);
+            this->engineFlag = drm.bindDrmContext(drmContextId, deviceIndex, engineType, isEngineInstanced());
             this->drmContextIds.push_back(drmContextId);
 
             if (drm.isPerContextVMRequired()) {
@@ -80,7 +81,7 @@ void OsContextLinux::initializeContext() {
 
 bool OsContextLinux::isDirectSubmissionSupported(const HardwareInfo &hwInfo) const {
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-    return this->getDrm().isVmBindAvailable() && hwHelper.isDirectSubmissionSupported();
+    return this->getDrm().isVmBindAvailable() && hwHelper.isDirectSubmissionSupported(hwInfo);
 }
 
 Drm &OsContextLinux::getDrm() const {

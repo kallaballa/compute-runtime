@@ -8,7 +8,7 @@
 #include "shared/source/gen11/aub_mapper.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.inl"
 #include "shared/source/helpers/hw_helper_base.inl"
-#include "shared/source/helpers/hw_helper_bdw_plus.inl"
+#include "shared/source/helpers/hw_helper_bdw_and_later.inl"
 #include "shared/source/helpers/hw_helper_bdw_to_icllp.inl"
 
 namespace NEO {
@@ -27,6 +27,11 @@ std::string HwHelperHw<Family>::getExtensions() const {
 template <>
 uint32_t HwHelperHw<Family>::getDefaultThreadArbitrationPolicy() const {
     return ThreadArbitrationPolicy::RoundRobinAfterDependency;
+}
+
+template <>
+bool HwHelperHw<Family>::packedFormatsSupported() const {
+    return true;
 }
 
 template class HwHelperHw<Family>;

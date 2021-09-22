@@ -33,6 +33,9 @@ struct SelectorCopyEngine : NonCopyableOrMovableClass {
 
 class Device : public ReferenceTrackedObject<Device> {
   public:
+    using EngineGroupT = std::vector<EngineControl>;
+    using EngineGroupsT = EngineGroupT[CommonConstants::engineGroupCount];
+
     Device &operator=(const Device &) = delete;
     Device(const Device &) = delete;
     ~Device() override;
@@ -56,7 +59,7 @@ class Device : public ReferenceTrackedObject<Device> {
     const DeviceInfo &getDeviceInfo() const;
     EngineControl *tryGetEngine(aub_stream::EngineType engineType, EngineUsage engineUsage);
     EngineControl &getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage);
-    std::vector<std::vector<EngineControl>> &getEngineGroups() {
+    EngineGroupsT &getEngineGroups() {
         return this->engineGroups;
     }
     const std::vector<EngineControl> *getNonEmptyEngineGroup(size_t index) const;
@@ -64,7 +67,6 @@ class Device : public ReferenceTrackedObject<Device> {
     EngineControl &getEngine(uint32_t index);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
-    EngineControl *getInternalCopyEngine();
     SelectorCopyEngine &getSelectorCopyEngine();
     MemoryManager *getMemoryManager() const;
     GmmHelper *getGmmHelper() const;
@@ -106,12 +108,15 @@ class Device : public ReferenceTrackedObject<Device> {
     void allocateSyncBufferHandler();
 
     virtual uint32_t getRootDeviceIndex() const = 0;
-    uint32_t getNumAvailableDevices() const;
-    virtual Device *getDeviceById(uint32_t deviceId) const;
+    uint32_t getNumGenericSubDevices() const;
+    Device *getSubDevice(uint32_t deviceId) const;
+    Device *getNearestGenericSubDevice(uint32_t deviceId);
     virtual Device *getRootDevice() const = 0;
     DeviceBitfield getDeviceBitfield() const { return deviceBitfield; };
     uint32_t getNumSubDevices() const { return numSubDevices; }
     virtual bool isSubDevice() const = 0;
+    bool hasRootCsr() const { return rootCsrCreated; }
+    bool isEngineInstanced() const { return engineInstanced; }
 
     BindlessHeapsHelper *getBindlessHeapsHelper() const;
 
@@ -119,6 +124,8 @@ class Device : public ReferenceTrackedObject<Device> {
     std::unique_ptr<SyncBufferHandler> syncBufferHandler;
     GraphicsAllocation *getRTMemoryBackedBuffer() { return rtMemoryBackedBuffer; }
     void initializeRayTracing();
+
+    virtual uint64_t getGlobalMemorySize(uint32_t deviceBitfield) const;
 
   protected:
     Device() = delete;
@@ -139,12 +146,10 @@ class Device : public ReferenceTrackedObject<Device> {
     virtual bool createEngines();
 
     void addEngineToEngineGroup(EngineControl &engine);
-    bool engineSupported(const EngineTypeUsage &engineTypeUsage) const;
     MOCKABLE_VIRTUAL bool createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage);
     MOCKABLE_VIRTUAL std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const;
     MOCKABLE_VIRTUAL SubDevice *createSubDevice(uint32_t subDeviceIndex);
     MOCKABLE_VIRTUAL SubDevice *createEngineInstancedSubDevice(uint32_t subDeviceIndex, aub_stream::EngineType engineType);
-    virtual uint64_t getGlobalMemorySize(uint32_t deviceBitfield) const;
     double getPercentOfGlobalMemoryAvailable() const;
     virtual void createBindlessHeapsHelper() {}
     bool createSubDevices();
@@ -161,7 +166,7 @@ class Device : public ReferenceTrackedObject<Device> {
     std::unique_ptr<PerformanceCounters> performanceCounters;
     std::vector<std::unique_ptr<CommandStreamReceiver>> commandStreamReceivers;
     std::vector<EngineControl> engines;
-    std::vector<std::vector<EngineControl>> engineGroups;
+    EngineGroupsT engineGroups;
     std::vector<SubDevice *> subdevices;
 
     PreemptionMode preemptionMode;
@@ -171,6 +176,7 @@ class Device : public ReferenceTrackedObject<Device> {
     uint32_t numSubDevices = 0;
     bool hasGenericSubDevices = false;
     bool engineInstanced = false;
+    bool rootCsrCreated = false;
 
     SelectorCopyEngine selectorCopyEngine = {};
 

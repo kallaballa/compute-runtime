@@ -11,6 +11,8 @@
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/os_library.h"
 
+#include "level_zero/core/source/device/device_imp.h"
+
 #include <algorithm>
 
 namespace L0 {
@@ -27,8 +29,9 @@ MetricEnumeration::~MetricEnumeration() {
 
 ze_result_t MetricEnumeration::metricGroupGet(uint32_t &count,
                                               zet_metric_group_handle_t *phMetricGroups) {
-    if (initialize() != ZE_RESULT_SUCCESS) {
-        return ZE_RESULT_ERROR_UNKNOWN;
+    ze_result_t result = initialize();
+    if (result != ZE_RESULT_SUCCESS) {
+        return result;
     }
 
     if (count == 0) {
@@ -38,16 +41,19 @@ ze_result_t MetricEnumeration::metricGroupGet(uint32_t &count,
         count = static_cast<uint32_t>(metricGroups.size());
     }
 
-    // User is expected to allocate space.
-    if (phMetricGroups == nullptr) {
-        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    }
-
     for (uint32_t i = 0; i < count; i++) {
         phMetricGroups[i] = metricGroups[i]->toHandle();
     }
 
     return ZE_RESULT_SUCCESS;
+}
+
+MetricGroup *MetricEnumeration::getMetricGroupByIndex(const uint32_t index) {
+    return metricGroups[index];
+}
+
+uint32_t MetricEnumeration::getMetricGroupCount() {
+    return static_cast<uint32_t>(metricGroups.size());
 }
 
 bool MetricEnumeration::isInitialized() {
@@ -61,9 +67,13 @@ bool MetricEnumeration::isInitialized() {
 
 ze_result_t MetricEnumeration::initialize() {
     if (initializationState == ZE_RESULT_ERROR_UNINITIALIZED) {
-        if (hMetricsDiscovery &&
-            openMetricsDiscovery() == ZE_RESULT_SUCCESS &&
-            cacheMetricInformation() == ZE_RESULT_SUCCESS) {
+        if (!this->metricContext.getMetricCollectionEnabled()) {
+            NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s",
+                                  "metrics collection is disabled on the root device\n");
+            initializationState = ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+        } else if (hMetricsDiscovery &&
+                   openMetricsDiscovery() == ZE_RESULT_SUCCESS &&
+                   cacheMetricInformation() == ZE_RESULT_SUCCESS) {
             initializationState = ZE_RESULT_SUCCESS;
         } else {
             initializationState = ZE_RESULT_ERROR_UNKNOWN;
@@ -120,42 +130,114 @@ ze_result_t MetricEnumeration::openMetricsDiscovery() {
         return ZE_RESULT_ERROR_NOT_AVAILABLE;
     }
 
-    if (subDeviceIndex == 0) {
-        pAdapter->OpenMetricsDevice(&pMetricsDevice);
-    } else {
-        pAdapter->OpenMetricsSubDevice(subDeviceIndex, &pMetricsDevice);
-    }
+    auto &device = metricContext.getDevice();
+    if (device.isMultiDeviceCapable()) {
 
-    if (pMetricsDevice == nullptr) {
-        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "unable to open metrics device %u\n", subDeviceIndex);
-        cleanupMetricsDiscovery();
-        return ZE_RESULT_ERROR_NOT_AVAILABLE;
+        // Open metrics device for each sub device.
+        const auto &deviceImp = *static_cast<DeviceImp *>(&device);
+
+        for (size_t i = 0; i < deviceImp.numSubDevices; i++) {
+
+            auto &metricsDevice = deviceImp.subDevices[i]->getMetricContext().getMetricEnumeration().pMetricsDevice;
+            pAdapter->OpenMetricsSubDevice(static_cast<uint32_t>(i), &metricsDevice);
+            deviceImp.subDevices[i]->getMetricContext().getMetricEnumeration().pAdapter = pAdapter;
+
+            if (metricsDevice == nullptr) {
+                NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "unable to open metrics device %u\n", i);
+                cleanupMetricsDiscovery();
+                return ZE_RESULT_ERROR_NOT_AVAILABLE;
+            }
+        }
+    } else {
+        if (subDeviceIndex == 0) {
+            // Open metrics device for root device or sub device with index 0.
+            pAdapter->OpenMetricsDevice(&pMetricsDevice);
+        } else {
+            // Open metrics device for a given sub device index.
+            pAdapter->OpenMetricsSubDevice(subDeviceIndex, &pMetricsDevice);
+        }
+
+        if (pMetricsDevice == nullptr) {
+            NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "unable to open metrics device %u\n", subDeviceIndex);
+            cleanupMetricsDiscovery();
+            return ZE_RESULT_ERROR_NOT_AVAILABLE;
+        }
     }
 
     return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t MetricEnumeration::cleanupMetricsDiscovery() {
-    for (uint32_t i = 0; i < metricGroups.size(); ++i) {
+    if (pAdapter) {
+
+        auto &device = metricContext.getDevice();
+        if (device.isMultiDeviceCapable()) {
+
+            const auto &deviceImp = *static_cast<DeviceImp *>(&device);
+            for (size_t i = 0; i < deviceImp.numSubDevices; i++) {
+                deviceImp.subDevices[i]->getMetricContext().getMetricEnumeration().cleanupMetricsDiscovery();
+            }
+        } else if (pMetricsDevice) {
+
+            // Close metrics device for one sub device or root device.
+            pAdapter->CloseMetricsDevice(pMetricsDevice);
+            pMetricsDevice = nullptr;
+        }
+    }
+
+    for (size_t i = 0; i < metricGroups.size(); ++i) {
         delete metricGroups[i];
     }
-
     metricGroups.clear();
 
-    if (pAdapter && pMetricsDevice) {
-        pAdapter->CloseMetricsDevice(pMetricsDevice);
-        pMetricsDevice = nullptr;
-    }
-
     if (hMetricsDiscovery != nullptr) {
+        if (pAdapterGroup != nullptr) {
+            pAdapterGroup->Close();
+        }
+        pAdapterGroup = nullptr;
         openAdapterGroup = nullptr;
         hMetricsDiscovery.reset();
     }
 
     return ZE_RESULT_SUCCESS;
-}
+} // namespace L0
 
 ze_result_t MetricEnumeration::cacheMetricInformation() {
+
+    auto &device = metricContext.getDevice();
+
+    if (device.isMultiDeviceCapable()) {
+
+        ze_result_t result = ZE_RESULT_SUCCESS;
+
+        // Get metric information from all sub devices.
+        const auto &deviceImp = *static_cast<DeviceImp *>(&device);
+        for (auto subDevice : deviceImp.subDevices) {
+            result = subDevice->getMetricContext().getMetricEnumeration().cacheMetricInformation();
+            if (ZE_RESULT_SUCCESS != result) {
+                return result;
+            }
+        }
+
+        // Get metric groups count for one sub device.
+        const uint32_t metricGroupCount = deviceImp.subDevices[0]->getMetricContext().getMetricEnumeration().getMetricGroupCount();
+
+        // Cache and aggregate all metric groups from all sub devices.
+        for (uint32_t i = 0; i < metricGroupCount; i++) {
+            auto metricGroupRootDevice = new MetricGroupImp();
+
+            for (auto subDevice : deviceImp.subDevices) {
+                MetricGroup *metricGroupSubDevice = subDevice->getMetricContext().getMetricEnumeration().getMetricGroupByIndex(i);
+
+                metricGroupRootDevice->getMetricGroups().push_back(metricGroupSubDevice);
+            }
+
+            metricGroups.push_back(metricGroupRootDevice);
+        }
+
+        return result;
+    }
+
     DEBUG_BREAK_IF(pMetricsDevice == nullptr);
 
     MetricsDiscovery::TMetricsDeviceParams_1_2 *pMetricsDeviceParams = pMetricsDevice->GetParams();
@@ -397,7 +479,7 @@ zet_value_type_t MetricEnumeration::getMetricResultType(
 
 MetricGroupImp ::~MetricGroupImp() {
 
-    for (uint32_t i = 0; i < metrics.size(); ++i) {
+    for (size_t i = 0; i < metrics.size(); ++i) {
         delete metrics[i];
     }
 
@@ -405,7 +487,11 @@ MetricGroupImp ::~MetricGroupImp() {
 };
 
 ze_result_t MetricGroupImp::getProperties(zet_metric_group_properties_t *pProperties) {
-    copyProperties(properties, *pProperties);
+    if (metricGroups.size() > 0) {
+        *pProperties = MetricGroup::getProperties(metricGroups[0]);
+    } else {
+        copyProperties(properties, *pProperties);
+    }
     return ZE_RESULT_SUCCESS;
 }
 
@@ -420,18 +506,22 @@ zet_metric_group_properties_t MetricGroup::getProperties(const zet_metric_group_
 }
 
 ze_result_t MetricGroupImp::getMetric(uint32_t *pCount, zet_metric_handle_t *phMetrics) {
+
+    if (metricGroups.size() > 0) {
+        auto metricGroupSubDevice = MetricGroup::fromHandle(metricGroups[0]);
+        return metricGroupSubDevice->getMetric(pCount, phMetrics);
+    }
+
     if (*pCount == 0) {
         *pCount = static_cast<uint32_t>(metrics.size());
         return ZE_RESULT_SUCCESS;
-    } else if (*pCount > metrics.size()) {
+    }
+    // User is expected to allocate space.
+    DEBUG_BREAK_IF(phMetrics == nullptr);
+
+    if (*pCount > metrics.size()) {
         *pCount = static_cast<uint32_t>(metrics.size());
     }
-
-    // User is expected to allocate space.
-    if (phMetrics == nullptr) {
-        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    }
-
     for (uint32_t i = 0; i < *pCount; i++) {
         phMetrics[i] = metrics[i]->toHandle();
     }
@@ -601,6 +691,10 @@ uint32_t MetricGroupImp::getRawReportSize() {
     return (properties.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_FLAG_TIME_BASED)
                ? pMetricSetParams->RawReportSize
                : pMetricSetParams->QueryReportSize;
+}
+
+std::vector<zet_metric_group_handle_t> &MetricGroupImp::getMetricGroups() {
+    return metricGroups;
 }
 
 void MetricGroupImp::copyProperties(const zet_metric_group_properties_t &source,

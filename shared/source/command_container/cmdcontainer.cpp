@@ -52,7 +52,7 @@ ErrorCode CommandContainer::initialize(Device *device) {
                                     true /* allocateMemory*/,
                                     alignedSize,
                                     GraphicsAllocation::AllocationType::COMMAND_BUFFER,
-                                    (device->getNumAvailableDevices() > 1u) /* multiOsContextCapable */,
+                                    (device->getNumGenericSubDevices() > 1u) /* multiOsContextCapable */,
                                     false,
                                     device->getDeviceBitfield()};
 
@@ -72,7 +72,7 @@ ErrorCode CommandContainer::initialize(Device *device) {
     }
 
     constexpr size_t heapSize = 65536u;
-    heapHelper = std::unique_ptr<HeapHelper>(new HeapHelper(device->getMemoryManager(), device->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage(), device->getNumAvailableDevices() > 1u));
+    heapHelper = std::unique_ptr<HeapHelper>(new HeapHelper(device->getMemoryManager(), device->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage(), device->getNumGenericSubDevices() > 1u));
 
     for (uint32_t i = 0; i < IndirectHeap::Type::NUM_TYPES; i++) {
         if (NEO::ApiSpecificConfig::getBindlessConfiguration() && i != IndirectHeap::INDIRECT_OBJECT) {
@@ -222,11 +222,11 @@ IndirectHeap *CommandContainer::getHeapWithRequiredSizeAndAlignment(HeapType hea
 
 void CommandContainer::allocateNextCommandBuffer() {
     size_t alignedSize = alignUp<size_t>(totalCmdBufferSize, MemoryConstants::pageSize64k);
-    AllocationProperties properties{0u,
+    AllocationProperties properties{device->getRootDeviceIndex(),
                                     true /* allocateMemory*/,
                                     alignedSize,
                                     GraphicsAllocation::AllocationType::COMMAND_BUFFER,
-                                    (device->getNumAvailableDevices() > 1u) /* multiOsContextCapable */,
+                                    (device->getNumGenericSubDevices() > 1u) /* multiOsContextCapable */,
                                     false,
                                     device->getDeviceBitfield()};
 

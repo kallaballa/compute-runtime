@@ -24,9 +24,8 @@ struct HardwareInfo;
 
 class OsContext : public ReferenceTrackedObject<OsContext> {
   public:
-    OsContext(uint32_t contextId, DeviceBitfield deviceBitfield, EngineTypeUsage typeUsage, PreemptionMode preemptionMode, bool rootDevice);
-    static OsContext *create(OSInterface *osInterface, uint32_t contextId, DeviceBitfield deviceBitfield,
-                             EngineTypeUsage typeUsage, PreemptionMode preemptionMode, bool rootDevice);
+    OsContext(uint32_t contextId, const EngineDescriptor &engineDescriptor);
+    static OsContext *create(OSInterface *osInterface, uint32_t contextId, const EngineDescriptor &engineDescriptor);
 
     bool isImmediateContextInitializationEnabled(bool isDefaultEngine) const;
     bool isInitialized() const { return contextInitialized; }
@@ -42,6 +41,7 @@ class OsContext : public ReferenceTrackedObject<OsContext> {
     bool isLowPriority() const { return engineUsage == EngineUsage::LowPriority; }
     bool isInternalEngine() const { return engineUsage == EngineUsage::Internal; }
     bool isRootDevice() const { return rootDevice; }
+    bool isEngineInstanced() const { return engineInstancedDevice; }
     virtual bool isDirectSubmissionSupported(const HardwareInfo &hwInfo) const { return false; }
     bool isDefaultContext() const { return defaultContext; }
     void setDefaultContext(bool value) { defaultContext = value; }

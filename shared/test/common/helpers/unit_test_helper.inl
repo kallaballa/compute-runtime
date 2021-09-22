@@ -81,6 +81,11 @@ inline bool UnitTestHelper<GfxFamily>::requiresTimestampPacketsInSystemMemory() 
 }
 
 template <typename GfxFamily>
+void UnitTestHelper<GfxFamily>::setExtraMidThreadPreemptionFlag(HardwareInfo &hwInfo, bool value) {
+    hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = value;
+}
+
+template <typename GfxFamily>
 auto UnitTestHelper<GfxFamily>::getCoherencyTypeSupported(COHERENCY_TYPE coherencyType) -> decltype(coherencyType) {
     return coherencyType;
 }

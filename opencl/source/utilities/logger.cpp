@@ -35,6 +35,7 @@ FileLogger<DebugLevel>::FileLogger(std::string filename, const DebugVariables &f
     dumpKernelArgsEnabled = flags.DumpKernelArgs.get();
     logApiCalls = flags.LogApiCalls.get();
     logAllocationMemoryPool = flags.LogAllocationMemoryPool.get();
+    logAllocationType = flags.LogAllocationType.get();
 }
 
 template <DebugFunctionalityLevel DebugLevel>
@@ -86,11 +87,15 @@ void FileLogger<DebugLevel>::logApiCall(const char *function, bool enter, int32_
 
 template <DebugFunctionalityLevel DebugLevel>
 void FileLogger<DebugLevel>::logAllocation(GraphicsAllocation const *graphicsAllocation) {
+    if (logAllocationType) {
+        printDebugString(true, stdout, "Created Graphics Allocation of type %s\n", getAllocationTypeString(graphicsAllocation));
+    }
+
     if (false == enabled()) {
         return;
     }
 
-    if (logAllocationMemoryPool) {
+    if (logAllocationMemoryPool || logAllocationType) {
         std::thread::id thisThread = std::this_thread::get_id();
 
         std::stringstream ss;
@@ -98,7 +103,8 @@ void FileLogger<DebugLevel>::logAllocation(GraphicsAllocation const *graphicsAll
         ss << " AllocationType: " << getAllocationTypeString(graphicsAllocation);
         ss << " MemoryPool: " << graphicsAllocation->getMemoryPool();
         ss << " Root device index: " << graphicsAllocation->getRootDeviceIndex();
-        ss << " GPU address: 0x" << std::hex << graphicsAllocation->getGpuAddress();
+        ss << " GPU address: 0x" << std::hex << graphicsAllocation->getGpuAddress() << " - 0x" << std::hex << graphicsAllocation->getGpuAddress() + graphicsAllocation->getUnderlyingBufferSize() - 1;
+
         ss << graphicsAllocation->getAllocationInfoString();
         ss << std::endl;
 
@@ -244,12 +250,7 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const MultiDispatchInfo *multiDispat
     }
 }
 
-template <DebugFunctionalityLevel DebugLevel>
-const char *FileLogger<DebugLevel>::getAllocationTypeString(GraphicsAllocation const *graphicsAllocation) {
-    if (false == enabled()) {
-        return nullptr;
-    }
-
+const char *getAllocationTypeString(GraphicsAllocation const *graphicsAllocation) {
     auto type = graphicsAllocation->getAllocationType();
 
     switch (type) {
@@ -337,6 +338,16 @@ const char *FileLogger<DebugLevel>::getAllocationTypeString(GraphicsAllocation c
         return "DEBUG_MODULE_AREA";
     case GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE:
         return "WORK_PARTITION_SURFACE";
+    case GraphicsAllocation::AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER:
+        return "GPU_TIMESTAMP_DEVICE_BUFFER";
+    case GraphicsAllocation::AllocationType::RING_BUFFER:
+        return "RING_BUFFER";
+    case GraphicsAllocation::AllocationType::SEMAPHORE_BUFFER:
+        return "SEMAPHORE_BUFFER";
+    case GraphicsAllocation::AllocationType::UNIFIED_SHARED_MEMORY:
+        return "UNIFIED_SHARED_MEMORY";
+    case GraphicsAllocation::AllocationType::SW_TAG_BUFFER:
+        return "SW_TAG_BUFFER";
     default:
         return "ILLEGAL_VALUE";
     }

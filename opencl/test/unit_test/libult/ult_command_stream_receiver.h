@@ -48,6 +48,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     using BaseClass::programPerDssBackedBuffer;
     using BaseClass::programPreamble;
     using BaseClass::programStateSip;
+    using BaseClass::programVFEState;
     using BaseClass::requiresInstructionCacheFlush;
     using BaseClass::rootDeviceIndex;
     using BaseClass::sshState;
@@ -100,6 +101,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     using BaseClass::CommandStreamReceiver::scratchSpaceController;
     using BaseClass::CommandStreamReceiver::stallingPipeControlOnNextFlushRequired;
     using BaseClass::CommandStreamReceiver::submissionAggregator;
+    using BaseClass::CommandStreamReceiver::tagAddress;
     using BaseClass::CommandStreamReceiver::taskCount;
     using BaseClass::CommandStreamReceiver::taskLevel;
     using BaseClass::CommandStreamReceiver::timestampPacketAllocator;
@@ -158,7 +160,20 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
 
     bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) override {
         latestWaitForCompletionWithTimeoutTaskCount.store(taskCountToWait);
-        return BaseClass::waitForCompletionWithTimeout(enableTimeout, timeoutMicroseconds, taskCountToWait);
+        waitForCompletionWithTimeoutTaskCountCalled++;
+        if (callBaseWaitForCompletionWithTimeout) {
+            return BaseClass::waitForCompletionWithTimeout(enableTimeout, timeoutMicroseconds, taskCountToWait);
+        }
+        return returnWaitForCompletionWithTimeout;
+    }
+
+    bool waitForCompletionWithTimeout(volatile uint32_t *pollAddress, bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait, uint32_t partitionCount, uint32_t offsetSize) override {
+        latestWaitForCompletionWithTimeoutTaskCountExplicit.store(taskCountToWait);
+        waitForCompletionWithTimeoutTaskCountExplicitCalled++;
+        if (callBaseWaitForCompletionWithTimeout) {
+            return BaseClass::waitForCompletionWithTimeout(pollAddress, enableTimeout, timeoutMicroseconds, taskCountToWait, partitionCount, offsetSize);
+        }
+        return returnWaitForCompletionWithTimeout;
     }
 
     void overrideCsrSizeReqFlags(CsrSizeRequestFlags &flags) { this->csrSizeRequestFlags = flags; }
@@ -217,9 +232,10 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
         return CommandStreamReceiverHw<GfxFamily>::obtainUniqueOwnership();
     }
 
-    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) override {
+    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled, Device &device) override {
         blitBufferCalled++;
-        return CommandStreamReceiverHw<GfxFamily>::blitBuffer(blitPropertiesContainer, blocking, profilingEnabled);
+        receivedBlitProperties = blitPropertiesContainer;
+        return CommandStreamReceiverHw<GfxFamily>::blitBuffer(blitPropertiesContainer, blocking, profilingEnabled, device);
     }
 
     bool createPerDssBackedBuffer(Device &device) override {
@@ -276,6 +292,10 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
 
     std::atomic<uint32_t> recursiveLockCounter;
     std::atomic<uint32_t> latestWaitForCompletionWithTimeoutTaskCount{0};
+    std::atomic<uint32_t> latestWaitForCompletionWithTimeoutTaskCountExplicit{0};
+
+    std::atomic<uint32_t> waitForCompletionWithTimeoutTaskCountCalled{0};
+    std::atomic<uint32_t> waitForCompletionWithTimeoutTaskCountExplicitCalled{0};
 
     LinearStream *lastFlushedCommandStream = nullptr;
 
@@ -285,6 +305,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     uint32_t createPerDssBackedBufferCalled = 0;
     int ensureCommandBufferAllocationCalled = 0;
     DispatchFlags recordedDispatchFlags;
+    BlitPropertiesContainer receivedBlitProperties = {};
 
     bool createPageTableManagerCalled = false;
     bool recordFlusheBatchBuffer = false;
@@ -298,5 +319,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     bool directSubmissionAvailable = false;
     bool blitterDirectSubmissionAvailable = false;
     bool callBaseIsMultiOsContextCapable = false;
+    bool callBaseWaitForCompletionWithTimeout = true;
+    bool returnWaitForCompletionWithTimeout = true;
 };
 } // namespace NEO

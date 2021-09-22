@@ -230,14 +230,13 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBufferPerRow(const Bl
 
 template <typename GfxFamily>
 template <size_t patternSize>
-void BlitCommandsHelper<GfxFamily>::dispatchBlitMemoryFill(NEO::GraphicsAllocation *dstAlloc, uint32_t *pattern, LinearStream &linearStream, size_t size, const RootDeviceEnvironment &rootDeviceEnvironment, COLOR_DEPTH depth) {
+void BlitCommandsHelper<GfxFamily>::dispatchBlitMemoryFill(NEO::GraphicsAllocation *dstAlloc, uint64_t offset, uint32_t *pattern, LinearStream &linearStream, size_t size, const RootDeviceEnvironment &rootDeviceEnvironment, COLOR_DEPTH depth) {
     using XY_COLOR_BLT = typename GfxFamily::XY_COLOR_BLT;
     auto blitCmd = GfxFamily::cmdInitXyColorBlt;
 
     blitCmd.setFillColor(pattern);
     blitCmd.setColorDepth(depth);
 
-    uint64_t offset = 0;
     uint64_t sizeToFill = size / patternSize;
     while (sizeToFill != 0) {
         auto tmpCmd = blitCmd;
@@ -317,7 +316,7 @@ size_t BlitCommandsHelper<GfxFamily>::getSizeForDebugPauseCommands() {
 }
 
 template <typename GfxFamily>
-bool BlitCommandsHelper<GfxFamily>::useOneBlitCopyCommand(Vec3<size_t> copySize, uint32_t bytesPerPixel) {
+bool BlitCommandsHelper<GfxFamily>::useOneBlitCopyCommand(const Vec3<size_t> &copySize, uint32_t bytesPerPixel) {
     return (copySize.x / bytesPerPixel <= BlitterConstants::maxBlitWidth && copySize.y <= BlitterConstants::maxBlitHeight);
 }
 
@@ -339,14 +338,14 @@ template <typename GfxFamily>
 void BlitCommandsHelper<GfxFamily>::dispatchBlitCommands(const BlitProperties &blitProperties, LinearStream &linearStream, const RootDeviceEnvironment &rootDeviceEnvironment) {
 
     if (blitProperties.blitDirection == BlitterConstants::BlitDirection::HostPtrToImage ||
-        blitProperties.blitDirection == BlitterConstants::BlitDirection::ImageToHostPtr) {
+        blitProperties.blitDirection == BlitterConstants::BlitDirection::ImageToHostPtr ||
+        blitProperties.blitDirection == BlitterConstants::BlitDirection::ImageToImage) {
         dispatchBlitCommandsRegion(blitProperties, linearStream, rootDeviceEnvironment);
-        return;
+    } else {
+        bool preferCopyBufferRegion = isCopyRegionPreferred(blitProperties.copySize, rootDeviceEnvironment);
+        preferCopyBufferRegion ? dispatchBlitCommandsForBufferRegion(blitProperties, linearStream, rootDeviceEnvironment)
+                               : dispatchBlitCommandsForBufferPerRow(blitProperties, linearStream, rootDeviceEnvironment);
     }
-
-    bool preferCopyBufferRegion = isCopyRegionPreferred(blitProperties.copySize, rootDeviceEnvironment);
-    preferCopyBufferRegion ? dispatchBlitCommandsForBufferRegion(blitProperties, linearStream, rootDeviceEnvironment)
-                           : dispatchBlitCommandsForBufferPerRow(blitProperties, linearStream, rootDeviceEnvironment);
 }
 
 template <typename GfxFamily>

@@ -7,11 +7,17 @@
 
 #include "level_zero/core/source/cmdlist/cmdlist_hw.inl"
 #include "level_zero/core/source/cmdlist/cmdlist_hw_immediate.inl"
-#include "level_zero/core/source/cmdlist/cmdlist_hw_xehp_plus.inl"
+#include "level_zero/core/source/cmdlist/cmdlist_hw_xehp_and_later.inl"
 
 #include "cmdlist_extended.inl"
 
 namespace L0 {
+
+template <>
+void CommandListCoreFamily<IGFX_XE_HP_CORE>::clearComputeModePropertiesIfNeeded(bool requiresCoherency, uint32_t numGrfRequired, uint32_t threadArbitrationPolicy) {
+    finalStreamState.stateComputeMode = {};
+    finalStreamState.stateComputeMode.setProperties(requiresCoherency, numGrfRequired, threadArbitrationPolicy);
+}
 
 template struct CommandListCoreFamily<IGFX_XE_HP_CORE>;
 

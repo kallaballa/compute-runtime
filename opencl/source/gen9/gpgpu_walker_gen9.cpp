@@ -7,8 +7,8 @@
 
 #include "shared/source/gen9/hw_cmds_base.h"
 
-#include "opencl/source/command_queue/gpgpu_walker_bdw_plus.inl"
-#include "opencl/source/command_queue/hardware_interface_bdw_plus.inl"
+#include "opencl/source/command_queue/gpgpu_walker_bdw_and_later.inl"
+#include "opencl/source/command_queue/hardware_interface_bdw_and_later.inl"
 
 namespace NEO {
 
@@ -23,9 +23,11 @@ void GpgpuWalkerHelper<SKLFamily>::applyWADisableLSQCROPERFforOCL(NEO::LinearStr
         if (kernel.getKernelInfo().kernelDescriptor.kernelAttributes.flags.usesFencesForReadWriteImages) {
             // Add PIPE_CONTROL with CS_Stall to wait till GPU finishes its work
             typedef typename SKLFamily::PIPE_CONTROL PIPE_CONTROL;
-            auto pCmd = reinterpret_cast<PIPE_CONTROL *>(pCommandStream->getSpace(sizeof(PIPE_CONTROL)));
-            *pCmd = SKLFamily::cmdInitPipeControl;
-            pCmd->setCommandStreamerStallEnable(true);
+            auto pipeControlSpace = reinterpret_cast<PIPE_CONTROL *>(pCommandStream->getSpace(sizeof(PIPE_CONTROL)));
+            auto pipeControl = SKLFamily::cmdInitPipeControl;
+            pipeControl.setCommandStreamerStallEnable(true);
+            *pipeControlSpace = pipeControl;
+
             // Clear bit L3SQC_BIT_LQSC_RO_PERF_DIS in L3SQC_REG4
             GpgpuWalkerHelper<SKLFamily>::addAluReadModifyWriteRegister(pCommandStream, L3SQC_REG4, AluRegisters::OPCODE_AND, ~L3SQC_BIT_LQSC_RO_PERF_DIS);
         }

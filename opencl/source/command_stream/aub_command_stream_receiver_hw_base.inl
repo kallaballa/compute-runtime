@@ -25,6 +25,7 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/memory_banks.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_context.h"
 
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
@@ -147,8 +148,8 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initFile(const std::string &fileName
         }
         // Add the file header
         auto &hwInfo = this->peekHwInfo();
-        auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-        stream->init(hwHelper.getAubStreamSteppingFromHwRevId(hwInfo), aubDeviceId);
+        const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+        stream->init(hwInfoConfig.getAubStreamSteppingFromHwRevId(hwInfo), aubDeviceId);
     }
 }
 
@@ -338,7 +339,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, Resi
         allocationsForResidency.pop_back();
     }
 
-    submitBatchBuffer(batchBufferGpuAddress, pBatchBuffer, sizeBatchBuffer, this->getMemoryBank(batchBuffer.commandBufferAllocation), this->getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation));
+    submitBatchBufferAub(batchBufferGpuAddress, pBatchBuffer, sizeBatchBuffer, this->getMemoryBank(batchBuffer.commandBufferAllocation), this->getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation));
 
     if (this->standalone) {
         *this->tagAddress = this->peekLatestSentTaskCount();
@@ -401,7 +402,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::addPatchInfoComments() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) {
+void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBufferAub(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) {
     auto streamLocked = getAubStream()->lockStream();
 
     if (hardwareContextController) {
@@ -598,8 +599,8 @@ void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletionImpl() {
 }
 
 template <typename GfxFamily>
-inline void AUBCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
-    CommandStreamReceiverSimulatedHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, forcePowerSavingMode);
+inline void AUBCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode, uint32_t partitionCount, uint32_t offsetSize) {
+    CommandStreamReceiverSimulatedHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, forcePowerSavingMode, partitionCount, offsetSize);
     pollForCompletion();
 }
 
@@ -783,10 +784,10 @@ void AUBCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &g
 
 template <typename GfxFamily>
 AubSubCaptureStatus AUBCommandStreamReceiverHw<GfxFamily>::checkAndActivateAubSubCapture(const MultiDispatchInfo &dispatchInfo) {
-    std::string kernelName = dispatchInfo.peekMainKernel()->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName;
+    auto &kernelName = dispatchInfo.peekMainKernel()->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName;
     auto status = subCaptureManager->checkAndActivateSubCapture(kernelName);
     if (status.isActive) {
-        std::string subCaptureFile = subCaptureManager->getSubCaptureFileName(kernelName);
+        auto &subCaptureFile = subCaptureManager->getSubCaptureFileName(kernelName);
         auto isReopened = reopenFile(subCaptureFile);
         if (isReopened) {
             dumpAubNonWritable = true;
@@ -826,11 +827,12 @@ void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBuf
     uint32_t *header = static_cast<uint32_t *>(linearStream.getSpace(sizeof(uint32_t)));
     *header = getGUCWorkQueueItemHeader();
 
-    MI_BATCH_BUFFER_START *miBatchBufferStart = linearStream.getSpaceForCmd<MI_BATCH_BUFFER_START>();
+    MI_BATCH_BUFFER_START *miBatchBufferStartSpace = linearStream.getSpaceForCmd<MI_BATCH_BUFFER_START>();
     DEBUG_BREAK_IF(bufferSize != linearStream.getUsed());
-    *miBatchBufferStart = GfxFamily::cmdInitBatchBufferStart;
-    miBatchBufferStart->setBatchBufferStartAddressGraphicsaddress472(AUB::ptrToPPGTT(buffer.get()));
-    miBatchBufferStart->setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
+    auto miBatchBufferStart = GfxFamily::cmdInitBatchBufferStart;
+    miBatchBufferStart.setBatchBufferStartAddressGraphicsaddress472(AUB::ptrToPPGTT(buffer.get()));
+    miBatchBufferStart.setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
+    *miBatchBufferStartSpace = miBatchBufferStart;
 
     auto physBufferAddres = ppgtt->map(reinterpret_cast<uintptr_t>(buffer.get()), bufferSize,
                                        this->getPPGTTAdditionalBits(linearStream.getGraphicsAllocation()),

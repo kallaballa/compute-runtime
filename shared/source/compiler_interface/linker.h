@@ -78,16 +78,16 @@ struct LinkerInput {
         enum class Type : uint32_t {
             Unknown,
             Address,
-            AddressHigh,
             AddressLow,
-            PerThreadPayloadOffset
+            AddressHigh,
+            PerThreadPayloadOffset,
+            RelocTypeMax
         };
 
         std::string symbolName;
         uint64_t offset = std::numeric_limits<uint64_t>::max();
         Type type = Type::Unknown;
         SegmentType relocationSegment = SegmentType::Unknown;
-        SegmentType symbolSegment = SegmentType::Unknown;
     };
     using SectionNameToSegmentIdMap = std::unordered_map<std::string, uint32_t>;
     using Relocations = std::vector<RelocationInfo>;
@@ -118,6 +118,10 @@ struct LinkerInput {
         return symbols;
     }
 
+    void addSymbol(const std::string &symbolName, const SymbolInfo &symbolInfo) {
+        symbols.emplace(std::make_pair(symbolName, symbolInfo));
+    }
+
     const RelocationsPerInstSegment &getRelocationsInInstructionSegments() const {
         return relocations;
     }
@@ -133,6 +137,9 @@ struct LinkerInput {
     bool isValid() const {
         return valid;
     }
+    bool areImplicitArgsRequired(uint32_t instructionsSegmentId) const;
+
+    bool undefinedSymbolsAllowed = false;
 
   protected:
     Traits traits;

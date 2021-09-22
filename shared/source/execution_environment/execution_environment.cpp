@@ -9,6 +9,7 @@
 
 #include "shared/source/built_ins/built_ins.h"
 #include "shared/source/built_ins/sip.h"
+#include "shared/source/direct_submission/direct_submission_controller.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/affinity_mask.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -72,12 +73,31 @@ void ExecutionEnvironment::calculateMaxOsContextCount() {
     for (const auto &rootDeviceEnvironment : this->rootDeviceEnvironments) {
         auto hwInfo = rootDeviceEnvironment->getHardwareInfo();
         auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
-        auto osContextCount = hwHelper.getGpgpuEngineInstances(*hwInfo).size();
+        auto osContextCount = static_cast<uint32_t>(hwHelper.getGpgpuEngineInstances(*hwInfo).size());
         auto subDevicesCount = HwHelper::getSubDevicesCount(hwInfo);
+        auto ccsCount = hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled;
         bool hasRootCsr = subDevicesCount > 1;
 
-        MemoryManager::maxOsContextCount += static_cast<uint32_t>(osContextCount * subDevicesCount + hasRootCsr);
+        MemoryManager::maxOsContextCount += osContextCount * subDevicesCount + hasRootCsr;
+
+        if (ccsCount > 1 && DebugManager.flags.EngineInstancedSubDevices.get()) {
+            MemoryManager::maxOsContextCount += ccsCount * subDevicesCount;
+        }
     }
+}
+
+DirectSubmissionController *ExecutionEnvironment::getDirectSubmissionController() {
+    auto initializeDirectSubmissionController = false;
+
+    if (DebugManager.flags.EnableDirectSubmissionController.get() != -1) {
+        initializeDirectSubmissionController = DebugManager.flags.EnableDirectSubmissionController.get();
+    }
+
+    if (initializeDirectSubmissionController && this->directSubmissionController == nullptr) {
+        this->directSubmissionController = std::make_unique<DirectSubmissionController>();
+    }
+
+    return directSubmissionController.get();
 }
 
 void ExecutionEnvironment::prepareRootDeviceEnvironments(uint32_t numRootDevices) {
@@ -116,15 +136,7 @@ void ExecutionEnvironment::parseAffinityMask() {
             if (subEntries.size() > 1) {
                 uint32_t subDeviceIndex = StringHelpers::toUint32t(subEntries[1]);
 
-                bool enableSecondLevelEngineInstanced = ((subDevicesCount == 1) && (hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled > 1));
-
-                if (enableSecondLevelEngineInstanced) {
-                    UNRECOVERABLE_IF(subEntries.size() != 2);
-
-                    if (subDeviceIndex < hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled) {
-                        affinityMaskHelper[rootDeviceIndex].enableEngineInstancedSubDevice(0, subDeviceIndex); // Mask: X.Y
-                    }
-                } else if (subDeviceIndex < subDevicesCount) {
+                if (subDeviceIndex < subDevicesCount) {
                     if (subEntries.size() == 2) {
                         affinityMaskHelper[rootDeviceIndex].enableGenericSubDevice(subDeviceIndex); // Mask: X.Y
                     } else {

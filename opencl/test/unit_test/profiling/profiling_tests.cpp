@@ -71,13 +71,13 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProfilingAndFor
 
     MultiDispatchInfo multiDispatchInfo(&kernel);
     auto &commandStreamNDRangeKernel = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(), true, false, false,
-                                                                                               multiDispatchInfo, nullptr, 0, false);
+                                                                                               multiDispatchInfo, nullptr, 0, false, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, true, false, *pCmdQ, &kernel, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamNDRangeKernel.getAvailableSpace(), requiredSize);
 
     auto &commandStreamTask = getCommandStream<FamilyType, CL_COMMAND_TASK>(*pCmdQ, CsrDependencies(), true, false, false,
-                                                                            multiDispatchInfo, nullptr, 0, false);
+                                                                            multiDispatchInfo, nullptr, 0, false, false);
     expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_TASK, true, false, *pCmdQ, &kernel, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamTask.getAvailableSpace(), requiredSize);
@@ -93,13 +93,13 @@ HWTEST_F(ProfilingTests, GivenCommandQueueWithProfilingAndForWorkloadWithNoKerne
     MultiDispatchInfo multiDispatchInfo(nullptr);
     auto &commandStreamMigrateMemObjects = getCommandStream<FamilyType, CL_COMMAND_MIGRATE_MEM_OBJECTS>(*pCmdQ, CsrDependencies(),
                                                                                                         true, false, false,
-                                                                                                        multiDispatchInfo, nullptr, 0, false);
+                                                                                                        multiDispatchInfo, nullptr, 0, false, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MIGRATE_MEM_OBJECTS, true, false, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMigrateMemObjects.getAvailableSpace(), requiredSize);
 
     auto &commandStreamMarker = getCommandStream<FamilyType, CL_COMMAND_MARKER>(*pCmdQ, CsrDependencies(), true,
-                                                                                false, false, multiDispatchInfo, nullptr, 0, false);
+                                                                                false, false, multiDispatchInfo, nullptr, 0, false, false);
     expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MARKER, true, false, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMarker.getAvailableSpace(), requiredSize);
@@ -121,9 +121,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProfilingAndFor
     multiDispatchInfo.push(dispatchInfo);
     multiDispatchInfo.push(dispatchInfo);
     auto &commandStreamTask = getCommandStream<FamilyType, CL_COMMAND_TASK>(*pCmdQ, CsrDependencies(), true, false, false,
-                                                                            multiDispatchInfo, nullptr, 0, false);
+                                                                            multiDispatchInfo, nullptr, 0, false, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_TASK, CsrDependencies(), true, false,
-                                                                               false, *pCmdQ, multiDispatchInfo, false);
+                                                                               false, *pCmdQ, multiDispatchInfo, false, false);
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamTask.getAvailableSpace(), requiredSize);
 }
@@ -455,6 +455,71 @@ HWTEST_F(ProfilingTests, givenMarkerEnqueueWhenNonBlockedEnqueueThenSetGpuPath) 
     eventObj->release();
 }
 
+HWTEST_F(ProfilingTests, givenMarkerEnqueueWhenBlockedEnqueueThenSetGpuPath) {
+    cl_event event = nullptr;
+    cl_event userEvent = new UserEvent();
+    pCmdQ->enqueueMarkerWithWaitList(1, &userEvent, &event);
+
+    auto eventObj = static_cast<Event *>(event);
+    EXPECT_FALSE(eventObj->isCPUProfilingPath());
+
+    auto userEventObj = static_cast<UserEvent *>(userEvent);
+
+    pCmdQ->flush();
+    userEventObj->setStatus(CL_COMPLETE);
+    Event::waitForEvents(1, &event);
+
+    uint64_t queued = 0u, submit = 0u;
+    cl_int retVal;
+
+    retVal = eventObj->getEventProfilingInfo(CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &queued, 0);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    retVal = eventObj->getEventProfilingInfo(CL_PROFILING_COMMAND_SUBMIT, sizeof(uint64_t), &submit, 0);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_LT(0u, queued);
+    EXPECT_LT(queued, submit);
+
+    eventObj->release();
+    userEventObj->release();
+}
+
+HWTEST_F(ProfilingTests, givenMarkerEnqueueWhenBlockedEnqueueThenPipeControlsArePresentInCS) {
+    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+
+    cl_event event = nullptr;
+    cl_event userEvent = new UserEvent();
+    static_cast<CommandQueueHw<FamilyType> *>(pCmdQ)->enqueueMarkerWithWaitList(1, &userEvent, &event);
+
+    auto eventObj = static_cast<Event *>(event);
+    EXPECT_FALSE(eventObj->isCPUProfilingPath());
+
+    auto userEventObj = static_cast<UserEvent *>(userEvent);
+
+    pCmdQ->flush();
+    userEventObj->setStatus(CL_COMPLETE);
+    Event::waitForEvents(1, &event);
+
+    parseCommands<FamilyType>(*pCmdQ);
+
+    // Check PIPE_CONTROLs
+    auto itorFirstPC = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+    ASSERT_NE(cmdList.end(), itorFirstPC);
+    auto pFirstPC = genCmdCast<PIPE_CONTROL *>(*itorFirstPC);
+    ASSERT_NE(nullptr, pFirstPC);
+
+    auto itorSecondPC = find<PIPE_CONTROL *>(itorFirstPC, cmdList.end());
+    ASSERT_NE(cmdList.end(), itorSecondPC);
+    auto pSecondPC = genCmdCast<PIPE_CONTROL *>(*itorSecondPC);
+    ASSERT_NE(nullptr, pSecondPC);
+
+    EXPECT_TRUE(static_cast<MockEvent<Event> *>(event)->calcProfilingData());
+
+    eventObj->release();
+    userEventObj->release();
+    pCmdQ->isQueueBlocked();
+}
+
 template <typename TagType>
 struct MockTagNode : public TagNode<TagType> {
   public:
@@ -514,7 +579,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EventProfilingTest, givenEventWhenCompleteIsZeroThen
     EXPECT_EQ(1, MyOSTime::instanceNum);
     MockContext context;
     cl_command_queue_properties props[5] = {0, 0, 0, 0, 0};
-    MockCommandQueue cmdQ(&context, device.get(), props);
+    MockCommandQueue cmdQ(&context, device.get(), props, false);
     cmdQ.setProfilingEnabled();
     cmdQ.device = device.get();
 
@@ -551,7 +616,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EventProfilingTests, givenRawTimestampsDebugModeWhen
     EXPECT_EQ(1, MyOSTime::instanceNum);
     MockContext context;
     cl_command_queue_properties props[5] = {0, 0, 0, 0, 0};
-    MockCommandQueue cmdQ(&context, device.get(), props);
+    MockCommandQueue cmdQ(&context, device.get(), props, false);
     cmdQ.setProfilingEnabled();
     cmdQ.device = device.get();
 
@@ -603,7 +668,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EventProfilingTest, givenRawTimestampsDebugModeWhenS
     device->setOSTime(new MyOSTime());
     EXPECT_EQ(1, MyOSTime::instanceNum);
     MockContext context(device.get());
-    MockCommandQueue cmdQ(&context, device.get(), nullptr);
+    MockCommandQueue cmdQ(&context, device.get(), nullptr, false);
     cmdQ.setProfilingEnabled();
     cmdQ.device = device.get();
 
@@ -713,13 +778,13 @@ HWTEST_F(ProfilingWithPerfCountersTests, GivenCommandQueueWithProfilingPerfCount
     MultiDispatchInfo multiDispatchInfo(nullptr);
     auto &commandStreamMigrateMemObjects = getCommandStream<FamilyType, CL_COMMAND_MIGRATE_MEM_OBJECTS>(*pCmdQ, CsrDependencies(),
                                                                                                         true, true, false, multiDispatchInfo,
-                                                                                                        nullptr, 0, false);
+                                                                                                        nullptr, 0, false, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MIGRATE_MEM_OBJECTS, true, true, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMigrateMemObjects.getAvailableSpace(), requiredSize);
 
     auto &commandStreamMarker = getCommandStream<FamilyType, CL_COMMAND_MARKER>(*pCmdQ, CsrDependencies(), true, true, false,
-                                                                                multiDispatchInfo, nullptr, 0, false);
+                                                                                multiDispatchInfo, nullptr, 0, false, false);
     expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MARKER, true, true, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMarker.getAvailableSpace(), requiredSize);
@@ -1142,9 +1207,9 @@ struct ProfilingTimestampPacketsTest : public ::testing::Test {
     void addTimestampNodeMultiOsContext(uint32_t globalStart[16], uint32_t globalEnd[16], uint32_t contextStart[16], uint32_t contextEnd[16], uint32_t size) {
         auto node = new MockTagNode<TimestampPackets<uint32_t>>();
         auto timestampPacketStorage = new TimestampPackets<uint32_t>();
-        timestampPacketStorage->setPacketsUsed(size);
+        node->setPacketsUsed(size);
 
-        for (uint32_t i = 0u; i < timestampPacketStorage->getPacketsUsed(); ++i) {
+        for (uint32_t i = 0u; i < node->getPacketsUsed(); ++i) {
             uint32_t values[4] = {contextStart[i], globalStart[i], contextEnd[i], globalEnd[i]};
 
             timestampPacketStorage->assignDataToAllTimestamps(i, values);
@@ -1170,7 +1235,7 @@ struct ProfilingTimestampPacketsTest : public ::testing::Test {
     DebugManagerStateRestore restorer;
     MockContext context;
     cl_command_queue_properties props[5] = {0, 0, 0, 0, 0};
-    ReleaseableObjectPtr<MockCommandQueue> cmdQ = clUniquePtr(new MockCommandQueue(&context, context.getDevice(0), props));
+    ReleaseableObjectPtr<MockCommandQueue> cmdQ = clUniquePtr(new MockCommandQueue(&context, context.getDevice(0), props, false));
     ReleaseableObjectPtr<MockEvent<MyEvent>> ev = clUniquePtr(new MockEvent<MyEvent>(cmdQ.get(), CL_COMMAND_USER, CompletionStamp::notReady, CompletionStamp::notReady));
 };
 

@@ -102,6 +102,12 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
         const KernelImmutableData *getKernelImmutableData(const char *functionName) const override {
             return mockKernelImmData;
         }
+
+        void checkIfPrivateMemoryPerDispatchIsNeeded() override {
+            const_cast<KernelDescriptor &>(kernelImmDatas[0]->getDescriptor()).kernelAttributes.perHwThreadPrivateMemorySize = mockKernelImmData->getDescriptor().kernelAttributes.perHwThreadPrivateMemorySize;
+            ModuleImp::checkIfPrivateMemoryPerDispatchIsNeeded();
+        }
+
         MockImmutableData *mockKernelImmData = nullptr;
     };
 
@@ -109,7 +115,7 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
       public:
         using KernelImp::kernelArgHandlers;
         using KernelImp::kernelHasIndirectAccess;
-        using L0::KernelImp::privateMemoryGraphicsAllocation;
+        using KernelImp::privateMemoryGraphicsAllocation;
 
         MockKernel(MockModule *mockModule) : WhiteBox<L0::KernelImp>(mockModule) {
         }
@@ -119,15 +125,20 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
         void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {
             return;
         }
+        void setCrossThreadData(uint32_t dataSize) {
+            crossThreadData.reset(new uint8_t[dataSize]);
+            crossThreadDataSize = dataSize;
+            memset(crossThreadData.get(), 0x00, crossThreadDataSize);
+        }
         ~MockKernel() override {
         }
-        std::unique_ptr<Kernel> clone() const override { return nullptr; }
     };
 
     void SetUp() override {
-        DeviceFixture::SetUp();
-        memoryManager = new MockImmutableMemoryManager(*neoDevice->executionEnvironment);
-        neoDevice->executionEnvironment->memoryManager.reset(memoryManager);
+        auto executionEnvironment = MockDevice::prepareExecutionEnvironment(NEO::defaultHwInfo.get(), 0u);
+        memoryManager = new MockImmutableMemoryManager(*executionEnvironment);
+        executionEnvironment->memoryManager.reset(memoryManager);
+        DeviceFixture::setupWithExecutionEnvironment(*executionEnvironment);
     }
 
     void createModuleFromBinary(uint32_t perHwThreadPrivateMemorySize, bool isInternal, MockImmutableData *mockKernelImmData) {

@@ -55,6 +55,7 @@ struct MetricsLibrary {
     void release();
 
     // Metric query.
+    uint32_t getQueryReportGpuSize();
     bool createMetricQuery(const uint32_t slotsCount, QueryHandle_1_0 &query,
                            NEO::GraphicsAllocation *&pAllocation);
     uint32_t getMetricQueryCount();
@@ -115,6 +116,8 @@ struct MetricQueryImp : MetricQuery {
     ze_result_t reset() override;
     ze_result_t destroy() override;
 
+    std::vector<zet_metric_query_handle_t> &getMetricQueries();
+
   protected:
     ze_result_t writeMetricQuery(CommandList &commandList, ze_event_handle_t hSignalEvent,
                                  uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents,
@@ -128,6 +131,7 @@ struct MetricQueryImp : MetricQuery {
     MetricsLibrary &metricsLibrary;
     MetricQueryPoolImp &pool;
     uint32_t slot;
+    std::vector<zet_metric_query_handle_t> metricQueries;
 };
 
 struct MetricQueryPoolImp : MetricQueryPool {
@@ -138,6 +142,10 @@ struct MetricQueryPoolImp : MetricQueryPool {
     ze_result_t destroy() override;
 
     ze_result_t createMetricQuery(uint32_t index, zet_metric_query_handle_t *phMetricQuery) override;
+
+    bool allocateGpuMemory();
+
+    std::vector<zet_metric_query_pool_handle_t> &getMetricQueryPools();
 
   protected:
     bool createMetricQueryPool();
@@ -151,5 +159,8 @@ struct MetricQueryPoolImp : MetricQueryPool {
     zet_metric_query_pool_desc_t description = {};
     zet_metric_group_handle_t hMetricGroup = nullptr;
     QueryHandle_1_0 query = {};
+
+  protected:
+    std::vector<zet_metric_query_pool_handle_t> metricQueryPools;
 };
 } // namespace L0

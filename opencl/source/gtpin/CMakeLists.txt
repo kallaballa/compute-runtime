@@ -13,16 +13,16 @@ if(NOT DISABLED_GTPIN_SUPPORT)
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper.cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper.h
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper.inl
-      ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper_bdw_plus.inl
+      ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper_bdw_and_later.inl
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_init.cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_init.h
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_notify.h
       ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_defs.h
   )
 
-  if(SUPPORT_XEHP_PLUS)
+  if(SUPPORT_XEHP_AND_LATER)
     list(APPEND RUNTIME_SRCS_GTPIN
-         ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper_xehp_plus.inl
+         ${CMAKE_CURRENT_SOURCE_DIR}/gtpin_hw_helper_xehp_and_later.inl
     )
   endif()
 

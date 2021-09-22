@@ -13,6 +13,7 @@
 #include "shared/source/helpers/bindless_heaps_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/string.h"
+#include "shared/source/kernel/implicit_args.h"
 
 #include "level_zero/core/source/kernel/kernel_imp.h"
 #include "level_zero/core/source/module/module.h"
@@ -48,10 +49,12 @@ struct KernelHw : public KernelImp {
             offset = 0;
         }
         void *surfaceStateAddress = nullptr;
+        auto surfaceState = GfxFamily::cmdInitRenderSurfaceState;
         if (NEO::isValidOffset(argInfo.bindless)) {
             surfaceStateAddress = patchBindlessSurfaceState(alloc, argInfo.bindless);
         } else {
             surfaceStateAddress = ptrOffset(surfaceStateHeapData.get(), argInfo.bindful);
+            surfaceState = *reinterpret_cast<typename GfxFamily::RENDER_SURFACE_STATE *>(surfaceStateAddress);
         }
         uint64_t bufferAddressForSsh = baseAddress;
         auto alignment = NEO::EncodeSurfaceState<GfxFamily>::getSurfaceBaseAddressAlignment();
@@ -66,73 +69,11 @@ struct KernelHw : public KernelImp {
         auto mocs = this->module->getDevice()->getMOCS(l3Enabled, false);
 
         NEO::Device *neoDevice = module->getDevice()->getNEODevice();
-        NEO::EncodeSurfaceState<GfxFamily>::encodeBuffer(surfaceStateAddress, bufferAddressForSsh, bufferSizeForSsh, mocs,
-                                                         false, false, false, neoDevice->getNumAvailableDevices(),
+        NEO::EncodeSurfaceState<GfxFamily>::encodeBuffer(&surfaceState, bufferAddressForSsh, bufferSizeForSsh, mocs,
+                                                         false, false, false, neoDevice->getNumGenericSubDevices(),
                                                          alloc, neoDevice->getGmmHelper(),
                                                          kernelImmData->getDescriptor().kernelAttributes.flags.useGlobalAtomics, 1u);
-    }
-
-    std::unique_ptr<Kernel> clone() const override {
-        std::unique_ptr<Kernel> ret{new KernelHw<gfxCoreFamily>};
-        auto cloned = static_cast<KernelHw<gfxCoreFamily> *>(ret.get());
-
-        cloned->kernelImmData = kernelImmData;
-        cloned->module = module;
-        cloned->kernelArgHandlers.assign(this->kernelArgHandlers.begin(), this->kernelArgHandlers.end());
-        cloned->residencyContainer.assign(this->residencyContainer.begin(), this->residencyContainer.end());
-
-        if (printfBuffer != nullptr) {
-            const auto &it = std::find(cloned->residencyContainer.rbegin(), cloned->residencyContainer.rend(), this->printfBuffer);
-            if (it == cloned->residencyContainer.rbegin()) {
-                cloned->residencyContainer.resize(cloned->residencyContainer.size() - 1);
-            } else {
-                std::iter_swap(it, cloned->residencyContainer.rbegin());
-            }
-            cloned->createPrintfBuffer();
-        }
-
-        std::copy(this->groupSize, this->groupSize + 3, cloned->groupSize);
-        cloned->numThreadsPerThreadGroup = this->numThreadsPerThreadGroup;
-        cloned->threadExecutionMask = this->threadExecutionMask;
-
-        if (this->surfaceStateHeapDataSize > 0) {
-            cloned->surfaceStateHeapData.reset(new uint8_t[this->surfaceStateHeapDataSize]);
-            memcpy_s(cloned->surfaceStateHeapData.get(),
-                     this->surfaceStateHeapDataSize,
-                     this->surfaceStateHeapData.get(), this->surfaceStateHeapDataSize);
-            cloned->surfaceStateHeapDataSize = this->surfaceStateHeapDataSize;
-        }
-
-        if (this->crossThreadDataSize != 0) {
-            cloned->crossThreadData.reset(new uint8_t[this->crossThreadDataSize]);
-            memcpy_s(cloned->crossThreadData.get(),
-                     this->crossThreadDataSize,
-                     this->crossThreadData.get(),
-                     this->crossThreadDataSize);
-            cloned->crossThreadDataSize = this->crossThreadDataSize;
-        }
-
-        if (this->dynamicStateHeapDataSize != 0) {
-            cloned->dynamicStateHeapData.reset(new uint8_t[this->dynamicStateHeapDataSize]);
-            memcpy_s(cloned->dynamicStateHeapData.get(),
-                     this->dynamicStateHeapDataSize,
-                     this->dynamicStateHeapData.get(), this->dynamicStateHeapDataSize);
-            cloned->dynamicStateHeapDataSize = this->dynamicStateHeapDataSize;
-        }
-
-        if (this->perThreadDataForWholeThreadGroup != nullptr) {
-            alignedFree(cloned->perThreadDataForWholeThreadGroup);
-            cloned->perThreadDataForWholeThreadGroup = reinterpret_cast<uint8_t *>(alignedMalloc(perThreadDataSizeForWholeThreadGroupAllocated, 32));
-            memcpy_s(cloned->perThreadDataForWholeThreadGroup,
-                     this->perThreadDataSizeForWholeThreadGroupAllocated,
-                     this->perThreadDataForWholeThreadGroup,
-                     this->perThreadDataSizeForWholeThreadGroupAllocated);
-            cloned->perThreadDataSizeForWholeThreadGroupAllocated = this->perThreadDataSizeForWholeThreadGroupAllocated;
-            cloned->perThreadDataSizeForWholeThreadGroup = this->perThreadDataSizeForWholeThreadGroup;
-            cloned->perThreadDataSize = this->perThreadDataSize;
-        }
-
-        return ret;
+        *reinterpret_cast<typename GfxFamily::RENDER_SURFACE_STATE *>(surfaceStateAddress) = surfaceState;
     }
 
     void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {

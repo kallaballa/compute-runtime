@@ -7,7 +7,7 @@
 
 #include "shared/source/command_stream/csr_definitions.h"
 #include "shared/source/helpers/pipeline_select_helper.h"
-#include "shared/source/helpers/preamble_bdw_plus.inl"
+#include "shared/source/helpers/preamble_bdw_and_later.inl"
 
 #include "reg_configs_common.h"
 
@@ -83,6 +83,16 @@ size_t PreambleHelper<ICLFamily>::getThreadArbitrationCommandsSize() {
     return sizeof(MI_LOAD_REGISTER_IMM) + sizeof(PIPE_CONTROL);
 }
 
+template <>
+std::vector<uint32_t> PreambleHelper<ICLFamily>::getSupportedThreadArbitrationPolicies() {
+    std::vector<uint32_t> retVal;
+    size_t policySize = sizeof(RowChickenReg4::regDataForArbitrationPolicy) /
+                        sizeof(RowChickenReg4::regDataForArbitrationPolicy[0]);
+    for (uint32_t i = 0u; i < policySize; i++) {
+        retVal.push_back(i);
+    }
+    return retVal;
+}
 template <>
 size_t PreambleHelper<ICLFamily>::getAdditionalCommandsSize(const Device &device) {
     size_t totalSize = PreemptionHelper::getRequiredPreambleSize<ICLFamily>(device);

@@ -8,7 +8,9 @@
 #pragma once
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/ptr_math.h"
+#include "shared/source/os_interface/hw_info_config.h"
 
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "test.h"
@@ -32,7 +34,8 @@ void setupAUB(const NEO::Device *pDevice, aub_stream::EngineType engineType) {
     NEO::AUBCommandStreamReceiver::AubFileStream aubFile;
     std::string filePath(NEO::folderAUB);
     filePath.append(Os::fileSeparator);
-    std::string baseName("simple");
+    std::string baseName(NEO::ApiSpecificConfig::getAubPrefixForSpecificApi());
+    baseName.append("simple");
     baseName.append(csTraits.name);
     baseName.append(".aub");
     filePath.append(getAubFileName(pDevice, baseName));
@@ -42,8 +45,8 @@ void setupAUB(const NEO::Device *pDevice, aub_stream::EngineType engineType) {
     // Header
     auto &hwInfo = pDevice->getHardwareInfo();
     auto deviceId = hwInfo.capabilityTable.aubDeviceId;
-    auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-    aubFile.init(hwHelper.getAubStreamSteppingFromHwRevId(hwInfo), deviceId);
+    const auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    aubFile.init(hwInfoConfig.getAubStreamSteppingFromHwRevId(hwInfo), deviceId);
 
     aubFile.writeMMIO(mmioBase + 0x229c, 0xffff8280);
 

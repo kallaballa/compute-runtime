@@ -13,6 +13,7 @@
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/constants.h"
+#include "shared/source/helpers/kernel_helpers.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
@@ -35,6 +36,7 @@ namespace L0 {
 
 namespace BuildOptions {
 NEO::ConstStringRef optDisable = "-ze-opt-disable";
+NEO::ConstStringRef optLevel = "-ze-opt-level";
 NEO::ConstStringRef greaterThan4GbRequired = "-ze-opt-greater-than-4GB-buffer-required";
 NEO::ConstStringRef hasBufferOffsetArg = "-ze-intel-has-buffer-offset-arg";
 NEO::ConstStringRef debugKernelEnable = "-ze-kernel-debug-enable";
@@ -200,11 +202,13 @@ bool ModuleTranslationUnit::processUnpackedBinary() {
     auto blob = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->unpackedDeviceBinary.get()), this->unpackedDeviceBinarySize);
     NEO::SingleDeviceBinary binary = {};
     binary.deviceBinary = blob;
+    binary.targetDevice.grfSize = device->getHwInfo().capabilityTable.grfSize;
     std::string decodeErrors;
     std::string decodeWarnings;
 
     NEO::DecodeError decodeError;
     NEO::DeviceBinaryFormat singleDeviceBinaryFormat;
+    programInfo.levelZeroDynamicLinkProgram = true;
     std::tie(decodeError, singleDeviceBinaryFormat) = NEO::decodeSingleDeviceBinary(programInfo, binary, decodeErrors, decodeWarnings);
     if (decodeWarnings.empty() == false) {
         PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
@@ -381,6 +385,8 @@ bool ModuleImp::initialize(const ze_module_desc_t *desc, NEO::Device *neoDevice)
     }
     this->maxGroupSize = static_cast<uint32_t>(this->translationUnit->device->getNEODevice()->getDeviceInfo().maxWorkGroupSize);
 
+    checkIfPrivateMemoryPerDispatchIsNeeded();
+
     if (debugEnabled) {
         if (device->getSourceLevelDebugger()) {
             for (auto kernelInfo : this->translationUnit->programInfo.kernelInfos) {
@@ -421,6 +427,7 @@ void ModuleImp::createBuildOptions(const char *pBuildFlags, std::string &apiOpti
 
         apiOptions = pBuildFlags;
         moveBuildOption(apiOptions, apiOptions, NEO::CompilerOptions::optDisable, BuildOptions::optDisable);
+        moveBuildOption(apiOptions, apiOptions, NEO::CompilerOptions::optLevel, BuildOptions::optLevel);
         moveBuildOption(internalBuildOptions, apiOptions, NEO::CompilerOptions::greaterThan4gbBuffersRequired, BuildOptions::greaterThan4GbRequired);
         moveBuildOption(internalBuildOptions, apiOptions, NEO::CompilerOptions::allowZebin, NEO::CompilerOptions::allowZebin);
 
@@ -480,6 +487,9 @@ void ModuleImp::copyPatchedSegments(const NEO::Linker::PatchableSegments &isaSeg
             if (nullptr == kernelImmData->getIsaGraphicsAllocation()) {
                 continue;
             }
+
+            kernelImmData->getIsaGraphicsAllocation()->setTbxWritable(true, std::numeric_limits<uint32_t>::max());
+            kernelImmData->getIsaGraphicsAllocation()->setAubWritable(true, std::numeric_limits<uint32_t>::max());
             auto segmentId = &kernelImmData - &this->kernelImmDatas[0];
             this->device->getDriverHandle()->getMemoryManager()->copyMemoryToAllocation(kernelImmData->getIsaGraphicsAllocation(), 0,
                                                                                         isaSegmentsForPatching[segmentId].hostPointer,
@@ -490,11 +500,12 @@ void ModuleImp::copyPatchedSegments(const NEO::Linker::PatchableSegments &isaSeg
 
 bool ModuleImp::linkBinary() {
     using namespace NEO;
-    if (this->translationUnit->programInfo.linkerInput == nullptr) {
+    auto linkerInput = this->translationUnit->programInfo.linkerInput.get();
+    if (linkerInput == nullptr) {
         isFullyLinked = true;
         return true;
     }
-    Linker linker(*this->translationUnit->programInfo.linkerInput);
+    Linker linker(*linkerInput);
     Linker::SegmentInfo globals;
     Linker::SegmentInfo constants;
     Linker::SegmentInfo exportedFunctions;
@@ -508,15 +519,15 @@ bool ModuleImp::linkBinary() {
         constants.gpuAddress = static_cast<uintptr_t>(constantsForPatching->getGpuAddress());
         constants.segmentSize = constantsForPatching->getUnderlyingBufferSize();
     }
-    if (this->translationUnit->programInfo.linkerInput->getExportedFunctionsSegmentId() >= 0) {
-        auto exportedFunctionHeapId = this->translationUnit->programInfo.linkerInput->getExportedFunctionsSegmentId();
+    if (linkerInput->getExportedFunctionsSegmentId() >= 0) {
+        auto exportedFunctionHeapId = linkerInput->getExportedFunctionsSegmentId();
         this->exportedFunctionsSurface = this->kernelImmDatas[exportedFunctionHeapId]->getIsaGraphicsAllocation();
         exportedFunctions.gpuAddress = static_cast<uintptr_t>(exportedFunctionsSurface->getGpuAddressToPatch());
         exportedFunctions.segmentSize = exportedFunctionsSurface->getUnderlyingBufferSize();
     }
     Linker::PatchableSegments isaSegmentsForPatching;
     std::vector<std::vector<char>> patchedIsaTempStorage;
-    if (this->translationUnit->programInfo.linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
+    if (linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
         patchedIsaTempStorage.reserve(this->kernelImmDatas.size());
         for (const auto &kernelInfo : this->translationUnit->programInfo.kernelInfos) {
             auto &kernHeapInfo = kernelInfo->heapInfo;
@@ -541,13 +552,16 @@ bool ModuleImp::linkBinary() {
             auto error = constructLinkerErrorMessage(unresolvedExternalsInfo, kernelNames);
             moduleBuildLog->appendString(error.c_str(), error.size());
         }
+        isFullyLinked = false;
         return LinkingStatus::LinkedPartially == linkStatus;
     } else {
         copyPatchedSegments(isaSegmentsForPatching);
     }
     DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->symbols));
     isFullyLinked = true;
-    for (auto &kernImmData : this->kernelImmDatas) {
+    for (auto kernelId = 0u; kernelId < kernelImmDatas.size(); kernelId++) {
+        auto &kernImmData = kernelImmDatas[kernelId];
+
         kernImmData->getResidencyContainer().reserve(kernImmData->getResidencyContainer().size() +
                                                      ((this->exportedFunctionsSurface != nullptr) ? 1 : 0) + this->importedSymbolAllocations.size());
 
@@ -556,6 +570,9 @@ bool ModuleImp::linkBinary() {
         }
         kernImmData->getResidencyContainer().insert(kernImmData->getResidencyContainer().end(), this->importedSymbolAllocations.begin(),
                                                     this->importedSymbolAllocations.end());
+
+        auto &kernelDescriptor = const_cast<KernelDescriptor &>(kernImmData->getDescriptor());
+        kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs = linkerInput->areImplicitArgsRequired(kernelId);
     }
     return true;
 }
@@ -639,6 +656,24 @@ void ModuleImp::verifyDebugCapabilities() {
     debugEnabled = debugCapabilities;
 }
 
+void ModuleImp::checkIfPrivateMemoryPerDispatchIsNeeded() {
+    size_t modulePrivateMemorySize = 0;
+    for (auto &kernelImmData : this->kernelImmDatas) {
+        if (0 == kernelImmData->getDescriptor().kernelAttributes.perHwThreadPrivateMemorySize) {
+            continue;
+        }
+        auto kernelPrivateMemorySize = NEO::KernelHelper::getPrivateSurfaceSize(kernelImmData->getDescriptor().kernelAttributes.perHwThreadPrivateMemorySize,
+                                                                                this->device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch);
+        modulePrivateMemorySize += kernelPrivateMemorySize;
+    }
+
+    this->allocatePrivateMemoryPerDispatch = false;
+    if (modulePrivateMemorySize > 0U) {
+        auto globalMemorySize = device->getNEODevice()->getRootDevice()->getGlobalMemorySize(static_cast<uint32_t>(device->getNEODevice()->getDeviceBitfield().to_ulong()));
+        this->allocatePrivateMemoryPerDispatch = modulePrivateMemorySize > globalMemorySize;
+    }
+}
+
 ze_result_t ModuleImp::getProperties(ze_module_properties_t *pModuleProperties) {
 
     pModuleProperties->flags = 0;
@@ -653,7 +688,11 @@ ze_result_t ModuleImp::getProperties(ze_module_properties_t *pModuleProperties) 
 ze_result_t ModuleImp::performDynamicLink(uint32_t numModules,
                                           ze_module_handle_t *phModules,
                                           ze_module_build_log_handle_t *phLinkLog) {
-
+    ModuleBuildLog *moduleLinkLog = nullptr;
+    if (phLinkLog) {
+        moduleLinkLog = ModuleBuildLog::create();
+        *phLinkLog = moduleLinkLog->toHandle();
+    }
     for (auto i = 0u; i < numModules; i++) {
         auto moduleId = static_cast<ModuleImp *>(Module::fromHandle(phModules[i]));
         if (moduleId->isFullyLinked) {
@@ -662,6 +701,7 @@ ze_result_t ModuleImp::performDynamicLink(uint32_t numModules,
         NEO::Linker::PatchableSegments isaSegmentsForPatching;
         std::vector<std::vector<char>> patchedIsaTempStorage;
         uint32_t numPatchedSymbols = 0u;
+        std::vector<std::string> unresolvedSymbolLogMessages;
         if (moduleId->translationUnit->programInfo.linkerInput && moduleId->translationUnit->programInfo.linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
             patchedIsaTempStorage.reserve(moduleId->kernelImmDatas.size());
             for (const auto &kernelInfo : moduleId->translationUnit->programInfo.kernelInfos) {
@@ -671,9 +711,14 @@ ze_result_t ModuleImp::performDynamicLink(uint32_t numModules,
                 isaSegmentsForPatching.push_back(NEO::Linker::PatchableSegment{patchedIsaTempStorage.rbegin()->data(), kernHeapInfo.KernelHeapSize});
             }
             for (const auto &unresolvedExternal : moduleId->unresolvedExternalsInfo) {
+                if (moduleLinkLog) {
+                    std::stringstream logMessage;
+                    logMessage << "Module <" << moduleId << ">: "
+                               << " Unresolved Symbol <" << unresolvedExternal.unresolvedRelocation.symbolName << ">";
+                    unresolvedSymbolLogMessages.push_back(logMessage.str());
+                }
                 for (auto i = 0u; i < numModules; i++) {
                     auto moduleHandle = static_cast<ModuleImp *>(Module::fromHandle(phModules[i]));
-
                     auto symbolIt = moduleHandle->symbols.find(unresolvedExternal.unresolvedRelocation.symbolName);
                     if (symbolIt != moduleHandle->symbols.end()) {
                         auto relocAddress = ptrOffset(isaSegmentsForPatching[unresolvedExternal.instructionsSegmentId].hostPointer,
@@ -682,9 +727,33 @@ ze_result_t ModuleImp::performDynamicLink(uint32_t numModules,
                         NEO::Linker::patchAddress(relocAddress, symbolIt->second, unresolvedExternal.unresolvedRelocation);
                         numPatchedSymbols++;
                         moduleId->importedSymbolAllocations.insert(moduleHandle->exportedFunctionsSurface);
+
+                        if (moduleLinkLog) {
+                            std::stringstream logMessage;
+                            logMessage << " Successfully Resolved Thru Dynamic Link to Module <" << moduleHandle << ">";
+                            unresolvedSymbolLogMessages.back().append(logMessage.str());
+                        }
+
+                        // Apply the exported functions surface state from the export module to the import module if it exists.
+                        // Enables import modules to access the exported functions during kernel execution.
+                        for (auto &kernImmData : moduleId->kernelImmDatas) {
+                            kernImmData->getResidencyContainer().reserve(kernImmData->getResidencyContainer().size() +
+                                                                         ((moduleHandle->exportedFunctionsSurface != nullptr) ? 1 : 0) + moduleId->importedSymbolAllocations.size());
+
+                            if (nullptr != moduleHandle->exportedFunctionsSurface) {
+                                kernImmData->getResidencyContainer().push_back(moduleHandle->exportedFunctionsSurface);
+                            }
+                            kernImmData->getResidencyContainer().insert(kernImmData->getResidencyContainer().end(), moduleId->importedSymbolAllocations.begin(),
+                                                                        moduleId->importedSymbolAllocations.end());
+                        }
                         break;
                     }
                 }
+            }
+        }
+        if (moduleLinkLog) {
+            for (int i = 0; i < (int)unresolvedSymbolLogMessages.size(); i++) {
+                moduleLinkLog->appendString(unresolvedSymbolLogMessages[i].c_str(), unresolvedSymbolLogMessages[i].size());
             }
         }
         if (numPatchedSymbols != moduleId->unresolvedExternalsInfo.size()) {
@@ -697,13 +766,25 @@ ze_result_t ModuleImp::performDynamicLink(uint32_t numModules,
 }
 
 bool moveBuildOption(std::string &dstOptionsSet, std::string &srcOptionSet, NEO::ConstStringRef dstOptionName, NEO::ConstStringRef srcOptionName) {
+    const char optDelim = ' ';
+    const char valDelim = '=';
+
     auto optInSrcPos = srcOptionSet.find(srcOptionName.begin());
     if (std::string::npos == optInSrcPos) {
         return false;
     }
 
-    srcOptionSet.erase(optInSrcPos, srcOptionName.length());
-    NEO::CompilerOptions::concatenateAppend(dstOptionsSet, dstOptionName);
+    std::string dstOptionStr(dstOptionName);
+    auto optInSrcEndPos = srcOptionSet.find(optDelim, optInSrcPos);
+    if (srcOptionName == BuildOptions::optLevel) {
+        auto valInSrcPos = srcOptionSet.find(valDelim, optInSrcPos);
+        if (std::string::npos == valInSrcPos) {
+            return false;
+        }
+        dstOptionStr += srcOptionSet.substr(valInSrcPos + 1, optInSrcEndPos);
+    }
+    srcOptionSet.erase(optInSrcPos, (optInSrcEndPos - optInSrcPos));
+    NEO::CompilerOptions::concatenateAppend(dstOptionsSet, dstOptionStr);
     return true;
 }
 

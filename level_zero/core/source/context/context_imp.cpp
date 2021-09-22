@@ -7,6 +7,7 @@
 
 #include "level_zero/core/source/context/context_imp.h"
 
+#include "shared/source/command_container/implicit_scaling.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 
@@ -56,7 +57,7 @@ ze_result_t ContextImp::allocHostMem(const ze_host_mem_alloc_desc_t *hostDesc,
                                      size_t alignment,
                                      void **ptr) {
 
-    bool relaxedSizeAllowed = false;
+    bool relaxedSizeAllowed = NEO::DebugManager.flags.AllowUnrestrictedSize.get();
     if (hostDesc->pNext) {
         const ze_base_desc_t *extendedDesc = reinterpret_cast<const ze_base_desc_t *>(hostDesc->pNext);
         if (extendedDesc->stype == ZE_STRUCTURE_TYPE_RELAXED_ALLOCATION_LIMITS_EXP_DESC) {
@@ -105,6 +106,7 @@ ze_result_t ContextImp::allocDeviceMem(ze_device_handle_t hDevice,
 
     StructuresLookupTable lookupTable = {};
 
+    lookupTable.relaxedSizeAllowed = NEO::DebugManager.flags.AllowUnrestrictedSize.get();
     auto parseResult = prepareL0StructuresLookupTable(lookupTable, deviceDesc->pNext);
 
     if (parseResult != ZE_RESULT_SUCCESS) {
@@ -135,13 +137,18 @@ ze_result_t ContextImp::allocDeviceMem(ze_device_handle_t hDevice,
     }
 
     if (lookupTable.relaxedSizeAllowed == false &&
-        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().maxMemAllocSize)) {
+        (size > neoDevice->getDeviceInfo().maxMemAllocSize)) {
         *ptr = nullptr;
         return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
     }
 
-    if (lookupTable.relaxedSizeAllowed &&
-        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().globalMemSize)) {
+    uint64_t globalMemSize = neoDevice->getDeviceInfo().globalMemSize;
+
+    uint32_t numSubDevices = neoDevice->getNumGenericSubDevices();
+    if ((!(NEO::ImplicitScalingHelper::isImplicitScalingEnabled(neoDevice->getDeviceBitfield(), true))) && (numSubDevices > 1)) {
+        globalMemSize = globalMemSize / numSubDevices;
+    }
+    if (lookupTable.relaxedSizeAllowed && (size > globalMemSize)) {
         *ptr = nullptr;
         return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
     }
@@ -149,7 +156,7 @@ ze_result_t ContextImp::allocDeviceMem(ze_device_handle_t hDevice,
     deviceBitfields[rootDeviceIndex] = neoDevice->getDeviceBitfield();
 
     NEO::SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY, this->driverHandle->rootDeviceIndices, deviceBitfields);
-    unifiedMemoryProperties.allocationFlags.flags.shareable = lookupTable.exportMemory;
+    unifiedMemoryProperties.allocationFlags.flags.shareable = static_cast<uint32_t>(lookupTable.isSharedHandle);
     unifiedMemoryProperties.device = neoDevice;
 
     if (deviceDesc->flags & ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED) {
@@ -172,7 +179,13 @@ ze_result_t ContextImp::allocSharedMem(ze_device_handle_t hDevice,
                                        size_t size,
                                        size_t alignment,
                                        void **ptr) {
-    bool relaxedSizeAllowed = false;
+
+    auto neoDevice = this->devices.begin()->second->getNEODevice();
+    if (hDevice != nullptr) {
+        neoDevice = Device::fromHandle(hDevice)->getNEODevice();
+    }
+
+    bool relaxedSizeAllowed = NEO::DebugManager.flags.AllowUnrestrictedSize.get();
     if (deviceDesc->pNext) {
         const ze_base_desc_t *extendedDesc = reinterpret_cast<const ze_base_desc_t *>(deviceDesc->pNext);
         if (extendedDesc->stype == ZE_STRUCTURE_TYPE_RELAXED_ALLOCATION_LIMITS_EXP_DESC) {
@@ -186,18 +199,22 @@ ze_result_t ContextImp::allocSharedMem(ze_device_handle_t hDevice,
     }
 
     if (relaxedSizeAllowed == false &&
-        (size > this->devices.begin()->second->getNEODevice()->getDeviceInfo().maxMemAllocSize)) {
+        (size > neoDevice->getDeviceInfo().maxMemAllocSize)) {
         *ptr = nullptr;
         return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
     }
 
+    uint64_t globalMemSize = neoDevice->getDeviceInfo().globalMemSize;
+
+    uint32_t numSubDevices = neoDevice->getNumGenericSubDevices();
+    if ((!(NEO::ImplicitScalingHelper::isImplicitScalingEnabled(neoDevice->getDeviceBitfield(), true))) && (numSubDevices > 1)) {
+        globalMemSize = globalMemSize / numSubDevices;
+    }
     if (relaxedSizeAllowed &&
-        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().globalMemSize)) {
+        (size > globalMemSize)) {
         *ptr = nullptr;
         return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
     }
-
-    auto neoDevice = this->devices.begin()->second->getNEODevice();
 
     auto deviceBitfields = this->deviceBitfields;
     NEO::Device *unifiedMemoryPropertiesDevice = nullptr;
@@ -259,6 +276,7 @@ ze_result_t ContextImp::freeMem(const void *ptr) {
             auto peerAlloc = peerAllocData->gpuAllocations.getDefaultGraphicsAllocation();
             auto peerPtr = reinterpret_cast<void *>(peerAlloc->getGpuAddress());
             this->driverHandle->svmAllocsManager->freeSVMAlloc(peerPtr);
+            deviceImp->peerAllocations.allocations.erase(iter);
         }
     }
 
@@ -429,11 +447,9 @@ ze_result_t ContextImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,
     Device *device = this->devices.begin()->second;
     auto neoDevice = device->getNEODevice();
     NEO::osHandle osHandle = static_cast<NEO::osHandle>(handle);
-    const uint32_t eventAlignment = 4 * MemoryConstants::cacheLineSize;
-    uint32_t eventSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets *
-                                                           NEO::TimestampPackets<uint32_t>::getSinglePacketSize(),
-                                                       eventAlignment));
-
+    auto &hwHelper = device->getHwHelper();
+    const uint32_t eventAlignment = static_cast<uint32_t>(hwHelper.getTimestampPacketAllocatorAlignment());
+    uint32_t eventSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets * hwHelper.getSingleTimestampPacketSize(), eventAlignment));
     size_t alignedSize = alignUp<size_t>(numEvents * eventSize, MemoryConstants::pageSize64k);
     NEO::AllocationProperties unifiedMemoryProperties{neoDevice->getRootDeviceIndex(),
                                                       alignedSize,
@@ -458,6 +474,9 @@ ze_result_t ContextImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,
     eventPool->eventPoolAllocations->addAllocation(alloc);
     eventPool->eventPoolPtr = reinterpret_cast<void *>(alloc->getUnderlyingBuffer());
     eventPool->devices.push_back(device);
+    eventPool->isImportedIpcPool = true;
+    eventPool->setEventSize(eventSize);
+    eventPool->setEventAlignment(eventAlignment);
 
     *phEventPool = eventPool;
 
@@ -474,7 +493,7 @@ ze_result_t ContextImp::getMemAllocProperties(const void *ptr,
     }
 
     pMemAllocProperties->type = Context::parseUSMType(alloc->memoryType);
-    pMemAllocProperties->id = alloc->gpuAllocations.getDefaultGraphicsAllocation()->getGpuAddress();
+    pMemAllocProperties->id = alloc->getAllocId();
 
     if (phDevice != nullptr) {
         if (alloc->device == nullptr) {

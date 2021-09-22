@@ -14,6 +14,7 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/common/fixtures/device_fixture.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/mocks/mock_aub_center.h"
 #include "shared/test/common/mocks/mock_aub_manager.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
@@ -132,11 +133,10 @@ struct CommandStreamReceiverWithAubDumpTest : public ::testing::TestWithParam<bo
         csrWithAubDump = new MyMockCsrWithAubDump<MyMockCsr>(createAubCSR, *executionEnvironment, deviceBitfield);
         ASSERT_NE(nullptr, csrWithAubDump);
 
-        auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(csrWithAubDump,
-                                                                                         EngineTypeUsage{getChosenEngineType(DEFAULT_TEST_PLATFORM::hwInfo), EngineUsage::Regular},
-                                                                                         deviceBitfield,
-                                                                                         PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo),
-                                                                                         false);
+        auto engineDescriptor = EngineDescriptorHelper::getDefaultDescriptor({getChosenEngineType(DEFAULT_TEST_PLATFORM::hwInfo), EngineUsage::Regular},
+                                                                             PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo));
+
+        auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(csrWithAubDump, engineDescriptor);
         csrWithAubDump->setupContext(*osContext);
     }
 
@@ -171,8 +171,8 @@ HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenSett
     CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump("aubfile", *executionEnvironment, 0, deviceBitfield);
 
     auto hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo();
-    MockOsContext osContext(0, 1, HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
-                            PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
+    MockOsContext osContext(0, EngineDescriptorHelper::getDefaultDescriptor(HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
+                                                                            PreemptionHelper::getDefaultPreemptionMode(*hwInfo)));
 
     csrWithAubDump.setupContext(osContext);
     EXPECT_EQ(&osContext, &csrWithAubDump.getOsContext());
@@ -229,11 +229,11 @@ HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenWait
     csrWithAubDump.aubCSR.reset(mockAubCsr);
 
     EXPECT_FALSE(mockAubCsr->pollForCompletionCalled);
-    csrWithAubDump.waitForTaskCountWithKmdNotifyFallback(1, 0, false, false);
+    csrWithAubDump.waitForTaskCountWithKmdNotifyFallback(1, 0, false, false, 1, 0);
     EXPECT_TRUE(mockAubCsr->pollForCompletionCalled);
 
     csrWithAubDump.aubCSR.reset(nullptr);
-    csrWithAubDump.waitForTaskCountWithKmdNotifyFallback(1, 0, false, false);
+    csrWithAubDump.waitForTaskCountWithKmdNotifyFallback(1, 0, false, false, 1, 0);
 }
 
 HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenCreatingAubCsrThenInitializeTagAllocation) {
@@ -294,18 +294,18 @@ struct CommandStreamReceiverTagTests : public ::testing::Test {
     template <typename FamilyType>
     using AubWithTbx = CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<FamilyType>>;
 
-    template <typename CsrT, typename... Args>
+    template <typename CsrT, typename FamilyType, typename... Args>
     bool isTimestampPacketNodeReleasable(Args &&...args) {
         CsrT csr(std::forward<Args>(args)...);
         auto hwInfo = csr.peekExecutionEnvironment().rootDeviceEnvironments[0]->getHardwareInfo();
-        MockOsContext osContext(0, 1, HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
-                                PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
+        MockOsContext osContext(0, EngineDescriptorHelper::getDefaultDescriptor(HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
+                                                                                PreemptionHelper::getDefaultPreemptionMode(*hwInfo)));
         csr.setupContext(osContext);
 
         auto allocator = csr.getTimestampPacketAllocator();
         auto tag = allocator->getTag();
 
-        uint32_t zeros[4] = {};
+        typename FamilyType::TimestampPacketType zeros[4] = {};
 
         for (uint32_t i = 0; i < TimestampPacketSizeControl::preferredPacketCount; i++) {
             tag->assignDataToAllTimestamps(i, zeros);
@@ -342,10 +342,17 @@ struct CommandStreamReceiverTagTests : public ::testing::Test {
 };
 
 HWTEST_F(CommandStreamReceiverTagTests, givenCsrTypeWhenCreatingTimestampPacketAllocatorThenSetDefaultCompletionCheckType) {
-    EXPECT_TRUE(isTimestampPacketNodeReleasable<CommandStreamReceiverHw<FamilyType>>(*executionEnvironment, 0, 1));
-    EXPECT_FALSE(isTimestampPacketNodeReleasable<AUBCommandStreamReceiverHw<FamilyType>>(fileName, false, *executionEnvironment, 0, 1));
-    EXPECT_FALSE(isTimestampPacketNodeReleasable<AubWithHw<FamilyType>>(fileName, *executionEnvironment, 0, 1));
-    EXPECT_FALSE(isTimestampPacketNodeReleasable<AubWithTbx<FamilyType>>(fileName, *executionEnvironment, 0, 1));
+    bool result = isTimestampPacketNodeReleasable<CommandStreamReceiverHw<FamilyType>, FamilyType>(*executionEnvironment, 0, 1);
+    EXPECT_TRUE(result);
+
+    result = isTimestampPacketNodeReleasable<AUBCommandStreamReceiverHw<FamilyType>, FamilyType>(fileName, false, *executionEnvironment, 0, 1);
+    EXPECT_FALSE(result);
+
+    result = isTimestampPacketNodeReleasable<AubWithHw<FamilyType>, FamilyType>(fileName, *executionEnvironment, 0, 1);
+    EXPECT_FALSE(result);
+
+    result = isTimestampPacketNodeReleasable<AubWithTbx<FamilyType>, FamilyType>(fileName, *executionEnvironment, 0, 1);
+    EXPECT_FALSE(result);
 }
 
 HWTEST_F(CommandStreamReceiverTagTests, givenCsrTypeWhenAskingForTagPoolSizeThenReturnOneForAubTbxMode) {

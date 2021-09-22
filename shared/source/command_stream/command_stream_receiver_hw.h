@@ -53,9 +53,11 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     static void addBatchBufferEnd(LinearStream &commandStream, void **patchLocation);
     void programEndingCmd(LinearStream &commandStream, Device &device, void **patchLocation, bool directSubmissionEnabled);
     void addBatchBufferStart(MI_BATCH_BUFFER_START *commandBufferMemory, uint64_t startAddress, bool secondary);
-    static void alignToCacheLine(LinearStream &commandStream);
 
-    size_t getRequiredStateBaseAddressSize() const;
+    static void alignToCacheLine(LinearStream &commandStream);
+    static void emitNoop(LinearStream &commandStream, size_t bytesToUpdate);
+
+    size_t getRequiredStateBaseAddressSize(const Device &device) const;
     size_t getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags, Device &device);
     size_t getRequiredCmdStreamSizeAligned(const DispatchFlags &dispatchFlags, Device &device);
     size_t getRequiredCmdSizeForPreamble(Device &device) const;
@@ -70,11 +72,10 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForPerDssBackedBuffer(const HardwareInfo &hwInfo);
 
     bool isComputeModeNeeded() const;
-    bool isAdditionalPipeControlNeeded() const;
     bool isPipelineSelectAlreadyProgrammed() const;
-    void programComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags);
+    void programComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags, const HardwareInfo &hwInfo);
 
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) override;
+    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode, uint32_t partitionCount, uint32_t offsetSize) override;
     const HardwareInfo &peekHwInfo() const;
 
     void collectStateBaseAddresPatchInfo(
@@ -91,7 +92,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
         return CommandStreamReceiverType::CSR_HW;
     }
 
-    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) override;
+    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled, Device &device) override;
 
     void flushTagUpdate() override;
     void flushNonKernelTask(GraphicsAllocation *eventAlloc, uint64_t immediateGpuAddress, uint64_t immediateData, PipeControlArgs &args, bool isWaitOnEvent, bool isStartOfDispatch, bool isEndOfDispatch) override;
@@ -109,7 +110,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     bool isMultiOsContextCapable() const override;
 
-    MemoryCompressionState getMemoryCompressionState(bool auxTranslationRequired) const override;
+    MemoryCompressionState getMemoryCompressionState(bool auxTranslationRequired, const HardwareInfo &hwInfo) const override;
 
     bool isDirectSubmissionEnabled() const override {
         return directSubmission.get() != nullptr;
@@ -118,6 +119,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     bool isBlitterDirectSubmissionEnabled() const override {
         return blitterDirectSubmission.get() != nullptr;
     }
+
+    void stopDirectSubmission() override;
 
     virtual bool isKmdWaitModeActive() { return true; }
 
@@ -156,8 +159,6 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     uint64_t getScratchPatchAddress();
     void createScratchSpaceController();
-
-    static void emitNoop(LinearStream &commandStream, size_t bytesToUpdate);
 
     bool detectInitProgrammingFlagsRequired(const DispatchFlags &dispatchFlags) const;
     bool checkPlatformSupportsNewResourceImplicitFlush() const;

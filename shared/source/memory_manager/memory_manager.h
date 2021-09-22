@@ -128,6 +128,7 @@ class MemoryManager {
 
     virtual uint64_t getSystemSharedMemory(uint32_t rootDeviceIndex) = 0;
     virtual uint64_t getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) = 0;
+    virtual double getPercentOfGlobalMemoryAvailable(uint32_t rootDeviceIndex) = 0;
 
     uint64_t getMaxApplicationAddress() { return is64bit ? MemoryConstants::max64BitAppAddress : MemoryConstants::max32BitAppAddress; };
     MOCKABLE_VIRTUAL uint64_t getInternalHeapBaseAddress(uint32_t rootDeviceIndex, bool useLocalMemory) { return getGfxPartition(rootDeviceIndex)->getHeapBase(selectInternalHeap(useLocalMemory)); }
@@ -181,10 +182,7 @@ class MemoryManager {
     const ExecutionEnvironment &peekExecutionEnvironment() const { return executionEnvironment; }
 
     OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver,
-                                          EngineTypeUsage typeUsage,
-                                          DeviceBitfield deviceBitfield,
-                                          PreemptionMode preemptionMode,
-                                          bool rootDevice);
+                                          const EngineDescriptor &engineDescriptor);
     uint32_t getRegisteredEnginesCount() const { return static_cast<uint32_t>(registeredEngines.size()); }
     EngineControlContainer &getRegisteredEngines();
     EngineControl *getRegisteredEngineForCsr(CommandStreamReceiver *commandStreamReceiver);
@@ -210,7 +208,13 @@ class MemoryManager {
     virtual void registerSysMemAlloc(GraphicsAllocation *allocation){};
     virtual void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex){};
 
+    bool isExternalAllocation(GraphicsAllocation::AllocationType allocationType);
+    LocalMemoryUsageBankSelector *getLocalMemoryUsageBankSelector(GraphicsAllocation::AllocationType allocationType, uint32_t rootDeviceIndex);
+
     bool isLocalMemoryUsedForIsa(uint32_t rootDeviceIndex);
+    MOCKABLE_VIRTUAL bool isNonSvmBuffer(const void *hostPtr, GraphicsAllocation::AllocationType allocationType, uint32_t rootDeviceIndex) {
+        return !force32bitAllocations && hostPtr && !isHostPointerTrackingEnabled(rootDeviceIndex) && (allocationType == GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+    }
 
   protected:
     bool getAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const void *hostPtr, const StorageInfo &storageInfo);
@@ -235,7 +239,7 @@ class MemoryManager {
     GraphicsAllocation *allocateGraphicsMemoryForImageFromHostPtr(const AllocationData &allocationData);
     MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData);
     virtual GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) = 0;
-    virtual GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) = 0;
+    virtual GraphicsAllocation *allocateMemoryByKMD(const AllocationData &allocationData) = 0;
     virtual void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void freeAssociatedResourceImpl(GraphicsAllocation &graphicsAllocation) { return unlockResourceImpl(graphicsAllocation); };
@@ -258,7 +262,8 @@ class MemoryManager {
     uint32_t latestContextId = std::numeric_limits<uint32_t>::max();
     std::unique_ptr<DeferredDeleter> multiContextResourceDestructor;
     std::vector<std::unique_ptr<GfxPartition>> gfxPartitions;
-    std::vector<std::unique_ptr<LocalMemoryUsageBankSelector>> localMemoryUsageBankSelector;
+    std::vector<std::unique_ptr<LocalMemoryUsageBankSelector>> internalLocalMemoryUsageBankSelector;
+    std::vector<std::unique_ptr<LocalMemoryUsageBankSelector>> externalLocalMemoryUsageBankSelector;
     void *reservedMemory = nullptr;
     std::unique_ptr<PageFaultManager> pageFaultManager;
     OSMemory::ReservedCpuAddressRange reservedCpuAddressRange;

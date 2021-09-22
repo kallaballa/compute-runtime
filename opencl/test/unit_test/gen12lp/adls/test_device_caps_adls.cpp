@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,8 +13,7 @@ using namespace NEO;
 using AdlsUsDeviceIdTest = Test<ClDeviceFixture>;
 
 ADLSTEST_F(AdlsUsDeviceIdTest, WhenCheckingIsSimulationThenTrueReturnedOnlyForSimulationId) {
-    unsigned short adlsSimulationIds[2] = {
-        0x4680,
+    unsigned short adlsSimulationIds[1] = {
         0, // default, non-simulation
     };
     NEO::MockDevice *mockDevice = nullptr;
@@ -23,10 +22,7 @@ ADLSTEST_F(AdlsUsDeviceIdTest, WhenCheckingIsSimulationThenTrueReturnedOnlyForSi
         mockDevice = createWithUsDeviceId(id);
         ASSERT_NE(mockDevice, nullptr);
 
-        if (id == 0)
-            EXPECT_FALSE(mockDevice->isSimulation());
-        else
-            EXPECT_TRUE(mockDevice->isSimulation());
+        EXPECT_FALSE(mockDevice->isSimulation());
         delete mockDevice;
     }
 }

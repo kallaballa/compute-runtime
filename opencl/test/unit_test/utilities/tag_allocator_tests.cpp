@@ -8,6 +8,7 @@
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
@@ -25,7 +26,6 @@ struct TagAllocatorTest : public Test<MemoryAllocatorFixture> {
     class MockTimestampPackets32 : public TimestampPackets<uint32_t> {
       public:
         void setTagToReadyState() {
-            auto packetsUsed = getPacketsUsed();
             initialize();
 
             uint32_t zeros[4] = {};
@@ -33,7 +33,6 @@ struct TagAllocatorTest : public Test<MemoryAllocatorFixture> {
             for (uint32_t i = 0; i < TimestampPacketSizeControl::preferredPacketCount; i++) {
                 assignDataToAllTimestamps(i, zeros);
             }
-            setPacketsUsed(packetsUsed);
         }
 
         void setToNonReadyState() {
@@ -237,7 +236,7 @@ TEST_F(TagAllocatorTest, givenInputTagCountWhenCreatingAllocatorThenRequestedNum
         using MockMemoryManager::MockMemoryManager;
         GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override {
             return new MemoryAllocation(0, TimestampPackets<uint32_t>::getAllocationType(), nullptr, nullptr, 0, MemoryConstants::pageSize,
-                                        1, MemoryPool::System4KBPages, false, false, mockMaxOsContextCount);
+                                        1, MemoryPool::System4KBPages, false, false, MemoryManager::maxOsContextCount);
         }
     };
 
@@ -519,11 +518,11 @@ HWTEST_F(TagAllocatorTest, givenMultipleRootDevicesWhenCallingMakeResidentThenUs
     auto multiGraphicsAllocation = timestampPacketAllocator.gfxAllocations[0].get();
 
     auto rootCsr0 = std::unique_ptr<UltCommandStreamReceiver<FamilyType>>(static_cast<UltCommandStreamReceiver<FamilyType> *>(createCommandStream(*executionEnvironment, 0, 1)));
-    auto osContext0 = testMemoryManager->createAndRegisterOsContext(rootCsr0.get(), {aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular}, 1, PreemptionMode::Disabled, true);
+    auto osContext0 = testMemoryManager->createAndRegisterOsContext(rootCsr0.get(), EngineDescriptorHelper::getDefaultDescriptor({aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular}, true));
     rootCsr0->setupContext(*osContext0);
 
     auto rootCsr1 = std::unique_ptr<UltCommandStreamReceiver<FamilyType>>(static_cast<UltCommandStreamReceiver<FamilyType> *>(createCommandStream(*executionEnvironment, 1, 1)));
-    auto osContext1 = testMemoryManager->createAndRegisterOsContext(rootCsr1.get(), {aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular}, 1, PreemptionMode::Disabled, true);
+    auto osContext1 = testMemoryManager->createAndRegisterOsContext(rootCsr1.get(), EngineDescriptorHelper::getDefaultDescriptor({aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular}, true));
     rootCsr1->setupContext(*osContext1);
 
     rootCsr0->storeMakeResidentAllocations = true;
@@ -553,8 +552,6 @@ TEST_F(TagAllocatorTest, givenNotSupportedTagTypeWhenCallingMethodThenAbortOrRet
         EXPECT_ANY_THROW(perfCounterNode.getGlobalEndValue(0));
         EXPECT_ANY_THROW(perfCounterNode.getContextCompleteRef());
         EXPECT_ANY_THROW(perfCounterNode.getGlobalEndRef());
-        EXPECT_ANY_THROW(perfCounterNode.setPacketsUsed(0));
-        EXPECT_ANY_THROW(perfCounterNode.getPacketsUsed());
         EXPECT_ANY_THROW(perfCounterNode.getSinglePacketSize());
         EXPECT_ANY_THROW(perfCounterNode.assignDataToAllTimestamps(0, nullptr));
     }
@@ -566,8 +563,6 @@ TEST_F(TagAllocatorTest, givenNotSupportedTagTypeWhenCallingMethodThenAbortOrRet
         EXPECT_ANY_THROW(hwTimestampNode.getContextStartOffset());
         EXPECT_ANY_THROW(hwTimestampNode.getContextEndOffset());
         EXPECT_ANY_THROW(hwTimestampNode.getGlobalEndOffset());
-        EXPECT_ANY_THROW(hwTimestampNode.setPacketsUsed(0));
-        EXPECT_ANY_THROW(hwTimestampNode.getPacketsUsed());
         EXPECT_ANY_THROW(hwTimestampNode.getSinglePacketSize());
         EXPECT_ANY_THROW(hwTimestampNode.assignDataToAllTimestamps(0, nullptr));
         EXPECT_ANY_THROW(hwTimestampNode.getQueryHandleRef());

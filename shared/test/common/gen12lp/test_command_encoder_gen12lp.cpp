@@ -20,7 +20,7 @@ using namespace NEO;
 
 using CommandEncoderTest = Test<DeviceFixture>;
 
-GEN12LPTEST_F(CommandEncoderTest, givenAdjustStateComputeModeThenStateComputeModeShowsNonCoherencySet) {
+GEN12LPTEST_F(CommandEncoderTest, WhenAdjustComputeModeIsCalledThenStateComputeModeShowsNonCoherencySet) {
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
     using FORCE_NON_COHERENT = typename STATE_COMPUTE_MODE::FORCE_NON_COHERENT;
 
@@ -32,7 +32,10 @@ GEN12LPTEST_F(CommandEncoderTest, givenAdjustStateComputeModeThenStateComputeMod
     auto usedSpaceBefore = cmdContainer.getCommandStream()->getUsed();
 
     // Adjust the State Compute Mode which sets FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT
-    EncodeStates<FamilyType>::adjustStateComputeMode(*cmdContainer.getCommandStream(), cmdContainer.lastSentNumGrfRequired, nullptr, false, 0);
+    StreamProperties properties{};
+    properties.stateComputeMode.setProperties(false, cmdContainer.lastSentNumGrfRequired, 0);
+    NEO::EncodeComputeMode<FamilyType>::adjustComputeMode(*cmdContainer.getCommandStream(), nullptr,
+                                                          properties.stateComputeMode, *defaultHwInfo);
 
     auto usedSpaceAfter = cmdContainer.getCommandStream()->getUsed();
     ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
@@ -105,9 +108,11 @@ GEN12LPTEST_F(CommandEncoderTest, givenVariousEngineTypesWhenEstimateCommandBuff
     using PIPELINE_SELECT = typename FamilyType::PIPELINE_SELECT;
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
 
-    auto sizeWA = EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(pDevice, Vec3<size_t>(0, 0, 0), Vec3<size_t>(1, 1, 1), false);
+    auto sizeWA = EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(pDevice, Vec3<size_t>(0, 0, 0),
+                                                                                         Vec3<size_t>(1, 1, 1), false, false);
     static_cast<MockOsContext *>(pDevice->getDefaultEngine().osContext)->engineType = aub_stream::ENGINE_CCS;
-    auto size = EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(pDevice, Vec3<size_t>(0, 0, 0), Vec3<size_t>(1, 1, 1), false);
+    auto size = EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(pDevice, Vec3<size_t>(0, 0, 0),
+                                                                                       Vec3<size_t>(1, 1, 1), false, false);
 
     auto expectedDiff = 2 * PreambleHelper<FamilyType>::getCmdSizeForPipelineSelect(pDevice->getHardwareInfo());
     auto diff = sizeWA - size;

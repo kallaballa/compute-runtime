@@ -459,11 +459,19 @@ TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeConstantB
     EXPECT_EQ(nullptr, prog->getConstantSurface(pContext->getDevice(0)->getRootDeviceIndex()));
     ProgramInfo programInfo;
     programInfo.prepareLinkerInputStorage();
+
     NEO::LinkerInput::RelocationInfo relocInfo;
     relocInfo.relocationSegment = NEO::SegmentType::GlobalConstants;
-    relocInfo.symbolSegment = NEO::SegmentType::GlobalConstants;
     relocInfo.offset = 0U;
     relocInfo.type = NEO::LinkerInput::RelocationInfo::Type::Address;
+    relocInfo.symbolName = "GlobalConstantPointer";
+
+    NEO::SymbolInfo symbol = {};
+    symbol.offset = 0U;
+    symbol.size = 8U;
+    symbol.segment = NEO::SegmentType::GlobalConstants;
+
+    programInfo.linkerInput->addSymbol("GlobalConstantPointer", symbol);
     programInfo.linkerInput->addDataRelocationInfo(relocInfo);
     programInfo.linkerInput->setPointerSize(LinkerInput::Traits::PointerSize::Ptr32bit);
 
@@ -499,10 +507,17 @@ TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeGlobalPoi
     ProgramInfo programInfo;
     programInfo.prepareLinkerInputStorage();
     NEO::LinkerInput::RelocationInfo relocInfo;
-    relocInfo.relocationSegment = NEO::SegmentType::GlobalVariables;
-    relocInfo.symbolSegment = NEO::SegmentType::GlobalVariables;
     relocInfo.offset = 0U;
     relocInfo.type = NEO::LinkerInput::RelocationInfo::Type::Address;
+    relocInfo.relocationSegment = NEO::SegmentType::GlobalVariables;
+    relocInfo.symbolName = "GlobalVariablePointer";
+
+    NEO::SymbolInfo symbol = {};
+    symbol.offset = 0U;
+    symbol.size = 8U;
+    symbol.segment = NEO::SegmentType::GlobalVariables;
+
+    programInfo.linkerInput->addSymbol("GlobalVariablePointer", symbol);
     programInfo.linkerInput->addDataRelocationInfo(relocInfo);
     programInfo.linkerInput->setPointerSize(LinkerInput::Traits::PointerSize::Ptr32bit);
 
@@ -674,4 +689,28 @@ TEST_F(ProgramDataTest, whenRelocationsAreNotNeededThenIsaIsPreserved) {
     buildInfo.globalSurface = nullptr;
     delete buildInfo.constantSurface;
     buildInfo.constantSurface = nullptr;
+}
+
+TEST(ProgramImplicitArgsTest, whenImplicitRelocationIsPresentThenKernelRequiresImplicitArgs) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    auto rootDeviceIndex = device->getRootDeviceIndex();
+    MockProgram program{nullptr, false, toClDeviceVector(*device)};
+    KernelInfo kernelInfo = {};
+    kernelInfo.kernelDescriptor.kernelMetadata.kernelName = "onlyKernel";
+    uint8_t kernelHeapData[64] = {};
+    kernelInfo.heapInfo.pKernelHeap = kernelHeapData;
+    kernelInfo.heapInfo.KernelHeapSize = 64;
+    MockGraphicsAllocation kernelIsa(kernelHeapData, 64);
+    kernelInfo.kernelAllocation = &kernelIsa;
+    program.getKernelInfoArray(rootDeviceIndex).push_back(&kernelInfo);
+
+    auto linkerInput = std::make_unique<WhiteBox<LinkerInput>>();
+    linkerInput->relocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
+    linkerInput->traits.requiresPatchingOfInstructionSegments = true;
+    program.setLinkerInput(rootDeviceIndex, std::move(linkerInput));
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, ret);
+
+    EXPECT_TRUE(kernelInfo.kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs);
+    program.getKernelInfoArray(rootDeviceIndex).clear();
 }

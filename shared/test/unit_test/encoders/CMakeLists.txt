@@ -6,6 +6,7 @@
 
 target_sources(${TARGET_NAME} PRIVATE
                ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+               ${CMAKE_CURRENT_SOURCE_DIR}/test_command_encoder.cpp
                ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_atomic.cpp
                ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_command_buffer.cpp
                ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_dispatch_kernel.cpp
@@ -18,5 +19,17 @@ target_sources(${TARGET_NAME} PRIVATE
                ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_states.cpp
                ${CMAKE_CURRENT_SOURCE_DIR}/test_implicit_scaling.cpp
 )
+
+if(TESTS_XEHP_AND_LATER)
+  target_sources(${TARGET_NAME} PRIVATE
+                 ${CMAKE_CURRENT_SOURCE_DIR}/command_encoder_tests_xehp_and_later.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_dispatch_kernel_xehp_and_later.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_grf_mode_xe_hp_and_later.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_math_xehp_and_later.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_media_interface_descriptor_xehp_and_later.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/test_encode_mi_flush_dw_xehp_and_later.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/test_implicit_scaling_xehp_and_later.cpp
+  )
+endif()
 
 add_subdirectories()

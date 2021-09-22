@@ -5,11 +5,13 @@
  *
  */
 
+#include "shared/source/ail/ail_configuration.h"
 #include "shared/source/aub/aub_center.h"
 #include "shared/source/built_ins/built_ins.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/device/device.h"
+#include "shared/source/direct_submission/direct_submission_controller.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -27,6 +29,7 @@
 #include "opencl/test/unit_test/mocks/mock_async_event_handler.h"
 #include "opencl/test/unit_test/mocks/mock_cl_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "test.h"
 
 using namespace NEO;
@@ -60,11 +63,11 @@ TEST(ExecutionEnvironment, WhenCreatingDevicesThenThoseDevicesAddRefcountsToExec
 
     auto expectedRefCounts = executionEnvironment->getRefInternalCount();
     auto devices = DeviceFactory::createDevices(*executionEnvironment);
-    EXPECT_LT(0u, devices[0]->getNumAvailableDevices());
-    if (devices[0]->getNumAvailableDevices() > 1) {
+    EXPECT_LE(0u, devices[0]->getNumSubDevices());
+    if (devices[0]->getNumSubDevices() > 1) {
         expectedRefCounts++;
     }
-    expectedRefCounts += devices[0]->getNumAvailableDevices();
+    expectedRefCounts += std::max(devices[0]->getNumSubDevices(), 1u);
     EXPECT_EQ(expectedRefCounts, executionEnvironment->getRefInternalCount());
 }
 
@@ -157,6 +160,24 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
     EXPECT_EQ(enableLocalMemory, executionEnvironment->memoryManager->isLocalMemorySupported(device->getRootDeviceIndex()));
 }
 
+TEST(ExecutionEnvironment, givenEnableDirectSubmissionControllerSetWhenGetDirectSubmissionControllerThenNotNull) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableDirectSubmissionController.set(1);
+
+    auto controller = platform()->peekExecutionEnvironment()->getDirectSubmissionController();
+
+    EXPECT_NE(controller, nullptr);
+}
+
+TEST(ExecutionEnvironment, givenEnableDirectSubmissionControllerSetZeroWhenGetDirectSubmissionControllerThenNull) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableDirectSubmissionController.set(0);
+
+    auto controller = platform()->peekExecutionEnvironment()->getDirectSubmissionController();
+
+    EXPECT_EQ(controller, nullptr);
+}
+
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerIsCalledThenItIsInitalized) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     executionEnvironment->initializeMemoryManager();
@@ -165,6 +186,7 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
 static_assert(sizeof(ExecutionEnvironment) == sizeof(std::unique_ptr<HardwareInfo>) +
                                                   sizeof(std::vector<RootDeviceEnvironment>) +
                                                   sizeof(std::unique_ptr<OsEnvironment>) +
+                                                  sizeof(std::unique_ptr<DirectSubmissionController>) +
                                                   sizeof(bool) +
                                                   (is64bit ? 23 : 15),
               "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
@@ -172,8 +194,11 @@ static_assert(sizeof(ExecutionEnvironment) == sizeof(std::unique_ptr<HardwareInf
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDestroyedThenDeleteSequenceIsSpecified) {
     uint32_t destructorId = 0u;
 
-    struct MemoryMangerMock : public DestructorCounted<MockMemoryManager, 7> {
+    struct MemoryMangerMock : public DestructorCounted<MockMemoryManager, 8> {
         MemoryMangerMock(uint32_t &destructorId, ExecutionEnvironment &executionEnvironment) : DestructorCounted(destructorId, executionEnvironment) {}
+    };
+    struct DirectSubmissionControllerMock : public DestructorCounted<DirectSubmissionController, 7> {
+        DirectSubmissionControllerMock(uint32_t &destructorId) : DestructorCounted(destructorId) {}
     };
     struct GmmHelperMock : public DestructorCounted<GmmHelper, 6> {
         GmmHelperMock(uint32_t &destructorId, const HardwareInfo *hwInfo) : DestructorCounted(destructorId, nullptr, hwInfo) {}
@@ -210,9 +235,10 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDe
     executionEnvironment->rootDeviceEnvironments[0]->builtins = std::make_unique<BuiltinsMock>(destructorId);
     executionEnvironment->rootDeviceEnvironments[0]->compilerInterface = std::make_unique<CompilerInterfaceMock>(destructorId);
     executionEnvironment->rootDeviceEnvironments[0]->debugger = std::make_unique<SourceLevelDebuggerMock>(destructorId);
+    executionEnvironment->directSubmissionController = std::make_unique<DirectSubmissionControllerMock>(destructorId);
 
     executionEnvironment.reset(nullptr);
-    EXPECT_EQ(8u, destructorId);
+    EXPECT_EQ(9u, destructorId);
 }
 
 TEST(ExecutionEnvironment, givenMultipleRootDevicesWhenTheyAreCreatedThenReuseMemoryManager) {
@@ -240,21 +266,40 @@ TEST(ExecutionEnvironment, givenUnproperSetCsrFlagValueWhenInitializingMemoryMan
 }
 
 TEST(ExecutionEnvironment, whenCalculateMaxOsContexCountThenGlobalVariableHasProperValue) {
+    DebugManagerStateRestore restore;
     VariableBackup<uint32_t> osContextCountBackup(&MemoryManager::maxOsContextCount, 0);
     uint32_t numRootDevices = 17u;
-    MockExecutionEnvironment executionEnvironment(nullptr, true, numRootDevices);
+    uint32_t expectedOsContextCount = 0u;
+    uint32_t expectedOsContextCountForCcs = 0u;
 
-    auto expectedOsContextCount = 0u;
-    for (const auto &rootDeviceEnvironment : executionEnvironment.rootDeviceEnvironments) {
-        auto hwInfo = rootDeviceEnvironment->getHardwareInfo();
-        auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
-        auto osContextCount = hwHelper.getGpgpuEngineInstances(*hwInfo).size();
-        auto subDevicesCount = HwHelper::getSubDevicesCount(hwInfo);
-        bool hasRootCsr = subDevicesCount > 1;
-        expectedOsContextCount += static_cast<uint32_t>(osContextCount * subDevicesCount + hasRootCsr);
+    {
+        DebugManager.flags.EngineInstancedSubDevices.set(false);
+        MockExecutionEnvironment executionEnvironment(nullptr, true, numRootDevices);
+
+        for (const auto &rootDeviceEnvironment : executionEnvironment.rootDeviceEnvironments) {
+            auto hwInfo = rootDeviceEnvironment->getHardwareInfo();
+            auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
+            auto osContextCount = hwHelper.getGpgpuEngineInstances(*hwInfo).size();
+            auto subDevicesCount = HwHelper::getSubDevicesCount(hwInfo);
+            bool hasRootCsr = subDevicesCount > 1;
+            auto ccsCount = hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled;
+
+            expectedOsContextCount += static_cast<uint32_t>(osContextCount * subDevicesCount + hasRootCsr);
+
+            if (ccsCount > 1) {
+                expectedOsContextCountForCcs += ccsCount * subDevicesCount;
+            }
+        }
+
+        EXPECT_EQ(expectedOsContextCount, MemoryManager::maxOsContextCount);
     }
 
-    EXPECT_EQ(expectedOsContextCount, MemoryManager::maxOsContextCount);
+    {
+        DebugManager.flags.EngineInstancedSubDevices.set(true);
+        MockExecutionEnvironment executionEnvironment(nullptr, true, numRootDevices);
+
+        EXPECT_EQ(expectedOsContextCount + expectedOsContextCountForCcs, MemoryManager::maxOsContextCount);
+    }
 }
 
 TEST(ClExecutionEnvironment, WhenExecutionEnvironmentIsDeletedThenAsyncEventHandlerThreadIsDestroyed) {

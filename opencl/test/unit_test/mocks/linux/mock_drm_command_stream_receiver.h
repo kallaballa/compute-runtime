@@ -21,6 +21,7 @@ class TestedDrmCommandStreamReceiver : public DrmCommandStreamReceiver<GfxFamily
     using CommandStreamReceiver::flushStamp;
     using CommandStreamReceiver::getTagAddress;
     using CommandStreamReceiver::globalFenceAllocation;
+    using CommandStreamReceiver::latestSentTaskCount;
     using CommandStreamReceiver::makeResident;
     using CommandStreamReceiver::taskCount;
     using CommandStreamReceiver::useGpuIdleImplicitFlush;
@@ -84,18 +85,22 @@ class TestedDrmCommandStreamReceiver : public DrmCommandStreamReceiver<GfxFamily
     struct WaitUserFenceResult {
         uint32_t called = 0u;
         uint32_t waitValue = 0u;
+        uint32_t partitionCount = 0;
+        uint32_t offsetSize = 0;
         int returnValue = 0;
         bool callParent = true;
     };
 
     WaitUserFenceResult waitUserFenceResult;
 
-    int waitUserFence(uint32_t waitValue) override {
+    int waitUserFence(uint32_t waitValue, uint32_t partitionCount, uint32_t offsetSize) override {
         waitUserFenceResult.called++;
         waitUserFenceResult.waitValue = waitValue;
+        waitUserFenceResult.partitionCount = partitionCount;
+        waitUserFenceResult.offsetSize = offsetSize;
 
         if (waitUserFenceResult.callParent) {
-            return DrmCommandStreamReceiver<GfxFamily>::waitUserFence(waitValue);
+            return DrmCommandStreamReceiver<GfxFamily>::waitUserFence(waitValue, partitionCount, offsetSize);
         } else {
             return waitUserFenceResult.returnValue;
         }

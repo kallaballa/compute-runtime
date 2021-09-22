@@ -15,7 +15,7 @@ Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *
 
     if (eventPool->isEventPoolTimestampFlagSet()) {
         event->setEventTimestampFlag(true);
-        event->kernelTimestampsData = std::make_unique<NEO::TimestampPackets<TagSizeT>[]>(EventPacketsCount::maxKernelSplit);
+        event->kernelTimestampsData = std::make_unique<KernelTimestampsData<TagSizeT>[]>(EventPacketsCount::maxKernelSplit);
     }
 
     auto alloc = eventPool->getAllocation().getGraphicsAllocation(device->getNEODevice()->getRootDeviceIndex());
@@ -25,7 +25,13 @@ Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *
     event->signalScope = desc->signal;
     event->waitScope = desc->wait;
     event->csr = static_cast<DeviceImp *>(device)->neoDevice->getDefaultEngine().commandStreamReceiver;
-    event->reset();
+
+    EventPoolImp *EventPoolImp = static_cast<struct EventPoolImp *>(eventPool);
+    // do not reset even if it has been imported, since event pool
+    // might have been imported after events being already signaled
+    if (EventPoolImp->isImportedIpcPool == false) {
+        event->reset();
+    }
 
     return event;
 }
@@ -97,7 +103,6 @@ template <typename TagSizeT>
 ze_result_t EventImp<TagSizeT>::queryStatus() {
     uint64_t *hostAddr = static_cast<uint64_t *>(hostAddress);
     uint32_t queryVal = Event::STATE_CLEARED;
-    ze_result_t retVal;
 
     if (metricStreamer != nullptr) {
         *hostAddr = metricStreamer->getNotificationState();
@@ -107,13 +112,7 @@ ze_result_t EventImp<TagSizeT>::queryStatus() {
         return queryStatusKernelTimestamp();
     }
     memcpy_s(static_cast<void *>(&queryVal), sizeof(uint32_t), static_cast<void *>(hostAddr), sizeof(uint32_t));
-    retVal = (queryVal == Event::STATE_CLEARED) ? ZE_RESULT_NOT_READY : ZE_RESULT_SUCCESS;
-
-    if (retVal == ZE_RESULT_NOT_READY) {
-        return retVal;
-    }
-
-    return retVal;
+    return (queryVal == Event::STATE_CLEARED) ? ZE_RESULT_NOT_READY : ZE_RESULT_SUCCESS;
 }
 
 template <typename TagSizeT>
@@ -132,7 +131,7 @@ ze_result_t EventImp<TagSizeT>::hostEventSetValueTimestamps(TagSizeT eventVal) {
     };
     for (uint32_t i = 0; i < kernelCount; i++) {
         uint32_t packetsToSet = kernelTimestampsData[i].getPacketsUsed();
-        for (uint32_t i = 0; i < packetsToSet; i++) {
+        for (uint32_t j = 0; j < packetsToSet; j++) {
             eventTsSetFunc(baseAddr + NEO::TimestampPackets<TagSizeT>::getContextStartOffset());
             eventTsSetFunc(baseAddr + NEO::TimestampPackets<TagSizeT>::getGlobalStartOffset());
             eventTsSetFunc(baseAddr + NEO::TimestampPackets<TagSizeT>::getContextEndOffset());
@@ -245,6 +244,59 @@ ze_result_t EventImp<TagSizeT>::queryKernelTimestamp(ze_kernel_timestamp_result_
         eventTsSetFunc(globalStartTS, result.global.kernelStart);
         eventTsSetFunc(globalEndTS, result.context.kernelEnd);
         eventTsSetFunc(globalEndTS, result.global.kernelEnd);
+    }
+
+    return ZE_RESULT_SUCCESS;
+}
+
+template <typename TagSizeT>
+ze_result_t EventImp<TagSizeT>::queryTimestampsExp(Device *device, uint32_t *pCount, ze_kernel_timestamp_result_t *pTimestamps) {
+    uint32_t timestampPacket = 0;
+    uint64_t globalStartTs, globalEndTs, contextStartTs, contextEndTs;
+    globalStartTs = globalEndTs = contextStartTs = contextEndTs = Event::STATE_INITIAL;
+    auto deviceImp = static_cast<DeviceImp *>(device);
+    bool isStaticPartitioning = true;
+
+    if (NEO::DebugManager.flags.EnableStaticPartitioning.get() == 0) {
+        isStaticPartitioning = false;
+    }
+
+    if (!isStaticPartitioning) {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+
+    uint32_t numPacketsUsed = 1u;
+    if (!deviceImp->isSubdevice) {
+        numPacketsUsed = this->getPacketsInUse();
+    }
+
+    if ((*pCount == 0) ||
+        (*pCount > numPacketsUsed)) {
+        *pCount = numPacketsUsed;
+        return ZE_RESULT_SUCCESS;
+    }
+
+    for (auto i = 0u; i < *pCount; i++) {
+        ze_kernel_timestamp_result_t &result = *(pTimestamps + i);
+
+        auto queryTsEventAssignFunc = [&](uint64_t &timestampFieldForWriting, uint64_t &timestampFieldToCopy) {
+            memcpy_s(&timestampFieldForWriting, sizeof(uint64_t), static_cast<void *>(&timestampFieldToCopy), sizeof(uint64_t));
+        };
+
+        auto packetId = i;
+        if (deviceImp->isSubdevice) {
+            packetId = static_cast<NEO::SubDevice *>(deviceImp->neoDevice)->getSubDeviceIndex();
+        }
+
+        globalStartTs = kernelTimestampsData[timestampPacket].getGlobalStartValue(packetId);
+        contextStartTs = kernelTimestampsData[timestampPacket].getContextStartValue(packetId);
+        contextEndTs = kernelTimestampsData[timestampPacket].getContextEndValue(packetId);
+        globalEndTs = kernelTimestampsData[timestampPacket].getGlobalEndValue(packetId);
+
+        queryTsEventAssignFunc(result.global.kernelStart, globalStartTs);
+        queryTsEventAssignFunc(result.context.kernelStart, contextStartTs);
+        queryTsEventAssignFunc(result.global.kernelEnd, globalEndTs);
+        queryTsEventAssignFunc(result.context.kernelEnd, contextEndTs);
     }
 
     return ZE_RESULT_SUCCESS;

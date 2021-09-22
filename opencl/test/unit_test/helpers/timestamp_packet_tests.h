@@ -14,6 +14,7 @@
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "test.h"
 
 using namespace NEO;
@@ -24,11 +25,12 @@ struct TimestampPacketSimpleTests : public ::testing::Test {
         using TimestampPackets<uint32_t>::packets;
     };
 
+    template <typename FamilyType>
     void setTagToReadyState(TagNodeBase *tagNode) {
         auto packetsUsed = tagNode->getPacketsUsed();
         tagNode->initialize();
 
-        uint32_t zeros[4] = {};
+        typename FamilyType::TimestampPacketType zeros[4] = {};
 
         for (uint32_t i = 0; i < TimestampPacketSizeControl::preferredPacketCount; i++) {
             tagNode->assignDataToAllTimestamps(i, zeros);
@@ -55,7 +57,7 @@ struct TimestampPacketTests : public TimestampPacketSimpleTests {
         device = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
         context = new MockContext(device.get());
         kernel = std::make_unique<MockKernelWithInternals>(*device, context);
-        mockCmdQ = new MockCommandQueue(context, device.get(), nullptr);
+        mockCmdQ = new MockCommandQueue(context, device.get(), nullptr, false);
     }
 
     void TearDown() override {

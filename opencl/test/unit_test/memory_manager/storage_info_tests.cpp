@@ -71,17 +71,17 @@ TEST_F(MultiDeviceStorageInfoTest, givenDefaultFlagForMultiTileIsaPlacementWhenC
         AllocationProperties properties{mockRootDeviceIndex, false, 0u, isaTypes[i], false, false, singleTileMask};
 
         auto storageInfo = memoryManager->createStorageInfoFromProperties(properties);
-        EXPECT_FALSE(storageInfo.cloningOfPageTables);
-        EXPECT_EQ(allTilesMask, storageInfo.memoryBanks);
+        EXPECT_TRUE(storageInfo.cloningOfPageTables);
+        EXPECT_EQ(singleTileMask, storageInfo.memoryBanks);
         EXPECT_EQ(allTilesMask, storageInfo.pageTablesVisibility);
-        EXPECT_TRUE(storageInfo.tileInstanced);
+        EXPECT_FALSE(storageInfo.tileInstanced);
 
         properties.flags.multiOsContextCapable = true;
         auto storageInfo2 = memoryManager->createStorageInfoFromProperties(properties);
-        EXPECT_FALSE(storageInfo2.cloningOfPageTables);
-        EXPECT_EQ(allTilesMask, storageInfo2.memoryBanks);
+        EXPECT_TRUE(storageInfo2.cloningOfPageTables);
+        EXPECT_EQ(singleTileMask, storageInfo2.memoryBanks);
         EXPECT_EQ(allTilesMask, storageInfo2.pageTablesVisibility);
-        EXPECT_TRUE(storageInfo2.tileInstanced);
+        EXPECT_FALSE(storageInfo2.tileInstanced);
     }
 }
 
@@ -95,35 +95,37 @@ TEST_F(MultiDeviceStorageInfoTest, givenDisabledFlagForMultiTileIsaPlacementWhen
         AllocationProperties properties{mockRootDeviceIndex, false, 0u, isaTypes[i], false, false, singleTileMask};
         auto storageInfo = memoryManager->createStorageInfoFromProperties(properties);
         EXPECT_TRUE(storageInfo.cloningOfPageTables);
-        EXPECT_EQ(0x1lu, storageInfo.memoryBanks.to_ulong());
+        EXPECT_EQ(singleTileMask, storageInfo.memoryBanks.to_ulong());
         EXPECT_EQ(allTilesMask, storageInfo.pageTablesVisibility);
         EXPECT_FALSE(storageInfo.tileInstanced);
 
         properties.flags.multiOsContextCapable = true;
         auto storageInfo2 = memoryManager->createStorageInfoFromProperties(properties);
         EXPECT_TRUE(storageInfo2.cloningOfPageTables);
-        EXPECT_EQ(0x1lu, storageInfo2.memoryBanks.to_ulong());
+        EXPECT_EQ(singleTileMask, storageInfo2.memoryBanks.to_ulong());
         EXPECT_EQ(allTilesMask, storageInfo.pageTablesVisibility);
         EXPECT_FALSE(storageInfo2.tileInstanced);
     }
 }
 
-TEST_F(MultiDeviceStorageInfoTest, whenCreatingStorageInfoForPrivateSurfaceThenAllMemoryBanksAreOnAndPageTableClonningIsNotRequired) {
+TEST_F(MultiDeviceStorageInfoTest, whenCreatingStorageInfoForPrivateSurfaceWithOneTileThenOnlySingleBankIsUsed) {
     AllocationProperties properties{mockRootDeviceIndex, false, 0u, GraphicsAllocation::AllocationType::PRIVATE_SURFACE, false, false, singleTileMask};
+    auto storageInfo = memoryManager->createStorageInfoFromProperties(properties);
+    EXPECT_FALSE(storageInfo.cloningOfPageTables);
+    EXPECT_EQ(singleTileMask, storageInfo.memoryBanks);
+    EXPECT_EQ(singleTileMask, storageInfo.pageTablesVisibility);
+    EXPECT_FALSE(storageInfo.tileInstanced);
+    EXPECT_EQ(1u, storageInfo.getNumBanks());
+}
+
+TEST_F(MultiDeviceStorageInfoTest, whenCreatingStorageInfoForPrivateSurfaceThenAllMemoryBanksAreOnAndPageTableClonningIsNotRequired) {
+    AllocationProperties properties{mockRootDeviceIndex, false, 0u, GraphicsAllocation::AllocationType::PRIVATE_SURFACE, false, false, allTilesMask};
     auto storageInfo = memoryManager->createStorageInfoFromProperties(properties);
     EXPECT_FALSE(storageInfo.cloningOfPageTables);
     EXPECT_EQ(allTilesMask, storageInfo.memoryBanks);
     EXPECT_EQ(allTilesMask, storageInfo.pageTablesVisibility);
     EXPECT_TRUE(storageInfo.tileInstanced);
-    EXPECT_EQ(numDevices, storageInfo.getNumBanks());
-
-    properties.flags.multiOsContextCapable = true;
-    auto storageInfo2 = memoryManager->createStorageInfoFromProperties(properties);
-    EXPECT_FALSE(storageInfo2.cloningOfPageTables);
-    EXPECT_EQ(allTilesMask, storageInfo2.memoryBanks);
-    EXPECT_EQ(allTilesMask, storageInfo.pageTablesVisibility);
-    EXPECT_TRUE(storageInfo2.tileInstanced);
-    EXPECT_EQ(numDevices, storageInfo2.getNumBanks());
+    EXPECT_EQ(4u, storageInfo.getNumBanks());
 }
 
 TEST_F(MultiDeviceStorageInfoTest, givenMultiTileCsrWhenCreatingStorageInfoForInternalHeapThenSingleMemoryBankIsOnAndPageTableClonningIsRequired) {
@@ -221,7 +223,7 @@ TEST_F(MultiDeviceStorageInfoTest, whenCreatingStorageInfoForWorkPartitionSurfac
 }
 
 HWTEST_F(MultiDeviceStorageInfoTest, givenSingleTileCsrWhenAllocatingCsrSpecificAllocationsThenStoreThemInSystemMemory) {
-    auto commandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> *>(factory.rootDevices[0]->getDeviceById(tileIndex)->getDefaultEngine().commandStreamReceiver);
+    auto commandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> *>(factory.rootDevices[0]->getSubDevice(tileIndex)->getDefaultEngine().commandStreamReceiver);
     auto &heap = commandStreamReceiver->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, MemoryConstants::pageSize64k);
     auto heapAllocation = heap.getGraphicsAllocation();
     if (commandStreamReceiver->canUse4GbHeaps) {
@@ -348,7 +350,7 @@ TEST_F(MultiDeviceStorageInfoTest, givenReadOnlyBufferToBeCopiedAcrossTilesWhenD
 
 TEST_F(MultiDeviceStorageInfoTest, givenLeastOccupiedBankAndOtherBitsEnabledInSubDeviceBitfieldWhenCreateStorageInfoThenTakeLeastOccupiedBankAsMemoryBank) {
     AllocationProperties properties{mockRootDeviceIndex, false, 1u, GraphicsAllocation::AllocationType::UNKNOWN, false, singleTileMask};
-    auto leastOccupiedBank = memoryManager->localMemoryUsageBankSelector[properties.rootDeviceIndex]->getLeastOccupiedBank(properties.subDevicesBitfield);
+    auto leastOccupiedBank = memoryManager->getLocalMemoryUsageBankSelector(properties.allocationType, properties.rootDeviceIndex)->getLeastOccupiedBank(properties.subDevicesBitfield);
     properties.subDevicesBitfield.set(leastOccupiedBank);
     properties.subDevicesBitfield.set(leastOccupiedBank + 1);
     EXPECT_EQ(2u, properties.subDevicesBitfield.count());
@@ -421,7 +423,12 @@ TEST_F(MultiDeviceStorageInfoTest,
                                     false,
                                     allTilesMask};
     auto storageInfo = memoryManager->createStorageInfoFromProperties(properties);
-    EXPECT_EQ(allTilesMask, storageInfo.memoryBanks);
+
+    auto leastOccupiedBank = memoryManager->getLocalMemoryUsageBankSelector(properties.allocationType, properties.rootDeviceIndex)->getLeastOccupiedBank(properties.subDevicesBitfield);
+    DeviceBitfield allocationMask;
+    allocationMask.set(leastOccupiedBank);
+
+    EXPECT_EQ(allocationMask, storageInfo.memoryBanks);
     EXPECT_TRUE(storageInfo.cloningOfPageTables);
     EXPECT_FALSE(storageInfo.tileInstanced);
     EXPECT_EQ(allTilesMask, storageInfo.pageTablesVisibility);

@@ -30,7 +30,7 @@ static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
 static std::string spirvName = "SPIR-V";
-const char *latestConformanceVersionPassed = "v2020-11-23-00";
+const char *latestConformanceVersionPassed = "v2021-06-16-00";
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
 static std::string driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
@@ -197,7 +197,7 @@ void ClDevice::initializeCaps() {
         deviceExtensions += "cl_intel_media_block_io ";
     }
 
-    auto sharingAllowed = (getNumAvailableDevices() == 1u);
+    auto sharingAllowed = (getNumGenericSubDevices() <= 1u);
     if (sharingAllowed) {
         deviceExtensions += sharingFactory.getExtensions(driverInfo.get());
     }
@@ -245,8 +245,8 @@ void ClDevice::initializeCaps() {
     deviceInfo.deviceAvailable = CL_TRUE;
     deviceInfo.compilerAvailable = CL_TRUE;
     deviceInfo.parentDevice = nullptr;
-    deviceInfo.partitionMaxSubDevices = device.getNumAvailableDevices();
-    if (deviceInfo.partitionMaxSubDevices > 1) {
+    deviceInfo.partitionMaxSubDevices = device.getNumSubDevices();
+    if (deviceInfo.partitionMaxSubDevices > 0) {
         deviceInfo.partitionProperties[0] = CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN;
         deviceInfo.partitionProperties[1] = 0;
         deviceInfo.partitionAffinityDomain = CL_DEVICE_AFFINITY_DOMAIN_NUMA | CL_DEVICE_AFFINITY_DOMAIN_NEXT_PARTITIONABLE;
@@ -308,7 +308,11 @@ void ClDevice::initializeCaps() {
 
     deviceInfo.maxWorkItemDimensions = 3;
 
-    deviceInfo.maxComputUnits = systemInfo.EUCount * getNumAvailableDevices();
+    deviceInfo.maxComputUnits = systemInfo.EUCount * std::max(getNumGenericSubDevices(), 1u);
+    if (device.isEngineInstanced()) {
+        deviceInfo.maxComputUnits /= systemInfo.CCSInfo.NumberOfCCSEnabled;
+    }
+
     deviceInfo.maxConstantArgs = 8;
     deviceInfo.maxSliceCount = systemInfo.SliceCount;
 
@@ -375,16 +379,16 @@ void ClDevice::initializeCaps() {
         }
     }
 
-    const std::vector<std::vector<EngineControl>> &queueFamilies = this->getDevice().getEngineGroups();
-    for (size_t queueFamilyIndex = 0u; queueFamilyIndex < queueFamilies.size(); queueFamilyIndex++) {
-        const std::vector<EngineControl> &enginesInFamily = queueFamilies.at(queueFamilyIndex);
+    const auto &queueFamilies = this->getDevice().getEngineGroups();
+    for (size_t queueFamilyIndex = 0u; queueFamilyIndex < CommonConstants::engineGroupCount; queueFamilyIndex++) {
+        const std::vector<EngineControl> &enginesInFamily = queueFamilies[queueFamilyIndex];
         if (enginesInFamily.size() > 0) {
             const auto engineGroupType = static_cast<EngineGroupType>(queueFamilyIndex);
             cl_queue_family_properties_intel properties = {};
             properties.capabilities = getQueueFamilyCapabilities(engineGroupType);
             properties.count = static_cast<cl_uint>(enginesInFamily.size());
             properties.properties = deviceInfo.queueOnHostProperties;
-            getQueueFamilyName(properties.name, CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL, engineGroupType);
+            getQueueFamilyName(properties.name, engineGroupType);
             deviceInfo.queueFamilyProperties.push_back(properties);
         }
     }

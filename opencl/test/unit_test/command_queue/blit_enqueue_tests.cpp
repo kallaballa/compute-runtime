@@ -5,11 +5,13 @@
  *
  */
 
+#include "shared/source/helpers/local_memory_access_modes.h"
 #include "shared/source/helpers/pause_on_gpu_properties.h"
 #include "shared/source/helpers/vec.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_device.h"
@@ -36,7 +38,7 @@ struct BlitEnqueueTests : public ::testing::Test {
     class BcsMockContext : public MockContext {
       public:
         BcsMockContext(ClDevice *device) : MockContext(device) {
-            bcsOsContext.reset(OsContext::create(nullptr, 0, 0, EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+            bcsOsContext.reset(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular})));
             bcsCsr.reset(createCommandStream(*device->getExecutionEnvironment(), device->getRootDeviceIndex(), device->getDeviceBitfield()));
             bcsCsr->setupContext(*bcsOsContext);
             bcsCsr->initializeTagAllocation();
@@ -55,7 +57,7 @@ struct BlitEnqueueTests : public ::testing::Test {
 
                 BlitPropertiesContainer container;
                 container.push_back(blitProperties);
-                bcsCsr->blitBuffer(container, true, false);
+                bcsCsr->blitBuffer(container, true, false, const_cast<Device &>(device));
 
                 return BlitOperationResult::Success;
             };
@@ -89,7 +91,8 @@ struct BlitEnqueueTests : public ::testing::Test {
 
         if (createBcsEngine) {
             auto &engine = device->getEngine(getChosenEngineType(device->getHardwareInfo()), EngineUsage::LowPriority);
-            bcsOsContext.reset(OsContext::create(nullptr, 1, device->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+            bcsOsContext.reset(OsContext::create(nullptr, 1,
+                                                 EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular}, device->getDeviceBitfield())));
             engine.osContext = bcsOsContext.get();
             engine.commandStreamReceiver->setupContext(*bcsOsContext);
         }
@@ -614,6 +617,8 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenOutEventWhenDispatchingThenAssi
     cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(++cmdFound, cmdListQueue.end());
     eventNodeAddress = TimestampPacketHelper::getContextEndGpuAddress(*eventNodes[2]);
     verifySemaphore<FamilyType>(cmdFound, eventNodeAddress);
+
+    EXPECT_NE(0u, event->peekBcsTaskCountFromCommandQueue());
 
     clReleaseEvent(clEvent);
 }
@@ -1285,6 +1290,7 @@ HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventWithNotreadyBcsTaskCount
     commandQueue->updateBcsTaskCount(bcsTaskCount);
 
     Event event(commandQueue.get(), CL_COMMAND_WRITE_BUFFER, 1, gpgpuTaskCount);
+    event.setupBcs(bcsCsr->getOsContext().getEngineType());
     event.updateCompletionStamp(gpgpuTaskCount, bcsTaskCount, 1, 0);
 
     event.updateExecutionStatus();
@@ -1505,6 +1511,44 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenProfilingEn
     clReleaseEvent(clEvent);
 }
 
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenOutEventWhenEnqueuingBcsSubmissionThenSetupBcsCsrInEvent) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    {
+        DebugManager.flags.EnableBlitterForEnqueueOperations.set(0);
+
+        cl_event clEvent;
+        commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &clEvent);
+        EXPECT_EQ(EnqueueProperties::Operation::GpuKernel, mockCommandQueue->latestSentEnqueueType);
+        EXPECT_EQ(0u, bcsCsr->peekTaskCount());
+        EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+        auto event = castToObject<Event>(clEvent);
+        EXPECT_EQ(0u, event->peekBcsTaskCountFromCommandQueue());
+
+        clReleaseEvent(clEvent);
+    }
+    {
+        DebugManager.flags.EnableBlitterForEnqueueOperations.set(1);
+
+        cl_event clEvent;
+        commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &clEvent);
+        EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+        EXPECT_EQ(1u, bcsCsr->peekTaskCount());
+        EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
+
+        auto event = castToObject<Event>(clEvent);
+        EXPECT_EQ(1u, event->peekBcsTaskCountFromCommandQueue());
+
+        clReleaseEvent(clEvent);
+    }
+}
+
 HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushNotRequiredWhenDoingBcsCopyThenDontSubmitToGpgpu) {
     auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
     EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
@@ -1671,24 +1715,22 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushR
 HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenSubmissionToDifferentEngineWhenRequestingForNewTimestmapPacketThenDontClearDependencies) {
     auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
     const bool clearDependencies = true;
-    const bool blitEnqueue = true;
-    const bool nonBlitEnqueue = false;
 
     {
         TimestampPacketContainer previousNodes;
-        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, nonBlitEnqueue); // init
+        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, *gpgpuCsr); // init
         EXPECT_EQ(0u, previousNodes.peekNodes().size());
     }
 
     {
         TimestampPacketContainer previousNodes;
-        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, blitEnqueue);
+        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, *bcsCsr);
         EXPECT_EQ(1u, previousNodes.peekNodes().size());
     }
 
     {
         TimestampPacketContainer previousNodes;
-        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, blitEnqueue);
+        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, *bcsCsr);
         EXPECT_EQ(0u, previousNodes.peekNodes().size());
     }
 }

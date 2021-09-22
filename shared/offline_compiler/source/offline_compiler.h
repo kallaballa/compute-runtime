@@ -41,19 +41,26 @@ class OfflineCompiler {
         INVALID_PROGRAM = -44,
         INVALID_COMMAND_LINE = -5150,
         INVALID_FILE = -5151,
-        PRINT_USAGE = -5152,
-    };
-    enum QueryOption {
-        QUERY_OCL_DRIVER_VERSION = 0,
-        QUERY_NEO_REVISION = 1,
-        QUERY_LAST,
     };
 
-    static OfflineCompiler *create(size_t numArgs, const std::vector<std::string> &allArgs, bool dumpFiles, int &retVal, OclocArgHelper *helper);
     static int query(size_t numArgs, const std::vector<std::string> &allArgs, OclocArgHelper *helper);
+
+    static OfflineCompiler *create(size_t numArgs, const std::vector<std::string> &allArgs, bool dumpFiles, int &retVal, OclocArgHelper *helper);
     int build();
     std::string &getBuildLog();
     void printUsage();
+
+    static constexpr ConstStringRef queryHelp =
+        "Depending on <query_option> will generate file\n"
+        "(with a name adequate to <query_option>)\n"
+        "containing either driver version or NEO revision hash.\n\n"
+        "Usage: ocloc query <query_option>\n\n"
+        "Supported query options:\n"
+        "  OCL_DRIVER_VERSION  ; returns driver version\n"
+        "  NEO_REVISION        ; returns NEO revision hash\n\n"
+        "Examples:\n"
+        "  Extract driver version\n"
+        "    ocloc query OCL_DRIVER_VERSION\n";
 
     OfflineCompiler &operator=(const OfflineCompiler &) = delete;
     OfflineCompiler(const OfflineCompiler &) = delete;
@@ -87,9 +94,9 @@ class OfflineCompiler {
     std::string getStringWithinDelimiters(const std::string &src);
     int initialize(size_t numArgs, const std::vector<std::string> &allArgs, bool dumpFiles);
     int parseCommandLine(size_t numArgs, const std::vector<std::string> &allArgs);
-    int performQuery();
     void setStatelessToStatefullBufferOffsetFlag();
     void resolveExtraSettings();
+    bool isMidThreadPreemptionSupported(const HardwareInfo &hwInfo);
     void parseDebugSettings();
     void storeBinary(char *&pDst, size_t &dstSize, const void *pSrc, const size_t srcSize);
     MOCKABLE_VIRTUAL int buildSourceCode();
@@ -119,8 +126,8 @@ class OfflineCompiler {
     std::string internalOptions;
     std::string sourceCode;
     std::string buildLog;
-    bool dumpFiles = true;
 
+    bool dumpFiles = true;
     bool useLlvmText = false;
     bool useLlvmBc = false;
     bool useCppFile = false;
@@ -131,15 +138,14 @@ class OfflineCompiler {
     bool inputFileSpirV = false;
     bool outputNoSuffix = false;
     bool forceStatelessToStatefulOptimization = false;
-    bool queryInvoke = false;
-    int queryOption = QUERY_LAST;
+    bool isSpirV = false;
+    bool showHelp = false;
 
     std::vector<uint8_t> elfBinary;
     char *genBinary = nullptr;
     size_t genBinarySize = 0;
     char *irBinary = nullptr;
     size_t irBinarySize = 0;
-    bool isSpirV = false;
     char *debugDataBinary = nullptr;
     size_t debugDataBinarySize = 0;
     struct buildInfo;

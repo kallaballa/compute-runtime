@@ -8,7 +8,6 @@
 #include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/gen12lp/helpers_gen12lp.h"
-#include "shared/source/helpers/hw_helper.h"
 
 #include "opencl/source/command_stream/command_stream_receiver_simulated_common_hw.h"
 
@@ -17,30 +16,6 @@ namespace Gen12LPHelpers {
 
 bool pipeControlWaRequired(PRODUCT_FAMILY productFamily) {
     return (productFamily == IGFX_TIGERLAKE_LP) || (productFamily == IGFX_DG1);
-}
-
-uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) {
-    if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_DG1) {
-        switch (stepping) {
-        case REVISION_A0:
-            return 0x0;
-        case REVISION_B:
-            return 0x1;
-        }
-    }
-    return CommonConstants::invalidStepping;
-}
-
-uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo) {
-    if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_DG1) {
-        switch (hwInfo.platform.usRevId) {
-        case 0x0:
-            return REVISION_A0;
-        case 0x1:
-            return REVISION_B;
-        }
-    }
-    return CommonConstants::invalidStepping;
 }
 
 bool imagePitchAlignmentWaRequired(PRODUCT_FAMILY productFamily) {
@@ -69,10 +44,6 @@ uint64_t getPPGTTAdditionalBits(GraphicsAllocation *graphicsAllocation) {
 void adjustAubGTTData(const CommandStreamReceiver &commandStreamReceiver, AubGTTData &data) {
     data.localMemory = commandStreamReceiver.isLocalMemoryEnabled();
 }
-
-void setAdditionalPipelineSelectFields(void *pipelineSelectCmd,
-                                       const PipelineSelectArgs &pipelineSelectArgs,
-                                       const HardwareInfo &hwInfo) {}
 
 bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) {
     HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);

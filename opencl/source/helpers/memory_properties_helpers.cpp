@@ -12,13 +12,7 @@
 
 namespace NEO {
 
-void MemoryPropertiesHelper::addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel,
-                                                      const Device *pDevice) {
-}
-
-DeviceBitfield MemoryPropertiesHelper::adjustDeviceBitfield(uint32_t rootDeviceIndex, const MemoryProperties &memoryProperties,
-                                                            DeviceBitfield deviceBitfield) {
-    return deviceBitfield;
+void MemoryPropertiesHelper::addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel) {
 }
 
 bool MemoryPropertiesHelper::parseMemoryProperties(const cl_mem_properties_intel *properties, MemoryProperties &memoryProperties,
@@ -59,11 +53,11 @@ bool MemoryPropertiesHelper::parseMemoryProperties(const cl_mem_properties_intel
     return true;
 }
 
-void MemoryPropertiesHelper::fillPoliciesInProperties(AllocationProperties &allocationProperties, const MemoryProperties &memoryProperties, const HardwareInfo &hwInfo) {
+void MemoryPropertiesHelper::fillPoliciesInProperties(AllocationProperties &allocationProperties, const MemoryProperties &memoryProperties, const HardwareInfo &hwInfo, bool deviceOnlyVisibilty) {
     fillCachePolicyInProperties(allocationProperties,
                                 memoryProperties.flags.locallyUncachedResource,
                                 memoryProperties.flags.readOnly,
-                                false,
+                                deviceOnlyVisibilty,
                                 0);
 }
 

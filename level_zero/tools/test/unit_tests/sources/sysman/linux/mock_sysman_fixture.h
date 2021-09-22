@@ -38,6 +38,7 @@ class PublicLinuxSysmanImp : public L0::LinuxSysmanImp {
     using LinuxSysmanImp::pPmuInterface;
     using LinuxSysmanImp::pProcfsAccess;
     using LinuxSysmanImp::pSysfsAccess;
+    using LinuxSysmanImp::pXmlParser;
 };
 
 class SysmanDeviceFixture : public DeviceFixture, public ::testing::Test {
@@ -94,6 +95,16 @@ class SysmanMultiDeviceFixture : public MultiDeviceFixture, public ::testing::Te
     NEO::Device *neoDevice = nullptr;
     L0::Device *device = nullptr;
     uint32_t subDeviceCount = 0u;
+};
+
+class PublicFsAccess : public L0::FsAccess {
+  public:
+    using FsAccess::accessSyscall;
+};
+
+class PublicSysfsAccess : public L0::SysfsAccess {
+  public:
+    using SysfsAccess::accessSyscall;
 };
 
 } // namespace ult

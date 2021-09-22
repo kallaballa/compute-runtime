@@ -77,7 +77,8 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         false,                                                                       //usePerDssBackedBuffer
         false,                                                                       //useSingleSubdevice
         false,                                                                       //useGlobalAtomics
-        1u);                                                                         //numDevicesInContext
+        false,                                                                       //areMultipleSubDevicesInContext
+        false);                                                                      //memoryMigrationRequired
 
     DEBUG_BREAK_IF(taskLevel >= CompletionStamp::notReady);
 
@@ -95,7 +96,7 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
     commandQueue.updateLatestSentEnqueueType(EnqueueProperties::Operation::DependencyResolveOnGpu);
 
     if (!memObj.isMemObjZeroCopy()) {
-        commandQueue.waitUntilComplete(completionStamp.taskCount, commandQueue.peekBcsTaskCount(), completionStamp.flushStamp, false);
+        commandQueue.waitUntilComplete(completionStamp.taskCount, 0u, completionStamp.flushStamp, false);
         if (operationType == MAP) {
             memObj.transferDataToHostPtr(copySize, copyOffset);
         } else if (!readOnly) {
@@ -203,7 +204,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     }
 
     if (kernelOperation->blitPropertiesContainer.size() > 0) {
-        auto &bcsCsr = *commandQueue.getBcsCommandStreamReceiver();
+        auto &bcsCsr = *commandQueue.getBcsForAuxTranslation();
         CsrDependencies csrDeps;
         eventsRequest.fillCsrDependenciesForTimestampPacketContainer(csrDeps, bcsCsr, CsrDependencies::DependenciesType::All);
 
@@ -214,7 +215,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 
     const auto &kernelDescriptor = kernel->getKernelInfo().kernelDescriptor;
 
-    auto memoryCompressionState = commandStreamReceiver.getMemoryCompressionState(kernel->isAuxTranslationRequired());
+    auto memoryCompressionState = commandStreamReceiver.getMemoryCompressionState(kernel->isAuxTranslationRequired(), commandQueue.getDevice().getHardwareInfo());
 
     DispatchFlags dispatchFlags(
         {},                                                                               //csrDependencies
@@ -243,7 +244,8 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         kernel->requiresPerDssBackedBuffer(),                                             //usePerDssBackedBuffer
         kernel->isSingleSubdevicePreferred(),                                             //useSingleSubdevice
         kernel->getKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics, //useGlobalAtomics
-        kernel->areMultipleSubDevicesInContext());                                        //areMultipleSubDevicesInContext
+        kernel->areMultipleSubDevicesInContext(),                                         //areMultipleSubDevicesInContext
+        kernel->requiresMemoryMigration());                                               //memoryMigrationRequired
 
     if (commandQueue.getContext().getRootDeviceIndices().size() > 1) {
         eventsRequest.fillCsrDependenciesForTaskCountContainer(dispatchFlags.csrDependencies, commandStreamReceiver);
@@ -269,6 +271,12 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 
     gtpinNotifyPreFlushTask(&commandQueue);
 
+    if (kernel->requiresMemoryMigration()) {
+        for (auto &arg : kernel->getMemObjectsToMigrate()) {
+            MigrationController::handleMigration(commandQueue.getContext(), commandStreamReceiver, arg.second);
+        }
+    }
+
     completionStamp = commandStreamReceiver.flushTask(*kernelOperation->commandStream,
                                                       0,
                                                       *dsh,
@@ -278,8 +286,9 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
                                                       dispatchFlags,
                                                       commandQueue.getDevice());
 
+    uint32_t bcsTaskCount = 0u;
     if (kernelOperation->blitPropertiesContainer.size() > 0) {
-        auto bcsTaskCount = commandQueue.getBcsCommandStreamReceiver()->blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled());
+        bcsTaskCount = commandQueue.getBcsForAuxTranslation()->blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled(), commandQueue.getDevice());
         commandQueue.updateBcsTaskCount(bcsTaskCount);
     }
     commandQueue.updateLatestSentEnqueueType(EnqueueProperties::Operation::GpuKernel);
@@ -289,7 +298,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     }
 
     if (printfHandler) {
-        commandQueue.waitUntilComplete(completionStamp.taskCount, commandQueue.peekBcsTaskCount(), completionStamp.flushStamp, false);
+        commandQueue.waitUntilComplete(completionStamp.taskCount, bcsTaskCount, completionStamp.flushStamp, false);
         printfHandler.get()->printEnqueueOutput();
     }
 
@@ -302,7 +311,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 }
 
 void CommandWithoutKernel::dispatchBlitOperation() {
-    auto bcsCsr = commandQueue.getBcsCommandStreamReceiver();
+    auto bcsCsr = kernelOperation->bcsCsr;
     UNRECOVERABLE_IF(bcsCsr == nullptr);
 
     UNRECOVERABLE_IF(kernelOperation->blitPropertiesContainer.size() != 1);
@@ -317,7 +326,7 @@ void CommandWithoutKernel::dispatchBlitOperation() {
         eventsRequest.fillCsrDependenciesForTaskCountContainer(blitProperties.csrDependencies, *bcsCsr);
     }
 
-    auto bcsTaskCount = bcsCsr->blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled());
+    auto bcsTaskCount = bcsCsr->blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled(), commandQueue.getDevice());
 
     commandQueue.updateBcsTaskCount(bcsTaskCount);
 }
@@ -351,43 +360,45 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
         }
     }
 
+    auto rootDeviceIndex = commandStreamReceiver.getRootDeviceIndex();
     DispatchFlags dispatchFlags(
-        {},                                                   //csrDependencies
-        barrierNodes,                                         //barrierTimestampPacketNodes
-        {},                                                   //pipelineSelectArgs
-        commandQueue.flushStamp->getStampReference(),         //flushStampReference
-        commandQueue.getThrottle(),                           //throttle
-        commandQueue.getDevice().getPreemptionMode(),         //preemptionMode
-        GrfConfig::NotApplicable,                             //numGrfRequired
-        L3CachingSettings::NotApplicable,                     //l3CacheSettings
-        ThreadArbitrationPolicy::NotPresent,                  //threadArbitrationPolicy
-        AdditionalKernelExecInfo::NotApplicable,              //additionalKernelExecInfo
-        KernelExecutionType::NotApplicable,                   //kernelExecutionType
-        MemoryCompressionState::NotApplicable,                //memoryCompressionState
-        commandQueue.getSliceCount(),                         //sliceCount
-        true,                                                 //blocking
-        false,                                                //dcFlush
-        false,                                                //useSLM
-        true,                                                 //guardCommandBufferWithPipeControl
-        false,                                                //GSBA32BitRequired
-        false,                                                //requiresCoherency
-        commandQueue.getPriority() == QueuePriority::LOW,     //lowPriority
-        false,                                                //implicitFlush
-        commandStreamReceiver.isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        false,                                                //epilogueRequired
-        false,                                                //usePerDssBackedBuffer
-        false,                                                //useSingleSubdevice
-        false,                                                //useGlobalAtomics
-        1u);                                                  //numDevicesInContext
-
-    UNRECOVERABLE_IF(!kernelOperation->blitEnqueue && !commandStreamReceiver.peekTimestampPacketWriteEnabled() && commandQueue.getContext().getRootDeviceIndices().size() == 1);
+        {},                                                                    //csrDependencies
+        barrierNodes,                                                          //barrierTimestampPacketNodes
+        {},                                                                    //pipelineSelectArgs
+        commandQueue.flushStamp->getStampReference(),                          //flushStampReference
+        commandQueue.getThrottle(),                                            //throttle
+        commandQueue.getDevice().getPreemptionMode(),                          //preemptionMode
+        GrfConfig::NotApplicable,                                              //numGrfRequired
+        L3CachingSettings::NotApplicable,                                      //l3CacheSettings
+        ThreadArbitrationPolicy::NotPresent,                                   //threadArbitrationPolicy
+        AdditionalKernelExecInfo::NotApplicable,                               //additionalKernelExecInfo
+        KernelExecutionType::NotApplicable,                                    //kernelExecutionType
+        MemoryCompressionState::NotApplicable,                                 //memoryCompressionState
+        commandQueue.getSliceCount(),                                          //sliceCount
+        true,                                                                  //blocking
+        false,                                                                 //dcFlush
+        false,                                                                 //useSLM
+        true,                                                                  //guardCommandBufferWithPipeControl
+        false,                                                                 //GSBA32BitRequired
+        false,                                                                 //requiresCoherency
+        commandQueue.getPriority() == QueuePriority::LOW,                      //lowPriority
+        false,                                                                 //implicitFlush
+        commandStreamReceiver.isNTo1SubmissionModelEnabled(),                  //outOfOrderExecutionAllowed
+        false,                                                                 //epilogueRequired
+        false,                                                                 //usePerDssBackedBuffer
+        false,                                                                 //useSingleSubdevice
+        false,                                                                 //useGlobalAtomics
+        commandQueue.getContext().containsMultipleSubDevices(rootDeviceIndex), //areMultipleSubDevicesInContext
+        false);                                                                //memoryMigrationRequired
 
     if (commandQueue.getContext().getRootDeviceIndices().size() > 1) {
         eventsRequest.fillCsrDependenciesForTaskCountContainer(dispatchFlags.csrDependencies, commandStreamReceiver);
     }
 
-    eventsRequest.fillCsrDependenciesForTimestampPacketContainer(dispatchFlags.csrDependencies, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
-    makeTimestampPacketsResident(commandStreamReceiver);
+    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
+        eventsRequest.fillCsrDependenciesForTimestampPacketContainer(dispatchFlags.csrDependencies, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
+        makeTimestampPacketsResident(commandStreamReceiver);
+    }
 
     gtpinNotifyPreFlushTask(&commandQueue);
 

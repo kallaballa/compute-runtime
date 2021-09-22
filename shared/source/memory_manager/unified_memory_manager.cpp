@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/hw_info_config.h"
 
 #include "opencl/source/mem_obj/mem_obj_helper.h"
 
@@ -159,6 +160,7 @@ void *SVMAllocsManager::createHostUnifiedMemoryAllocation(size_t size,
     allocData.memoryType = memoryProperties.memoryType;
     allocData.allocationFlagsProperty = memoryProperties.allocationFlags;
     allocData.device = nullptr;
+    allocData.setAllocId(this->allocationsCounter++);
 
     std::unique_lock<SpinLock> lock(mtx);
     this->SVMAllocs.insert(allocData);
@@ -195,14 +197,15 @@ void *SVMAllocsManager::createUnifiedMemoryAllocation(size_t size,
                                                  false,
                                                  multiStorageAllocation,
                                                  deviceBitfield};
+    unifiedMemoryProperties.flags.isUSMDeviceAllocation = false;
     unifiedMemoryProperties.flags.shareable = memoryProperties.allocationFlags.flags.shareable;
-    unifiedMemoryProperties.flags.isUSMDeviceAllocation = true;
     unifiedMemoryProperties.cacheRegion = MemoryPropertiesHelper::getCacheRegion(memoryProperties.allocationFlags);
     unifiedMemoryProperties.flags.uncacheable = memoryProperties.allocationFlags.flags.locallyUncachedResource;
 
-    if (memoryProperties.memoryType == InternalMemoryType::HOST_UNIFIED_MEMORY) {
+    if (memoryProperties.memoryType == InternalMemoryType::DEVICE_UNIFIED_MEMORY) {
+        unifiedMemoryProperties.flags.isUSMDeviceAllocation = true;
+    } else if (memoryProperties.memoryType == InternalMemoryType::HOST_UNIFIED_MEMORY) {
         unifiedMemoryProperties.flags.isUSMHostAllocation = true;
-        unifiedMemoryProperties.flags.isUSMDeviceAllocation = false;
     }
 
     GraphicsAllocation *unifiedMemoryAllocation = memoryManager->allocateGraphicsMemoryWithProperties(unifiedMemoryProperties);
@@ -218,6 +221,7 @@ void *SVMAllocsManager::createUnifiedMemoryAllocation(size_t size,
     allocData.memoryType = memoryProperties.memoryType;
     allocData.allocationFlagsProperty = memoryProperties.allocationFlags;
     allocData.device = memoryProperties.device;
+    allocData.setAllocId(this->allocationsCounter++);
 
     std::unique_lock<SpinLock> lock(mtx);
     this->SVMAllocs.insert(allocData);
@@ -227,7 +231,7 @@ void *SVMAllocsManager::createUnifiedMemoryAllocation(size_t size,
 void *SVMAllocsManager::createSharedUnifiedMemoryAllocation(size_t size,
                                                             const UnifiedMemoryProperties &memoryProperties,
                                                             void *cmdQ) {
-    if (memoryProperties.rootDeviceIndices.size() > 1) {
+    if (memoryProperties.rootDeviceIndices.size() > 1 && memoryProperties.device == nullptr) {
         return createHostUnifiedMemoryAllocation(size, memoryProperties);
     }
 
@@ -295,6 +299,7 @@ void *SVMAllocsManager::createUnifiedKmdMigratedAllocation(size_t size, const Sv
     allocData.cpuAllocation = nullptr;
     allocData.device = unifiedMemoryProperties.device;
     allocData.size = size;
+    allocData.setAllocId(this->allocationsCounter++);
 
     std::unique_lock<SpinLock> lock(mtx);
     this->SVMAllocs.insert(allocData);
@@ -440,6 +445,7 @@ void *SVMAllocsManager::createUnifiedAllocationWithDeviceStorage(size_t size, co
     allocData.cpuAllocation = allocationCpu;
     allocData.device = unifiedMemoryProperties.device;
     allocData.size = size;
+    allocData.setAllocId(this->allocationsCounter++);
 
     std::unique_lock<SpinLock> lock(mtx);
     this->SVMAllocs.insert(allocData);
@@ -502,7 +508,9 @@ GraphicsAllocation::AllocationType SVMAllocsManager::getGraphicsAllocationType(c
         if (unifiedMemoryProperties.allocationFlags.allocFlags.allocWriteCombined) {
             allocationType = GraphicsAllocation::AllocationType::WRITE_COMBINED;
         } else {
-            if (DebugManager.flags.EnableStatelessCompression.get()) {
+            UNRECOVERABLE_IF(nullptr == unifiedMemoryProperties.device);
+            const auto &hwInfoConfig = *HwInfoConfig::get(unifiedMemoryProperties.device->getHardwareInfo().platform.eProductFamily);
+            if (hwInfoConfig.allowStatelessCompression(unifiedMemoryProperties.device->getHardwareInfo())) {
                 allocationType = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED;
             } else {
                 allocationType = GraphicsAllocation::AllocationType::BUFFER;

@@ -132,7 +132,7 @@ WddmMemoryManager *WddmCommandStreamReceiver<GfxFamily>::getMemoryManager() cons
 }
 
 template <typename GfxFamily>
-bool WddmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStampToWait) {
+bool WddmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStampToWait, uint32_t partitionCount, uint32_t offsetSize) {
     return wddm->waitFromCpu(flushStampToWait, static_cast<OsContextWin *>(this->osContext)->getResidencyController().getMonitoredFence());
 }
 
@@ -166,7 +166,7 @@ CommandStreamReceiver *createWddmDeviceCommandStreamReceiver(bool withAubDump,
                                                              uint32_t rootDeviceIndex,
                                                              const DeviceBitfield deviceBitfield) {
     if (withAubDump) {
-        return new CommandStreamReceiverWithAUBDump<WddmCommandStreamReceiver<GfxFamily>>("aubfile",
+        return new CommandStreamReceiverWithAUBDump<WddmCommandStreamReceiver<GfxFamily>>(ApiSpecificConfig::getName(),
                                                                                           executionEnvironment,
                                                                                           rootDeviceIndex,
                                                                                           deviceBitfield);

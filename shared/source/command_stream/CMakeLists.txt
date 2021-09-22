@@ -13,14 +13,14 @@ set(NEO_CORE_COMMAND_STREAM
     ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver.h
     ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw.h
     ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_base.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_bdw_plus.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_tgllp_plus.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_bdw_and_later.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_tgllp_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/csr_definitions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/csr_deps.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csr_deps.h
     ${CMAKE_CURRENT_SOURCE_DIR}/csr_properties_flags.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/command_stream_receiver_hw_ext.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/stream_properties.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}command_stream_receiver_hw_ext.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}stream_properties.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/device_command_stream.h
     ${CMAKE_CURRENT_SOURCE_DIR}/experimental_command_buffer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/experimental_command_buffer.h
@@ -35,7 +35,7 @@ set(NEO_CORE_COMMAND_STREAM
     ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller.h
     ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller_base.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller_base.h
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/stream_properties.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}stream_properties.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/stream_properties.h
     ${CMAKE_CURRENT_SOURCE_DIR}/stream_property.h
     ${CMAKE_CURRENT_SOURCE_DIR}/submissions_aggregator.cpp
@@ -48,12 +48,12 @@ set(NEO_CORE_COMMAND_STREAM
     ${CMAKE_CURRENT_SOURCE_DIR}/thread_arbitration_policy.h
 )
 
-if(SUPPORT_XEHP_PLUS)
+if(SUPPORT_XEHP_AND_LATER)
   list(APPEND NEO_CORE_COMMAND_STREAM
-       ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_xehp_plus.inl
-       ${CMAKE_CURRENT_SOURCE_DIR}/preemption_xehp_plus.inl
-       ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller_xehp_plus.cpp
-       ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller_xehp_plus.h
+       ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_hw_xehp_and_later.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/preemption_xehp_and_later.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller_xehp_and_later.cpp
+       ${CMAKE_CURRENT_SOURCE_DIR}/scratch_space_controller_xehp_and_later.h
   )
 endif()
 

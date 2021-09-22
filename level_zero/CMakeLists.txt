@@ -115,11 +115,6 @@ if(BUILD_WITH_L0)
   # Option to disable tests
   option(${PROJECT_NAME}_BUILD_TESTS "Build unit tests." ON)
 
-  if(SKIP_UNIT_TESTS)
-    set(SKIP_L0_UNIT_TESTS TRUE)
-    set(SKIP_L0_BLACK_BOX_TESTS TRUE)
-  endif()
-
   # Copy third_party_binaries to output BIN folder
   add_custom_target(copy_third_party_files)
   set_target_properties(copy_third_party_files PROPERTIES FOLDER ${TARGET_NAME_L0})
@@ -210,7 +205,7 @@ if(BUILD_WITH_L0)
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
   include_directories(ddi${BRANCH_DIR_SUFFIX})
   include_directories(tools/source)
-  include_directories(experimental${BRANCH_DIR_SUFFIX}/source)
+  include_directories(experimental${BRANCH_DIR_SUFFIX}source)
   include_directories(experimental/source/tracing)
 
   # Create our shared library/DLL
@@ -265,7 +260,8 @@ if(BUILD_WITH_L0)
     target_sources(${TARGET_NAME_L0}
                    PRIVATE
                    ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
-                   ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}/devices.inl
+                   ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}devices.inl
+                   ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}devices_additional.inl
                    ${NEO_SHARED_DIRECTORY}/dll/devices/devices_base.inl
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/linux/allocator_helper.cpp
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/linux/options_linux.cpp
@@ -286,10 +282,12 @@ if(BUILD_WITH_L0)
                    $<TARGET_OBJECTS:aub_stream_all_hw>
     )
   endif()
-  target_sources(${TARGET_NAME_L0}
-                 PRIVATE
-                 $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
-  )
+  if(TARGET ${BUILTINS_SPIRV_LIB_NAME})
+    target_sources(${TARGET_NAME_L0}
+                   PRIVATE
+                   $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
+    )
+  endif()
   if(NOT ${DONT_USE_PREBUILT_KERNELS_L0})
     message("Prebuilt kernels are linked to Level Zero.")
     target_sources(${TARGET_NAME_L0}
@@ -374,7 +372,7 @@ if(BUILD_WITH_L0)
     )
 
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/source "${NEO_BUILD_DIR}/${LIB_NAME}/core/source")
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/experimental${BRANCH_DIR_SUFFIX}/source "${NEO_BUILD_DIR}/${LIB_NAME}/experimental${BRANCH_DIR_SUFFIX}/source")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/experimental${BRANCH_DIR_SUFFIX}source "${NEO_BUILD_DIR}/${LIB_NAME}/experimental${BRANCH_DIR_SUFFIX}source")
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/experimental/source/tracing "${NEO_BUILD_DIR}/${LIB_NAME}/experimental/tracing")
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tools/source "${NEO_BUILD_DIR}/${LIB_NAME}tools/source")
 
@@ -392,13 +390,11 @@ if(BUILD_WITH_L0)
       append_sources_from_properties(L0_RUNTIME_SOURCES
                                      L0_SRCS_CACHE_RESERVATION_WINDOWS
                                      L0_SRCS_DEBUGGER_WINDOWS
-                                     L0_SRCS_DRIVER_WINDOWS
       )
     else()
       append_sources_from_properties(L0_RUNTIME_SOURCES
                                      L0_SRCS_CACHE_RESERVATION_LINUX
                                      L0_SRCS_DEBUGGER_LINUX
-                                     L0_SRCS_DRIVER_LINUX
       )
     endif()
 
@@ -434,6 +430,7 @@ if(BUILD_WITH_L0)
                                ${NEO__GMM_INCLUDE_DIR}
                                ${CIF_BASE_DIR}
                                ${IGC_OCL_ADAPTOR_DIR}
+                               ${IGC_COMMON_PARENT_DIR}
                                ${NEO__IGC_INCLUDE_DIR}
                                ${KHRONOS_HEADERS_DIR}
     )
@@ -488,7 +485,9 @@ if(BUILD_WITH_L0)
   )
 
   if(UNIX)
-    target_link_libraries(${TARGET_NAME_L0} ${GMM_LINK_NAME})
+    if(${NEO_TARGET_PROCESSOR} STREQUAL "x86_64")
+      target_link_libraries(${TARGET_NAME_L0} ${GMM_LINK_NAME})
+    endif()
 
     set_property(TARGET ${TARGET_NAME_L0}
                  APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/core/source/dll/linux/ze.exports"

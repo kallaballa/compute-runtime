@@ -247,6 +247,20 @@ TEST_F(MultiCommandTests, GivenOutputFileListFlagWhenBuildingMultiCommandThenSuc
     delete pMultiCommand;
 }
 
+TEST_F(OfflineCompilerTests, GivenHelpOptionOnQueryThenSuccessIsReturned) {
+    std::vector<std::string> argv = {
+        "ocloc",
+        "query",
+        "--help"};
+
+    testing::internal::CaptureStdout();
+    int retVal = OfflineCompiler::query(argv.size(), argv, oclocArgHelperWithoutInput.get());
+    std::string output = testing::internal::GetCapturedStdout();
+
+    EXPECT_STREQ(OfflineCompiler::queryHelp.data(), output.c_str());
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
+}
+
 TEST_F(OfflineCompilerTests, GivenArgsWhenQueryIsCalledThenSuccessIsReturned) {
     std::vector<std::string> argv = {
         "ocloc",
@@ -276,6 +290,10 @@ TEST_F(OfflineCompilerTests, GivenArgsWhenOfflineCompilerIsCreatedThenSuccessIsR
 TEST_F(OfflineCompilerTests, givenProperDeviceIdHexAsDeviceArgumentThenSuccessIsReturned) {
     std::map<std::string, std::string> files;
     std::unique_ptr<MockOclocArgHelper> argHelper = std::make_unique<MockOclocArgHelper>(files);
+
+    if (argHelper->deviceProductTable.size() == 1 && argHelper->deviceProductTable[0].deviceId == 0) {
+        GTEST_SKIP();
+    }
 
     std::stringstream deviceString, productString;
     deviceString << "0x" << std::hex << argHelper->deviceProductTable[0].deviceId;
@@ -565,9 +583,8 @@ TEST_F(OfflineCompilerTests, GivenHelpOptionThenBuildDoesNotOccur) {
     testing::internal::CaptureStdout();
     pOfflineCompiler = OfflineCompiler::create(argv.size(), argv, true, retVal, oclocArgHelperWithoutInput.get());
     std::string output = testing::internal::GetCapturedStdout();
-    EXPECT_EQ(nullptr, pOfflineCompiler);
     EXPECT_STRNE("", output.c_str());
-    EXPECT_EQ(OfflineCompiler::ErrorCode::PRINT_USAGE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
 
     delete pOfflineCompiler;
 }
@@ -815,9 +832,9 @@ TEST(OfflineCompilerTest, GivenValidParamWhenGettingHardwareInfoThenSuccessIsRet
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
     EXPECT_EQ(CL_INVALID_DEVICE, mockOfflineCompiler->getHardwareInfo("invalid"));
-    EXPECT_EQ(0u, mockOfflineCompiler->getHardwareInfo().gtSystemInfo.MaxSlicesSupported);
+    EXPECT_EQ(PRODUCT_FAMILY::IGFX_UNKNOWN, mockOfflineCompiler->getHardwareInfo().platform.eProductFamily);
     EXPECT_EQ(CL_SUCCESS, mockOfflineCompiler->getHardwareInfo(gEnvironment->devicePrefix.c_str()));
-    EXPECT_NE(0u, mockOfflineCompiler->getHardwareInfo().gtSystemInfo.MaxSlicesSupported);
+    EXPECT_NE(PRODUCT_FAMILY::IGFX_UNKNOWN, mockOfflineCompiler->getHardwareInfo().platform.eProductFamily);
 }
 
 TEST(OfflineCompilerTest, WhenStoringBinaryThenStoredCorrectly) {
@@ -998,6 +1015,20 @@ TEST(OfflineCompilerTest, givenSpirvInputOptionPassedWhenCmdLineParsedThenInputF
 TEST(OfflineCompilerTest, givenDefaultOfflineCompilerObjectWhenNoOptionsAreChangedThenSpirvInputFileIsFalse) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     EXPECT_FALSE(mockOfflineCompiler->inputFileSpirV);
+}
+
+TEST(OfflineCompilerTest, whenIsMidThreadPreemptionSupportedIsCalledThenCorrectResultIsReturned) {
+    MockOfflineCompiler offlineCompiler;
+
+    if (!hardwarePrefix[IGFX_SKYLAKE]) {
+        GTEST_SKIP();
+    }
+    offlineCompiler.getHardwareInfo("skl");
+    offlineCompiler.hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = false;
+    EXPECT_FALSE(offlineCompiler.isMidThreadPreemptionSupported(offlineCompiler.hwInfo));
+
+    offlineCompiler.hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = true;
+    EXPECT_TRUE(offlineCompiler.isMidThreadPreemptionSupported(offlineCompiler.hwInfo));
 }
 
 TEST(OfflineCompilerTest, givenIntermediateRepresentationInputWhenBuildSourceCodeIsCalledThenProperTranslationContextIsUsed) {
@@ -1365,7 +1396,7 @@ TEST(OfflineCompilerTest, givenDeviceSpecificKernelFileWhenCompilerIsInitialized
     EXPECT_STREQ("-cl-opt-disable", mockOfflineCompiler->options.c_str());
 }
 
-TEST(OfflineCompilerTest, givenRevisionIdWhenCompilerIsInitializedThenPassItToHwInfo) {
+TEST(OfflineCompilerTest, givenHexadecimalRevisionIdWhenCompilerIsInitializedThenPassItToHwInfo) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
@@ -1377,11 +1408,30 @@ TEST(OfflineCompilerTest, givenRevisionIdWhenCompilerIsInitializedThenPassItToHw
         "-device",
         gEnvironment->devicePrefix.c_str(),
         "-revision_id",
-        "3"};
+        "0x11"};
 
     int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
     EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
-    EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, 3);
+    EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, 17);
+}
+
+TEST(OfflineCompilerTest, givenDecimalRevisionIdWhenCompilerIsInitializedThenPassItToHwInfo) {
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str(),
+        "-revision_id",
+        "17"};
+
+    int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
+    EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, 17);
 }
 
 TEST(OfflineCompilerTest, givenNoRevisionIdWhenCompilerIsInitializedThenHwInfoHasDefaultRevId) {
@@ -1418,16 +1468,22 @@ TEST(OfflineCompilerTest, whenDeviceIsSpecifiedThenDefaultConfigFromTheDeviceIsU
     int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
     EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
 
-    auto actualHwInfo = mockOfflineCompiler->hwInfo;
-    auto expectedHwInfo = actualHwInfo;
-    auto hwInfoConfig = defaultHardwareInfoConfigTable[expectedHwInfo.platform.eProductFamily];
+    HardwareInfo hwInfo = mockOfflineCompiler->hwInfo;
 
-    setHwInfoValuesFromConfig(hwInfoConfig, expectedHwInfo);
+    uint32_t sliceCount = 2;
+    uint32_t subSlicePerSliceCount = 4;
+    uint32_t euPerSubSliceCount = 5;
 
-    EXPECT_EQ(actualHwInfo.gtSystemInfo.SliceCount, expectedHwInfo.gtSystemInfo.SliceCount);
-    EXPECT_EQ(actualHwInfo.gtSystemInfo.SubSliceCount, expectedHwInfo.gtSystemInfo.SubSliceCount);
-    EXPECT_EQ(actualHwInfo.gtSystemInfo.DualSubSliceCount, expectedHwInfo.gtSystemInfo.SubSliceCount);
-    EXPECT_EQ(actualHwInfo.gtSystemInfo.EUCount, expectedHwInfo.gtSystemInfo.EUCount);
+    uint64_t hwInfoConfig = euPerSubSliceCount;
+    hwInfoConfig |= (static_cast<uint64_t>(subSlicePerSliceCount) << 16);
+    hwInfoConfig |= (static_cast<uint64_t>(sliceCount) << 32);
+
+    setHwInfoValuesFromConfig(hwInfoConfig, hwInfo);
+
+    EXPECT_EQ(sliceCount, hwInfo.gtSystemInfo.SliceCount);
+    EXPECT_EQ(subSlicePerSliceCount * sliceCount, hwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(subSlicePerSliceCount * sliceCount, hwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(euPerSubSliceCount * subSlicePerSliceCount * sliceCount, hwInfo.gtSystemInfo.EUCount);
 }
 
 struct WorkaroundApplicableForDevice {

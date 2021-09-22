@@ -8,6 +8,8 @@
 #pragma once
 
 #include "shared/source/helpers/topology_map.h"
+#include "shared/source/memory_manager/allocations_list.h"
+#include "shared/source/page_fault_manager/cpu_page_fault_manager.h"
 #include "shared/source/utilities/spinlock.h"
 
 #include "level_zero/core/source/builtin/builtin_functions_lib.h"
@@ -19,10 +21,26 @@
 #include "level_zero/tools/source/debug/debug_session.h"
 #include "level_zero/tools/source/metrics/metric.h"
 
+#include <map>
 #include <mutex>
 
 namespace L0 {
 struct SysmanDevice;
+
+typedef union {
+    uint8_t memadvise_flags; /* all memadvise_flags */
+    struct
+    {
+        uint8_t read_only : 1,             /* ZE_MEMORY_ADVICE_SET_READ_MOSTLY or ZE_MEMORY_ADVICE_CLEAR_READ_MOSTLY */
+            device_preferred_location : 1, /* ZE_MEMORY_ADVICE_SET_PREFERRED_LOCATION  or ZE_MEMORY_ADVICE_CLEAR_PREFERRED_LOCATION  */
+            non_atomic : 1,                /* ZE_MEMORY_ADVICE_SET_NON_ATOMIC_MOSTLY  or ZE_MEMORY_ADVICE_CLEAR_NON_ATOMIC_MOSTLY  */
+            cached_memory : 1,             /* ZE_MEMORY_ADVICE_BIAS_CACHED or ZE_MEMORY_ADVICE_BIAS_UNCACHED */
+            cpu_migration_blocked : 1,     /* ZE_MEMORY_ADVICE_SET_READ_MOSTLY and ZE_MEMORY_ADVICE_SET_PREFERRED_LOCATION */
+            reserved2 : 1,
+            reserved1 : 1,
+            reserved0 : 1;
+    };
+} MemAdviseFlags;
 
 struct DeviceImp : public Device {
     uint32_t getRootDeviceIndex() override;
@@ -93,8 +111,9 @@ struct DeviceImp : public Device {
     ze_result_t getCsrForOrdinalAndIndex(NEO::CommandStreamReceiver **csr, uint32_t ordinal, uint32_t index) override;
     ze_result_t getCsrForLowPriority(NEO::CommandStreamReceiver **csr) override;
     ze_result_t mapOrdinalForAvailableEngineGroup(uint32_t *ordinal) override;
+    NEO::GraphicsAllocation *obtainReusableAllocation(size_t requiredSize, NEO::GraphicsAllocation::AllocationType type) override;
+    void storeReusableAllocation(NEO::GraphicsAllocation &alloc) override;
     NEO::Device *getActiveDevice() const;
-    void getDeviceMemoryName(std::string &memoryName);
 
     bool toPhysicalSliceId(const NEO::TopologyMap &topologyMap, uint32_t &slice, uint32_t &deviceIndex);
     bool toApiSliceId(const NEO::TopologyMap &topologyMap, uint32_t &slice, uint32_t deviceIndex);
@@ -116,11 +135,15 @@ struct DeviceImp : public Device {
 
     NEO::SVMAllocsManager::MapBasedAllocationTracker peerAllocations;
     NEO::SpinLock peerAllocationsMutex;
+    std::map<NEO::SvmAllocationData *, MemAdviseFlags> memAdviseSharedAllocations;
+    NEO::AllocationsList allocationsForReuse;
 
   protected:
     NEO::GraphicsAllocation *debugSurface = nullptr;
     SysmanDevice *pSysmanDevice = nullptr;
     std::unique_ptr<DebugSession> debugSession = nullptr;
 };
+
+void handleGpuDomainTransferForHwWithHints(NEO::PageFaultManager *pageFaultHandler, void *allocPtr, NEO::PageFaultManager::PageFaultData &pageFaultData);
 
 } // namespace L0

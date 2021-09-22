@@ -124,7 +124,8 @@ cl_mem Buffer::validateInputAndCreateBuffer(cl_context context,
 
     auto pDevice = pContext->getDevice(0);
     bool allowCreateBuffersWithUnrestrictedSize = isValueSet(flags, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) ||
-                                                  isValueSet(flagsIntel, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL);
+                                                  isValueSet(flagsIntel, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) ||
+                                                  DebugManager.flags.AllowUnrestrictedSize.get();
 
     if (size == 0 || (size > pDevice->getDevice().getDeviceInfo().maxMemAllocSize && !allowCreateBuffersWithUnrestrictedSize)) {
         retVal = CL_INVALID_BUFFER_SIZE;
@@ -190,7 +191,7 @@ Buffer *Buffer::create(Context *context,
             *context,
             HwHelper::renderCompressedBuffersSupported(*hwInfo),
             memoryManager->isLocalMemorySupported(rootDeviceIndex),
-            HwHelper::get(hwInfo->platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size));
+            HwHelper::get(hwInfo->platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size, *hwInfo));
 
         if (ptr) {
             if (!memoryProperties.flags.useHostPtr) {
@@ -273,13 +274,13 @@ Buffer *Buffer::create(Context *context,
                 allocationInfo[rootDeviceIndex].allocateMemory = false;
                 AllocationProperties allocProperties = MemoryPropertiesHelper::getAllocationProperties(rootDeviceIndex, memoryProperties,
                                                                                                        allocationInfo[rootDeviceIndex].allocateMemory, size, allocationInfo[rootDeviceIndex].allocationType, context->areMultiStorageAllocationsPreferred(),
-                                                                                                       *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex));
+                                                                                                       *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex), context->isSingleDeviceContext());
                 allocProperties.flags.crossRootDeviceAccess = context->getRootDeviceIndices().size() > 1;
                 allocationInfo[rootDeviceIndex].memory = memoryManager->createGraphicsAllocationFromExistingStorage(allocProperties, ptr, multiGraphicsAllocation);
             } else {
                 AllocationProperties allocProperties = MemoryPropertiesHelper::getAllocationProperties(rootDeviceIndex, memoryProperties,
                                                                                                        allocationInfo[rootDeviceIndex].allocateMemory, size, allocationInfo[rootDeviceIndex].allocationType, context->areMultiStorageAllocationsPreferred(),
-                                                                                                       *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex));
+                                                                                                       *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex), context->isSingleDeviceContext());
                 allocProperties.flags.crossRootDeviceAccess = context->getRootDeviceIndices().size() > 1;
                 allocationInfo[rootDeviceIndex].memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
                 if (allocationInfo[rootDeviceIndex].memory) {
@@ -300,7 +301,7 @@ Buffer *Buffer::create(Context *context,
             AllocationProperties allocProperties = MemoryPropertiesHelper::getAllocationProperties(rootDeviceIndex, memoryProperties,
                                                                                                    true, // allocateMemory
                                                                                                    size, allocationInfo[rootDeviceIndex].allocationType, context->areMultiStorageAllocationsPreferred(),
-                                                                                                   *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex));
+                                                                                                   *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex), context->isSingleDeviceContext());
             allocProperties.flags.crossRootDeviceAccess = context->getRootDeviceIndices().size() > 1;
             allocationInfo[rootDeviceIndex].memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
         }

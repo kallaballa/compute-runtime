@@ -4,6 +4,23 @@
 # SPDX-License-Identifier: MIT
 #
 
+macro(macro_for_each_platform)
+  string(TOLOWER ${PLATFORM_IT} PLATFORM_IT_LOWER)
+
+  foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
+    foreach(BRANCH ${BRANCH_DIR_LIST})
+      set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}${BRANCH}enable_hw_info_config_${PLATFORM_IT_LOWER}.cpp)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND igdrcl_libult_common_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
+      endif()
+      set(SRC_FILE ${NEO_SHARED_DIRECTORY}/ail${BRANCH_DIR}${GEN_TYPE_LOWER}${BRANCH}${PLATFORM_IT_LOWER}/ail_configuration_${PLATFORM_IT_LOWER}.cpp)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND igdrcl_libult_common_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
+      endif()
+    endforeach()
+  endforeach()
+endmacro()
+
 macro(macro_for_each_gen)
   foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
     foreach(BRANCH ${BRANCH_DIR_LIST})
@@ -15,10 +32,8 @@ macro(macro_for_each_gen)
       if(EXISTS ${SRC_FILE})
         list(APPEND igdrcl_libult_common_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
       endif()
-      string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
-      string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
-      foreach(SRC_IT "enable_hw_info_config_" "enable_" "enable_family_full_core_")
-        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}${SRC_IT}${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+      foreach(SRC_IT "enable_" "enable_family_full_core_")
+        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}${SRC_IT}${GEN_TYPE_LOWER}.cpp)
         if(EXISTS ${SRC_FILE})
           list(APPEND igdrcl_libult_common_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
         endif()
@@ -29,6 +44,8 @@ macro(macro_for_each_gen)
       endforeach()
     endforeach()
   endforeach()
+
+  apply_macro_for_each_platform("TESTED")
 endmacro()
 
 apply_macro_for_each_gen("TESTED")
@@ -46,6 +63,8 @@ set(igdrcl_libult_common_SRCS_LIB_ULT
     ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/test_files.cpp
     ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/test_files.h
     ${NEO_SHARED_TEST_DIRECTORY}/common/libult/create_tbx_sockets.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/libult/global_environment.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/libult/global_environment.h
     ${NEO_SHARED_TEST_DIRECTORY}/common/libult/source_level_debugger_library.cpp
     ${NEO_SHARED_TEST_DIRECTORY}/common/libult/source_level_debugger_library.h
     ${NEO_SHARED_TEST_DIRECTORY}/common/libult/source_level_debugger_ult.cpp

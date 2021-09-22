@@ -11,25 +11,7 @@ if(NOT SKIP_UNIT_TESTS)
 
   set(TARGET_NAME neo_shared_tests)
 
-  # disable optimizations for ults
-  if(UNIX)
-    string(REPLACE "-O2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    #disable fortify source as this requires optimization to be on
-    string(REPLACE "-Wp,-D_FORTIFY_SOURCE=2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    string(REPLACE "-D_FORTIFY_SOURCE=2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O0")
-    set(CMAKE_CXX_FLAGS_RELEASEINTERNAL "${CMAKE_CXX_FLAGS_RELEASEINTERNAL} -O0")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O0")
-    set(CMAKE_C_FLAGS_RELEASEINTERNAL "${CMAKE_C_FLAGS_RELEASEINTERNAL} -O0")
-  endif()
-
-  if(WIN32)
-    string(REPLACE "/O2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    string(REPLACE "/O2" "/Od" CMAKE_CXX_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
-    string(REPLACE "/O2" "/Od" CMAKE_C_FLAGS_RELEASE ${CMAKE_C_FLAGS_RELEASE})
-    string(REPLACE "/O2" "/Od" CMAKE_CXX_FLAGS_RELEASEINTERNAL ${CMAKE_CXX_FLAGS_RELEASEINTERNAL})
-    string(REPLACE "/O2" "/Od" CMAKE_C_FLAGS_RELEASEINTERNAL ${CMAKE_C_FLAGS_RELEASEINTERNAL})
-  endif()
+  include(${NEO_SOURCE_DIR}/cmake/setup_ult_global_flags.cmake)
 
   function(ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION)
     set(NEO_SUPPORTED_PRODUCT_FAMILIES ${ALL_TESTED_PRODUCT_FAMILY})
@@ -40,22 +22,16 @@ if(NOT SKIP_UNIT_TESTS)
   ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION()
   link_libraries(${ASAN_LIBS} ${TSAN_LIBS})
 
-  append_sources_from_properties(CORE_ENABLERS NEO_CORE_SRCS_LINK)
-
   add_executable(${TARGET_NAME}
                  ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
                  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
                  ${CMAKE_CURRENT_SOURCE_DIR}/test_mode.h
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests_configuration.h
-                 ${CORE_ENABLERS}
                  ${NEO_SOURCE_DIR}/opencl/source/compiler_interface/default_cache_config.cpp
-                 ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/kernel_binary_helper_hash_value.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/create_command_stream.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/io_functions.cpp
-                 ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_platform.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/test_macros/test_checks_ocl.cpp
-                 ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_config_listener.cpp
                  ${NEO_SHARED_DIRECTORY}/helpers/allow_deferred_deleter.cpp
                  ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/api_specific_config_shared_tests.cpp
                  ${NEO_SHARED_TEST_DIRECTORY}/common/test_macros/test_checks_shared.cpp

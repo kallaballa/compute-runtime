@@ -58,6 +58,13 @@ class MockEvent : public ::L0::Event {
     ze_result_t queryKernelTimestamp(ze_kernel_timestamp_result_t *dstptr) override {
         return ZE_RESULT_SUCCESS;
     };
+    ze_result_t queryTimestampsExp(L0::Device *device, uint32_t *pCount, ze_kernel_timestamp_result_t *pTimestamps) override {
+        return ZE_RESULT_SUCCESS;
+    };
+
+    ze_result_t hostEventSetValue(uint32_t eventValue) override {
+        return ZE_RESULT_SUCCESS;
+    }
 
     size_t getTimestampSizeInDw() const override {
         return 1;
@@ -330,7 +337,6 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
         void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {
             return;
         }
-        std::unique_ptr<Kernel> clone() const override { return nullptr; }
     };
     struct MockBuiltinFunctionsLibImpl : BuiltinFunctionsLibImpl {
 
@@ -416,7 +422,6 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
         void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {
             return;
         }
-        std::unique_ptr<Kernel> clone() const override { return nullptr; }
     };
     struct MockBuiltinFunctionsLibImpl : BuiltinFunctionsLibImpl {
 
@@ -503,7 +508,6 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenEventWhenAppendQueryIsCalledThenSetA
         void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {
             return;
         }
-        std::unique_ptr<Kernel> clone() const override { return nullptr; }
 
         NEO::GraphicsAllocation *index0Allocation = nullptr;
         KernelDescriptor mockKernelDescriptor = {};
@@ -625,7 +629,11 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendWaitEventsWith
         cmdList, ptrOffset(commandContainer.getCommandStream()->getCpuBase(), 0), commandContainer.getCommandStream()->getUsed()));
     auto itor = find<MI_FLUSH_DW *>(cmdList.begin(), cmdList.end());
 
-    EXPECT_NE(cmdList.end(), itor);
+    if (MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed()) {
+        EXPECT_NE(cmdList.end(), itor);
+    } else {
+        EXPECT_EQ(cmdList.end(), itor);
+    }
 }
 
 HWTEST_F(CommandListCreate, givenCommandListyWhenAppendWaitEventsWithDcFlushThenPipeControlIsProgrammed) {
@@ -821,6 +829,34 @@ HWTEST2_F(CommandListCreate, givenIndirectAccessFlagsAreChangedWhenResetingComma
     EXPECT_FALSE(commandList->unifiedMemoryControls.indirectHostAllocationsAllowed);
     EXPECT_FALSE(commandList->unifiedMemoryControls.indirectSharedAllocationsAllowed);
     EXPECT_FALSE(commandList->unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+}
+
+HWTEST2_F(CommandListCreate, whenContainsCooperativeKernelsIsCalledThenCorrectValueIsReturned, TestPlatforms) {
+    for (auto testValue : ::testing::Bool()) {
+        MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
+        commandList.initialize(device, NEO::EngineGroupType::Compute, 0u);
+        commandList.containsCooperativeKernelsFlag = testValue;
+        EXPECT_EQ(testValue, commandList.containsCooperativeKernels());
+        commandList.reset();
+        EXPECT_FALSE(commandList.containsCooperativeKernels());
+    }
+}
+
+HWTEST_F(CommandListCreate, whenCommandListIsResetThenPartitionCountIsReversedToOne) {
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily,
+                                                                     device,
+                                                                     NEO::EngineGroupType::Compute,
+                                                                     0u,
+                                                                     returnValue));
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+
+    commandList->partitionCount = 2;
+
+    returnValue = commandList->reset();
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+
+    EXPECT_EQ(1u, commandList->partitionCount);
 }
 
 } // namespace ult

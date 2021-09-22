@@ -8,6 +8,7 @@
 #include "level_zero/core/source/device/device_imp.h"
 
 #include "shared/source/built_ins/sip.h"
+#include "shared/source/command_container/implicit_scaling.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device_info.h"
 #include "shared/source/device/sub_device.h"
@@ -46,8 +47,6 @@
 #include "level_zero/tools/source/debug/debug_session.h"
 #include "level_zero/tools/source/metrics/metric.h"
 #include "level_zero/tools/source/sysman/sysman.h"
-
-#include "hw_helpers.h"
 
 namespace NEO {
 bool releaseFP64Override();
@@ -139,50 +138,50 @@ ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
 ze_result_t DeviceImp::getCommandQueueGroupProperties(uint32_t *pCount,
                                                       ze_command_queue_group_properties_t *pCommandQueueGroupProperties) {
     NEO::Device *activeDevice = getActiveDevice();
-    auto engines = activeDevice->getEngineGroups();
-
-    uint32_t numEngineGroups = 0;
-    for (uint32_t i = 0; i < engines.size(); i++) {
-        if (engines[i].size() > 0) {
-            numEngineGroups++;
-        }
-    }
+    auto &engineGroups = activeDevice->getEngineGroups();
+    auto numEngineGroups = static_cast<uint32_t>(std::count_if(std::begin(engineGroups), std::end(engineGroups), [](const auto &engines) {
+        return !engines.empty();
+    }));
 
     if (*pCount == 0) {
         *pCount = numEngineGroups;
         return ZE_RESULT_SUCCESS;
     }
 
-    *pCount = std::min(numEngineGroups, *pCount);
-    for (uint32_t i = 0, engineGroupCount = 0;
-         i < static_cast<uint32_t>(NEO::EngineGroupType::MaxEngineGroups) && engineGroupCount < *pCount;
-         i++) {
+    const auto &hardwareInfo = this->neoDevice->getHardwareInfo();
+    auto &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+    auto &l0HwHelper = L0HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
 
-        if (engines[i].empty()) {
+    *pCount = std::min(numEngineGroups, *pCount);
+    for (uint32_t i = 0, engineGroupCount = 0; engineGroupCount < *pCount; i++) {
+
+        if (engineGroups[i].empty()) {
             continue;
         }
-        const auto &hardwareInfo = this->neoDevice->getHardwareInfo();
+
         if (i == static_cast<uint32_t>(NEO::EngineGroupType::RenderCompute)) {
             pCommandQueueGroupProperties[engineGroupCount].flags = ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE |
                                                                    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COPY |
-                                                                   ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COOPERATIVE_KERNELS |
                                                                    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_METRICS;
+            if (hwHelper.isCooperativeDispatchSupported(static_cast<NEO::EngineGroupType>(i), hardwareInfo)) {
+                pCommandQueueGroupProperties[engineGroupCount].flags |= ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COOPERATIVE_KERNELS;
+            }
             pCommandQueueGroupProperties[engineGroupCount].maxMemoryFillPatternSize = std::numeric_limits<size_t>::max();
         }
         if (i == static_cast<uint32_t>(NEO::EngineGroupType::Compute)) {
             pCommandQueueGroupProperties[engineGroupCount].flags = ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE |
-                                                                   ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COPY |
-                                                                   ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COOPERATIVE_KERNELS;
+                                                                   ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COPY;
+            if (hwHelper.isCooperativeDispatchSupported(static_cast<NEO::EngineGroupType>(i), hardwareInfo)) {
+                pCommandQueueGroupProperties[engineGroupCount].flags |= ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COOPERATIVE_KERNELS;
+            }
             pCommandQueueGroupProperties[engineGroupCount].maxMemoryFillPatternSize = std::numeric_limits<size_t>::max();
         }
         if (i == static_cast<uint32_t>(NEO::EngineGroupType::Copy)) {
-            auto &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
             pCommandQueueGroupProperties[engineGroupCount].flags = ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COPY;
             pCommandQueueGroupProperties[engineGroupCount].maxMemoryFillPatternSize = hwHelper.getMaxFillPaternSizeForCopyEngine();
         }
-        auto &l0HwHelper = L0HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
         l0HwHelper.setAdditionalGroupProperty(pCommandQueueGroupProperties[engineGroupCount], i);
-        pCommandQueueGroupProperties[engineGroupCount].numQueues = static_cast<uint32_t>(engines[i].size());
+        pCommandQueueGroupProperties[engineGroupCount].numQueues = static_cast<uint32_t>(engineGroups[i].size());
         engineGroupCount++;
     }
 
@@ -271,15 +270,17 @@ ze_result_t DeviceImp::getMemoryProperties(uint32_t *pCount, ze_device_memory_pr
     }
 
     const auto &deviceInfo = this->neoDevice->getDeviceInfo();
-
-    std::string memoryName;
-    getDeviceMemoryName(memoryName);
-    strcpy_s(pMemProperties->name, ZE_MAX_DEVICE_NAME, memoryName.c_str());
     auto &hwInfo = this->getHwInfo();
     auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    strcpy_s(pMemProperties->name, ZE_MAX_DEVICE_NAME, hwInfoConfig.getDeviceMemoryName().c_str());
     pMemProperties->maxClockRate = hwInfoConfig.getDeviceMemoryMaxClkRate(&hwInfo);
     pMemProperties->maxBusWidth = deviceInfo.addressBits;
-    pMemProperties->totalSize = deviceInfo.globalMemSize;
+    if (NEO::ImplicitScalingHelper::isImplicitScalingEnabled(this->getNEODevice()->getDeviceBitfield(), true) ||
+        this->numSubDevices == 0) {
+        pMemProperties->totalSize = deviceInfo.globalMemSize;
+    } else {
+        pMemProperties->totalSize = deviceInfo.globalMemSize / this->numSubDevices;
+    }
 
     return ZE_RESULT_SUCCESS;
 }
@@ -355,17 +356,38 @@ ze_result_t DeviceImp::getKernelProperties(ze_device_module_properties_t *pKerne
 
     pKernelProperties->printfBufferSize = static_cast<uint32_t>(this->neoDevice->getDeviceInfo().printfBufferSize);
 
-    if (pKernelProperties->pNext) {
+    auto &hwInfo = this->getHwInfo();
+    auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+    void *pNext = pKernelProperties->pNext;
+    while (pNext) {
         ze_base_desc_t *extendedProperties = reinterpret_cast<ze_base_desc_t *>(pKernelProperties->pNext);
         if (extendedProperties->stype == ZE_STRUCTURE_TYPE_FLOAT_ATOMIC_EXT_PROPERTIES) {
             ze_float_atomic_ext_properties_t *floatProperties =
                 reinterpret_cast<ze_float_atomic_ext_properties_t *>(extendedProperties);
-            auto &hwInfo = this->getHwInfo();
-            auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
             hwInfoConfig.getKernelExtendedProperties(&floatProperties->fp16Flags,
                                                      &floatProperties->fp32Flags,
                                                      &floatProperties->fp64Flags);
+        } else if (extendedProperties->stype == ZE_STRUCTURE_TYPE_SCHEDULING_HINT_EXP_PROPERTIES) {
+            ze_scheduling_hint_exp_properties_t *hintProperties =
+                reinterpret_cast<ze_scheduling_hint_exp_properties_t *>(extendedProperties);
+            auto supportedThreadArbitrationPolicies = hwInfoConfig.getKernelSupportedThreadArbitrationPolicies();
+            hintProperties->schedulingHintFlags = 0;
+            for (uint32_t &p : supportedThreadArbitrationPolicies) {
+                switch (p) {
+                case NEO::ThreadArbitrationPolicy::AgeBased:
+                    hintProperties->schedulingHintFlags |= ZE_SCHEDULING_HINT_EXP_FLAG_OLDEST_FIRST;
+                    break;
+                case NEO::ThreadArbitrationPolicy::RoundRobin:
+                    hintProperties->schedulingHintFlags |= ZE_SCHEDULING_HINT_EXP_FLAG_ROUND_ROBIN;
+                    break;
+                case NEO::ThreadArbitrationPolicy::RoundRobinAfterDependency:
+                    hintProperties->schedulingHintFlags |= ZE_SCHEDULING_HINT_EXP_FLAG_STALL_BASED_ROUND_ROBIN;
+                    break;
+                }
+            }
         }
+        pNext = const_cast<void *>(extendedProperties->pNext);
     }
 
     return ZE_RESULT_SUCCESS;
@@ -597,6 +619,13 @@ ze_result_t DeviceImp::getDeviceImageProperties(ze_device_image_properties_t *pD
 
 ze_result_t DeviceImp::getDebugProperties(zet_device_debug_properties_t *pDebugProperties) {
     bool isDebugAttachAvailable = getOsInterface().isDebugAttachAvailable();
+    auto &stateSaveAreaHeader = NEO::SipKernel::getBindlessDebugSipKernel(*this->getNEODevice()).getStateSaveAreaHeader();
+
+    if (stateSaveAreaHeader.size() == 0) {
+        PRINT_DEBUGGER_INFO_LOG("Context state save area header missing", "");
+        isDebugAttachAvailable = false;
+    }
+
     if (isDebugAttachAvailable && !isSubdevice) {
         pDebugProperties->flags = zet_device_debug_property_flag_t::ZET_DEVICE_DEBUG_PROPERTY_FLAG_ATTACH;
     } else {
@@ -609,7 +638,17 @@ ze_result_t DeviceImp::systemBarrier() { return ZE_RESULT_ERROR_UNSUPPORTED_FEAT
 
 ze_result_t DeviceImp::activateMetricGroups(uint32_t count,
                                             zet_metric_group_handle_t *phMetricGroups) {
-    return metricContext->activateMetricGroupsDeferred(count, phMetricGroups);
+    ze_result_t result = ZE_RESULT_ERROR_UNKNOWN;
+    if (this->isMultiDeviceCapable()) {
+        for (auto subDevice : this->subDevices) {
+            result = subDevice->getMetricContext().activateMetricGroupsDeferred(count, phMetricGroups);
+            if (result != ZE_RESULT_SUCCESS)
+                break;
+        }
+    } else {
+        result = metricContext->activateMetricGroupsDeferred(count, phMetricGroups);
+    }
+    return result;
 }
 
 void *DeviceImp::getExecEnvironment() { return execEnvironment; }
@@ -674,31 +713,26 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
         device->setDebugSurface(debugSurface);
     }
 
-    if (device->neoDevice->getNumAvailableDevices() == 1) {
-        device->numSubDevices = 0;
-    } else {
-        for (uint32_t i = 0; i < device->neoDevice->getNumAvailableDevices(); i++) {
-
-            if (!((1UL << i) & currentDeviceMask)) {
-                continue;
-            }
-
-            ze_device_handle_t subDevice = Device::create(driverHandle,
-                                                          device->neoDevice->getDeviceById(i),
-                                                          0,
-                                                          true, returnValue);
-            if (subDevice == nullptr) {
-                return nullptr;
-            }
-            static_cast<DeviceImp *>(subDevice)->isSubdevice = true;
-            static_cast<DeviceImp *>(subDevice)->setDebugSurface(debugSurface);
-            device->subDevices.push_back(static_cast<Device *>(subDevice));
+    for (uint32_t i = 0; i < device->neoDevice->getNumSubDevices(); i++) {
+        if (!((1UL << i) & currentDeviceMask)) {
+            continue;
         }
-        device->numSubDevices = static_cast<uint32_t>(device->subDevices.size());
+
+        ze_device_handle_t subDevice = Device::create(driverHandle,
+                                                      device->neoDevice->getSubDevice(i),
+                                                      0,
+                                                      true, returnValue);
+        if (subDevice == nullptr) {
+            return nullptr;
+        }
+        static_cast<DeviceImp *>(subDevice)->isSubdevice = true;
+        static_cast<DeviceImp *>(subDevice)->setDebugSurface(debugSurface);
+        device->subDevices.push_back(static_cast<Device *>(subDevice));
     }
+    device->numSubDevices = static_cast<uint32_t>(device->subDevices.size());
 
     if (neoDevice->getCompilerInterface()) {
-        auto hwInfo = neoDevice->getHardwareInfo();
+        auto &hwInfo = neoDevice->getHardwareInfo();
         if (neoDevice->getPreemptionMode() == NEO::PreemptionMode::MidThread || neoDevice->getDebugger()) {
             bool ret = NEO::SipKernel::initSipKernel(NEO::SipKernel::getSipKernelType(*neoDevice), *neoDevice);
             UNRECOVERABLE_IF(!ret);
@@ -766,6 +800,7 @@ void DeviceImp::releaseResources() {
     metricContext.reset();
     builtins.reset();
     cacheReservation.reset();
+    allocationsForReuse.freeAllGraphicsAllocations(neoDevice);
 
     if (getSourceLevelDebugger()) {
         getSourceLevelDebugger()->notifyDeviceDestruction();
@@ -884,8 +919,20 @@ NEO::GraphicsAllocation *DeviceImp::allocateMemoryFromHostPtr(const void *buffer
     return allocation;
 }
 
+NEO::GraphicsAllocation *DeviceImp::obtainReusableAllocation(size_t requiredSize, NEO::GraphicsAllocation::AllocationType type) {
+    auto alloc = allocationsForReuse.detachAllocation(requiredSize, nullptr, nullptr, type);
+    if (alloc == nullptr)
+        return nullptr;
+    else
+        return alloc.release();
+}
+
+void DeviceImp::storeReusableAllocation(NEO::GraphicsAllocation &alloc) {
+    allocationsForReuse.pushFrontOne(alloc);
+}
+
 ze_result_t DeviceImp::getCsrForOrdinalAndIndex(NEO::CommandStreamReceiver **csr, uint32_t ordinal, uint32_t index) {
-    if (ordinal >= static_cast<uint32_t>(NEO::EngineGroupType::MaxEngineGroups)) {
+    if (ordinal >= CommonConstants::engineGroupCount) {
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
     uint32_t engineGroupIndex = ordinal;
@@ -916,10 +963,10 @@ ze_result_t DeviceImp::getCsrForLowPriority(NEO::CommandStreamReceiver **csr) {
 
 ze_result_t DeviceImp::mapOrdinalForAvailableEngineGroup(uint32_t *ordinal) {
     NEO::Device *activeDevice = getActiveDevice();
-    auto engines = activeDevice->getEngineGroups();
+    const auto &engines = activeDevice->getEngineGroups();
     uint32_t numNonEmptyGroups = 0;
     uint32_t i = 0;
-    for (; i < engines.size() && numNonEmptyGroups <= *ordinal; i++) {
+    for (; i < CommonConstants::engineGroupCount && numNonEmptyGroups <= *ordinal; i++) {
         if (!engines[i].empty()) {
             numNonEmptyGroups++;
         }

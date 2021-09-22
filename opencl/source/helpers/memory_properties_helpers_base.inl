@@ -59,7 +59,8 @@ MemoryProperties MemoryPropertiesHelper::createMemoryProperties(cl_mem_flags fla
         memoryProperties.flags.noAccess = true;
     }
     if (isValueSet(flags, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) ||
-        isValueSet(flagsIntel, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL)) {
+        isValueSet(flagsIntel, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) ||
+        DebugManager.flags.AllowUnrestrictedSize.get()) {
         memoryProperties.flags.allowUnrestrictedSize = true;
     }
     if (isValueSet(flagsIntel, CL_MEM_LOCALLY_UNCACHED_RESOURCE)) {
@@ -84,7 +85,9 @@ MemoryProperties MemoryPropertiesHelper::createMemoryProperties(cl_mem_flags fla
         memoryProperties.flags.resource48Bit = true;
     }
 
-    addExtraMemoryProperties(memoryProperties, flags, flagsIntel, pDevice);
+    memoryProperties.pDevice = pDevice;
+
+    addExtraMemoryProperties(memoryProperties, flags, flagsIntel);
 
     return memoryProperties;
 }
@@ -92,11 +95,11 @@ MemoryProperties MemoryPropertiesHelper::createMemoryProperties(cl_mem_flags fla
 AllocationProperties MemoryPropertiesHelper::getAllocationProperties(
     uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
     GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo,
-    DeviceBitfield subDevicesBitfieldParam) {
+    DeviceBitfield subDevicesBitfieldParam, bool deviceOnlyVisibilty) {
 
     auto deviceBitfield = adjustDeviceBitfield(rootDeviceIndex, memoryProperties, subDevicesBitfieldParam);
     AllocationProperties allocationProperties(rootDeviceIndex, allocateMemory, size, type, multiStorageResource, deviceBitfield);
-    fillPoliciesInProperties(allocationProperties, memoryProperties, hwInfo);
+    fillPoliciesInProperties(allocationProperties, memoryProperties, hwInfo, deviceOnlyVisibilty);
     return allocationProperties;
 }
 
@@ -107,6 +110,14 @@ void MemoryPropertiesHelper::fillCachePolicyInProperties(AllocationProperties &a
     allocationProperties.flags.flushL3RequiredForRead = cacheFlushRequired;
     allocationProperties.flags.flushL3RequiredForWrite = cacheFlushRequired;
     allocationProperties.cacheRegion = cacheRegion;
+}
+
+DeviceBitfield MemoryPropertiesHelper::adjustDeviceBitfield(uint32_t rootDeviceIndex, const MemoryProperties &memoryProperties,
+                                                            DeviceBitfield deviceBitfieldIn) {
+    if (rootDeviceIndex == memoryProperties.pDevice->getRootDeviceIndex()) {
+        return deviceBitfieldIn & memoryProperties.pDevice->getDeviceBitfield();
+    }
+    return deviceBitfieldIn;
 }
 
 } // namespace NEO

@@ -32,6 +32,7 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
     using BaseClass::requiredScratchSize;
     using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiver::getTagAddress;
     using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiver::getTagAllocation;
+    using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiver::latestSentTaskCount;
     using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiver::taskCount;
     using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiver::useNotifyEnableForPostSync;
 
@@ -46,7 +47,7 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
     bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
     MOCKABLE_VIRTUAL void processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
-    bool waitForFlushStamp(FlushStamp &flushStampToWait) override;
+    bool waitForFlushStamp(FlushStamp &flushStampToWait, uint32_t partitionCount, uint32_t offsetSize) override;
     bool isKmdWaitModeActive() override;
 
     DrmMemoryManager *getMemoryManager() const;
@@ -65,7 +66,7 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
   protected:
     MOCKABLE_VIRTUAL void flushInternal(const BatchBuffer &batchBuffer, const ResidencyContainer &allocationsForResidency);
     MOCKABLE_VIRTUAL void exec(const BatchBuffer &batchBuffer, uint32_t vmHandleId, uint32_t drmContextId);
-    MOCKABLE_VIRTUAL int waitUserFence(uint32_t waitValue);
+    MOCKABLE_VIRTUAL int waitUserFence(uint32_t waitValue, uint32_t partitionCount, uint32_t offsetSize);
     bool isUserFenceWaitActive();
 
     std::vector<BufferObject *> residency;
@@ -75,7 +76,7 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
 
     int32_t kmdWaitTimeout = -1;
 
-    bool useUserFenceWait = false;
-    bool useContextForUserFenceWait = true;
+    bool useUserFenceWait = true;
+    bool useContextForUserFenceWait = false;
 };
 } // namespace NEO

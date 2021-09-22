@@ -22,6 +22,7 @@
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -60,7 +61,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenFlushStampWhenWaitCalledThenWaitFo
         .Times(1)
         .WillRepeatedly(copyIoctlParam(&calledWait));
 
-    csr->waitForFlushStamp(handleToWait);
+    csr->waitForFlushStamp(handleToWait, 1, 0);
     EXPECT_TRUE(memcmp(&expectedWait, &calledWait, sizeof(drm_i915_gem_wait)) == 0);
 }
 
@@ -236,10 +237,9 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdT
         .WillRepeatedly(::testing::Return(0))
         .RetiresOnSaturation();
 
-    osContext = std::make_unique<OsContextLinux>(*mock, 1, 1,
-                                                 HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
-                                                 PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
-                                                 false);
+    osContext = std::make_unique<OsContextLinux>(*mock, 1,
+                                                 EngineDescriptorHelper::getDefaultDescriptor(HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                                                              PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo)));
     osContext->ensureContextInitialized();
     csr->setupContext(*osContext);
 
@@ -746,9 +746,8 @@ struct DrmCommandStreamBlitterDirectSubmissionTest : public DrmCommandStreamDire
 
         DrmCommandStreamDirectSubmissionTest::SetUpT<GfxFamily>();
 
-        osContext.reset(OsContext::create(device->getExecutionEnvironment()->rootDeviceEnvironments[0]->osInterface.get(),
-                                          0, device->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::ThreadGroup,
-                                          false));
+        osContext.reset(OsContext::create(device->getExecutionEnvironment()->rootDeviceEnvironments[0]->osInterface.get(), 0,
+                                          EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::ThreadGroup, device->getDeviceBitfield())));
         osContext->ensureContextInitialized();
         csr->initDirectSubmission(*device.get(), *osContext.get());
     }
@@ -895,7 +894,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenLocalMemoryEnabledWhenCreatingDrmC
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenPageTableManagerAndMapTrueWhenUpdateAuxTableIsCalledThenItReturnsTrue) {
     auto mockMngr = new MockGmmPageTableMngr();
     executionEnvironment.rootDeviceEnvironments[0]->pageTableManager.reset(mockMngr);
-    auto gmm = std::make_unique<MockGmm>();
+    executionEnvironment.rootDeviceEnvironments[0]->initGmm();
+    auto gmm = std::make_unique<MockGmm>(executionEnvironment.rootDeviceEnvironments[0]->getGmmClientContext());
     GMM_DDI_UPDATEAUXTABLE ddiUpdateAuxTable = {};
     EXPECT_CALL(*mockMngr, updateAuxTable(::testing::_)).Times(1).WillOnce(::testing::Invoke([&](const GMM_DDI_UPDATEAUXTABLE *arg) {ddiUpdateAuxTable = *arg; return GMM_SUCCESS; }));
     auto result = executionEnvironment.rootDeviceEnvironments[0]->pageTableManager->updateAuxTable(0, gmm.get(), true);
@@ -910,7 +910,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenPageTableManagerAndMapTrueWhenUpda
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenPageTableManagerAndMapFalseWhenUpdateAuxTableIsCalledThenItReturnsTrue) {
     auto mockMngr = new MockGmmPageTableMngr();
     executionEnvironment.rootDeviceEnvironments[0]->pageTableManager.reset(mockMngr);
-    auto gmm = std::make_unique<MockGmm>();
+    executionEnvironment.rootDeviceEnvironments[0]->initGmm();
+    auto gmm = std::make_unique<MockGmm>(executionEnvironment.rootDeviceEnvironments[0]->getGmmClientContext());
     GMM_DDI_UPDATEAUXTABLE ddiUpdateAuxTable = {};
     EXPECT_CALL(*mockMngr, updateAuxTable(::testing::_)).Times(1).WillOnce(::testing::Invoke([&](const GMM_DDI_UPDATEAUXTABLE *arg) {ddiUpdateAuxTable = *arg; return GMM_SUCCESS; }));
     auto result = executionEnvironment.rootDeviceEnvironments[0]->pageTableManager->updateAuxTable(0, gmm.get(), false);

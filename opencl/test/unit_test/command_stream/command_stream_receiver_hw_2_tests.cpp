@@ -7,6 +7,7 @@
 
 #include "shared/source/command_stream/scratch_space_controller_base.h"
 #include "shared/source/direct_submission/dispatchers/blitter_dispatcher.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/mocks/mock_direct_submission_hw.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
@@ -208,7 +209,11 @@ HWTEST_F(BcsTests, givenCsrDependenciesWhenProgrammingCommandStreamThenAddSemaph
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     uint32_t numberOfDependencyContainers = 2;
     size_t numberNodesPerContainer = 5;
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
@@ -223,7 +228,7 @@ HWTEST_F(BcsTests, givenCsrDependenciesWhenProgrammingCommandStreamThenAddSemaph
     blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp0);
     blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp1);
 
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);
@@ -259,8 +264,14 @@ HWTEST_F(BcsTests, givenMultipleBlitPropertiesWhenDispatchingThenProgramCommands
     cl_int retVal = CL_SUCCESS;
     auto buffer1 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto buffer2 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr1 = reinterpret_cast<void *>(0x12340000);
-    void *hostPtr2 = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr1 = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr1 = reinterpret_cast<void *>(hostAllocationPtr1.get());
+
+    auto hostAllocationPtr2 = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr2 = reinterpret_cast<void *>(hostAllocationPtr2.get());
+
     auto graphicsAllocation1 = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
     auto graphicsAllocation2 = buffer2->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
@@ -282,7 +293,7 @@ HWTEST_F(BcsTests, givenMultipleBlitPropertiesWhenDispatchingThenProgramCommands
     blitPropertiesContainer.push_back(blitProperties1);
     blitPropertiesContainer.push_back(blitProperties2);
 
-    csr.blitBuffer(blitPropertiesContainer, true, false);
+    csr.blitBuffer(blitPropertiesContainer, true, false, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);
@@ -316,7 +327,11 @@ HWTEST_F(BcsTests, whenBlitBufferThenCommandBufferHasProperTaskCount) {
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
     auto blitProperties = BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
@@ -327,21 +342,26 @@ HWTEST_F(BcsTests, whenBlitBufferThenCommandBufferHasProperTaskCount) {
     BlitPropertiesContainer blitPropertiesContainer;
     blitPropertiesContainer.push_back(blitProperties);
 
-    csr.blitBuffer(blitPropertiesContainer, true, false);
+    csr.blitBuffer(blitPropertiesContainer, true, false, *pDevice);
 
     EXPECT_EQ(csr.getCS(0u).getGraphicsAllocation()->getTaskCount(csr.getOsContext().getContextId()), csr.peekTaskCount());
     EXPECT_EQ(csr.getCS(0u).getGraphicsAllocation()->getResidencyTaskCount(csr.getOsContext().getContextId()), csr.peekTaskCount());
 }
 
 HWTEST_F(BcsTests, givenProfilingEnabledWhenBlitBufferThenCommandBufferIsConstructedProperly) {
-    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, pDevice->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0,
+                                                                     EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular}, pDevice->getDeviceBitfield())));
     auto bcsCsr = std::make_unique<UltCommandStreamReceiver<FamilyType>>(*pDevice->getExecutionEnvironment(), pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     bcsCsr->setupContext(*bcsOsContext);
     bcsCsr->initializeTagAllocation();
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
     auto blitProperties = BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
@@ -355,7 +375,7 @@ HWTEST_F(BcsTests, givenProfilingEnabledWhenBlitBufferThenCommandBufferIsConstru
     BlitPropertiesContainer blitPropertiesContainer;
     blitPropertiesContainer.push_back(blitProperties);
 
-    bcsCsr->blitBuffer(blitPropertiesContainer, false, true);
+    bcsCsr->blitBuffer(blitPropertiesContainer, false, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(bcsCsr->commandStream);
@@ -378,14 +398,18 @@ HWTEST_F(BcsTests, givenProfilingEnabledWhenBlitBufferThenCommandBufferIsConstru
 }
 
 HWTEST_F(BcsTests, givenNotInitializedOsContextWhenBlitBufferIsCalledThenInitializeContext) {
-    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, pDevice->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular}, pDevice->getDeviceBitfield())));
     auto bcsCsr = std::make_unique<UltCommandStreamReceiver<FamilyType>>(*pDevice->getExecutionEnvironment(), pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     bcsCsr->setupContext(*bcsOsContext);
     bcsCsr->initializeTagAllocation();
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
     auto blitProperties = BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
                                                                           *bcsCsr, graphicsAllocation, nullptr, hostPtr,
@@ -398,7 +422,7 @@ HWTEST_F(BcsTests, givenNotInitializedOsContextWhenBlitBufferIsCalledThenInitial
     blitPropertiesContainer.push_back(blitProperties);
 
     EXPECT_FALSE(bcsOsContext->isInitialized());
-    bcsCsr->blitBuffer(blitPropertiesContainer, false, true);
+    bcsCsr->blitBuffer(blitPropertiesContainer, false, true, *pDevice);
     EXPECT_TRUE(bcsOsContext->isInitialized());
 }
 
@@ -409,8 +433,13 @@ HWTEST_F(BcsTests, givenInputAllocationsWhenBlitDispatchedThenMakeAllAllocations
     cl_int retVal = CL_SUCCESS;
     auto buffer1 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto buffer2 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr1 = reinterpret_cast<void *>(0x12340000);
-    void *hostPtr2 = reinterpret_cast<void *>(0x43210000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr1 = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr1 = reinterpret_cast<void *>(hostAllocationPtr1.get());
+
+    auto hostAllocationPtr2 = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr2 = reinterpret_cast<void *>(hostAllocationPtr2.get());
 
     EXPECT_EQ(0u, csr.makeSurfacePackNonResidentCalled);
     auto graphicsAllocation1 = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
@@ -430,7 +459,7 @@ HWTEST_F(BcsTests, givenInputAllocationsWhenBlitDispatchedThenMakeAllAllocations
     blitPropertiesContainer.push_back(blitProperties1);
     blitPropertiesContainer.push_back(blitProperties2);
 
-    csr.blitBuffer(blitPropertiesContainer, false, false);
+    csr.blitBuffer(blitPropertiesContainer, false, false, *pDevice);
 
     uint32_t residentAllocationsNum = 5u;
     EXPECT_TRUE(csr.isMadeResident(graphicsAllocation1));
@@ -452,7 +481,7 @@ HWTEST_F(BcsTests, givenInputAllocationsWhenBlitDispatchedThenMakeAllAllocations
 HWTEST_F(BcsTests, givenFenceAllocationIsRequiredWhenBlitDispatchedThenMakeAllAllocationsResident) {
     RAIIHwHelperFactory<MockHwHelperWithFenceAllocation<FamilyType>> hwHelperBackup{pDevice->getHardwareInfo().platform.eRenderCoreFamily};
 
-    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, pDevice->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular}, pDevice->getDeviceBitfield())));
     auto bcsCsr = std::make_unique<UltCommandStreamReceiver<FamilyType>>(*pDevice->getExecutionEnvironment(), pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     bcsCsr->setupContext(*bcsOsContext);
     bcsCsr->initializeTagAllocation();
@@ -462,8 +491,13 @@ HWTEST_F(BcsTests, givenFenceAllocationIsRequiredWhenBlitDispatchedThenMakeAllAl
     cl_int retVal = CL_SUCCESS;
     auto buffer1 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto buffer2 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr1 = reinterpret_cast<void *>(0x12340000);
-    void *hostPtr2 = reinterpret_cast<void *>(0x43210000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr1 = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr1 = reinterpret_cast<void *>(hostAllocationPtr1.get());
+
+    auto hostAllocationPtr2 = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr2 = reinterpret_cast<void *>(hostAllocationPtr2.get());
 
     EXPECT_EQ(0u, bcsCsr->makeSurfacePackNonResidentCalled);
     auto graphicsAllocation1 = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
@@ -483,7 +517,7 @@ HWTEST_F(BcsTests, givenFenceAllocationIsRequiredWhenBlitDispatchedThenMakeAllAl
     blitPropertiesContainer.push_back(blitProperties1);
     blitPropertiesContainer.push_back(blitProperties2);
 
-    bcsCsr->blitBuffer(blitPropertiesContainer, false, false);
+    bcsCsr->blitBuffer(blitPropertiesContainer, false, false, *pDevice);
 
     uint32_t residentAllocationsNum = 6u;
     EXPECT_TRUE(bcsCsr->isMadeResident(graphicsAllocation1));
@@ -505,7 +539,11 @@ HWTEST_F(BcsTests, givenBufferWhenBlitCalledThenFlushCommandBuffer) {
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
     auto &commandStream = csr.getCS(MemoryConstants::pageSize);
@@ -520,7 +558,7 @@ HWTEST_F(BcsTests, givenBufferWhenBlitCalledThenFlushCommandBuffer) {
                                                                           graphicsAllocation->getGpuAddress(), 0,
                                                                           0, 0, {1, 1, 1}, 0, 0, 0, 0);
 
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     EXPECT_EQ(commandStream.getGraphicsAllocation(), csr.latestFlushedBatchBuffer.commandBufferAllocation);
     EXPECT_EQ(commandStreamOffset, csr.latestFlushedBatchBuffer.startOffset);
@@ -541,19 +579,24 @@ HWTEST_F(BcsTests, whenBlitFromHostPtrCalledThenCallWaitWithKmdFallback) {
         using UltCommandStreamReceiver<FamilyType>::UltCommandStreamReceiver;
 
         void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait,
-                                                   bool useQuickKmdSleep, bool forcePowerSavingMode) override {
+                                                   bool useQuickKmdSleep, bool forcePowerSavingMode,
+                                                   uint32_t partitionCount, uint32_t offsetSize) override {
             waitForTaskCountWithKmdNotifyFallbackCalled++;
             taskCountToWaitPassed = taskCountToWait;
             flushStampToWaitPassed = flushStampToWait;
             useQuickKmdSleepPassed = useQuickKmdSleep;
             forcePowerSavingModePassed = forcePowerSavingMode;
+            partitionCountPassed = partitionCount;
+            offsetSizePassed = offsetSize;
         }
 
-        uint32_t taskCountToWaitPassed = 0;
         FlushStamp flushStampToWaitPassed = 0;
+        uint32_t taskCountToWaitPassed = 0;
+        uint32_t waitForTaskCountWithKmdNotifyFallbackCalled = 0;
+        uint32_t partitionCountPassed = 0;
+        uint32_t offsetSizePassed = 0;
         bool useQuickKmdSleepPassed = false;
         bool forcePowerSavingModePassed = false;
-        uint32_t waitForTaskCountWithKmdNotifyFallbackCalled = 0;
     };
 
     auto myMockCsr = std::make_unique<::testing::NiceMock<MyMockCsr>>(*pDevice->getExecutionEnvironment(), pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
@@ -563,7 +606,11 @@ HWTEST_F(BcsTests, whenBlitFromHostPtrCalledThenCallWaitWithKmdFallback) {
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
     auto blitProperties = BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
@@ -572,17 +619,19 @@ HWTEST_F(BcsTests, whenBlitFromHostPtrCalledThenCallWaitWithKmdFallback) {
                                                                           graphicsAllocation->getGpuAddress(), 0,
                                                                           0, 0, {1, 1, 1}, 0, 0, 0, 0);
 
-    blitBuffer(myMockCsr.get(), blitProperties, false);
+    blitBuffer(myMockCsr.get(), blitProperties, false, *pDevice);
 
     EXPECT_EQ(0u, myMockCsr->waitForTaskCountWithKmdNotifyFallbackCalled);
 
-    blitBuffer(myMockCsr.get(), blitProperties, true);
+    blitBuffer(myMockCsr.get(), blitProperties, true, *pDevice);
 
     EXPECT_EQ(1u, myMockCsr->waitForTaskCountWithKmdNotifyFallbackCalled);
     EXPECT_EQ(myMockCsr->taskCount, myMockCsr->taskCountToWaitPassed);
     EXPECT_EQ(myMockCsr->flushStamp->peekStamp(), myMockCsr->flushStampToWaitPassed);
     EXPECT_FALSE(myMockCsr->useQuickKmdSleepPassed);
     EXPECT_FALSE(myMockCsr->forcePowerSavingModePassed);
+    EXPECT_EQ(1u, myMockCsr->partitionCountPassed);
+    EXPECT_EQ(0u, myMockCsr->offsetSizePassed);
 }
 
 HWTEST_F(BcsTests, whenBlitFromHostPtrCalledThenCleanTemporaryAllocations) {
@@ -592,7 +641,11 @@ HWTEST_F(BcsTests, whenBlitFromHostPtrCalledThenCleanTemporaryAllocations) {
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
     bcsCsr.taskCount = 17;
@@ -604,11 +657,11 @@ HWTEST_F(BcsTests, whenBlitFromHostPtrCalledThenCleanTemporaryAllocations) {
                                                                           graphicsAllocation->getGpuAddress(), 0,
                                                                           0, 0, {1, 1, 1}, 0, 0, 0, 0);
 
-    blitBuffer(&bcsCsr, blitProperties, false);
+    blitBuffer(&bcsCsr, blitProperties, false, *pDevice);
 
     EXPECT_EQ(0u, mockInternalAllocationsStorage->cleanAllocationsCalled);
 
-    blitBuffer(&bcsCsr, blitProperties, true);
+    blitBuffer(&bcsCsr, blitProperties, true, *pDevice);
 
     EXPECT_EQ(1u, mockInternalAllocationsStorage->cleanAllocationsCalled);
     EXPECT_EQ(bcsCsr.taskCount, mockInternalAllocationsStorage->lastCleanAllocationsTaskCount);
@@ -624,7 +677,9 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
     auto graphicsAllocation1 = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
     auto graphicsAllocation2 = buffer2->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize * 2;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
     const size_t hostPtrOffset = 0x1234;
 
     const size_t subBuffer1Offset = 0x23;
@@ -647,7 +702,7 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
                                                                                       subBuffer1->getOffset(),
                                                                                   0, {hostPtrOffset, 0, 0}, 0, copySize, 0, 0, 0, 0);
 
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
 
             hwParser.parseCommands<FamilyType>(csr.commandStream);
 
@@ -672,7 +727,7 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
                                                                                       subBuffer1->getOffset(),
                                                                                   0, {hostPtrOffset, 0, 0}, 0, copySize, 0, 0, 0, 0);
 
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
 
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
@@ -691,10 +746,10 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
             // Buffer to Buffer
             HardwareParse hwParser;
             auto offset = csr.commandStream.getUsed();
-            auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(graphicsAllocation1,
-                                                                                   graphicsAllocation2, 0, 0, copySize, 0, 0, 0, 0, csr.getClearColorAllocation());
+            auto blitProperties = BlitProperties::constructPropertiesForCopy(graphicsAllocation1,
+                                                                             graphicsAllocation2, 0, 0, copySize, 0, 0, 0, 0, csr.getClearColorAllocation());
 
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
 
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
@@ -722,7 +777,7 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
             auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::BufferToBuffer, csr, builtinOpParams);
 
             auto offset = csr.commandStream.getUsed();
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
 
             HardwareParse hwParser;
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
@@ -742,8 +797,11 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto memoryManager = csr.getMemoryManager();
 
-    AllocationProperties properties{csr.getRootDeviceIndex(), false, 1234, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, pDevice->getDeviceBitfield()};
-    GraphicsAllocation *mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, reinterpret_cast<void *>(0x12340000));
+    constexpr size_t mapAllocationSize = MemoryConstants::pageSize * 2;
+    auto mapAllocationPtr = allocateAlignedMemory(mapAllocationSize, MemoryConstants::pageSize);
+
+    AllocationProperties properties{csr.getRootDeviceIndex(), false, mapAllocationSize, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, pDevice->getDeviceBitfield()};
+    GraphicsAllocation *mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, mapAllocationPtr.get());
 
     auto mapAllocationOffset = 0x1234;
     auto mapPtr = reinterpret_cast<void *>(mapAllocation->getGpuAddress() + mapAllocationOffset);
@@ -771,7 +829,7 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
                                                                                   castToUint64(mapPtr),
                                                                                   {hostPtrOffset, 0, 0}, 0, copySize, 0, 0, 0, 0);
 
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
             hwParser.parseCommands<FamilyType>(csr.commandStream);
             auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
             ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
@@ -793,7 +851,7 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
                                                                                   mapAllocation, mapPtr,
                                                                                   graphicsAllocation->getGpuAddress(),
                                                                                   castToUint64(mapPtr), {hostPtrOffset, 0, 0}, 0, copySize, 0, 0, 0, 0);
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
             auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
@@ -817,7 +875,7 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
                                                                                   mapAllocation, mapPtr,
                                                                                   graphicsAllocation->getGpuAddress(),
                                                                                   castToUint64(mapPtr), {hostPtrOffset, 0, 0}, 0, copySize, 0, 0, 0, 0);
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
             auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
@@ -839,7 +897,7 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
                                                                                   graphicsAllocation->getGpuAddress(),
                                                                                   castToUint64(mapPtr),
                                                                                   {hostPtrOffset, 0, 0}, 0, copySize, 0, 0, 0, 0);
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
             hwParser.parseCommands<FamilyType>(csr.commandStream);
 
             auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
@@ -861,8 +919,11 @@ HWTEST_F(BcsTests, givenMapAllocationInBuiltinOpParamsWhenConstructingThenUseItA
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto memoryManager = static_cast<MockMemoryManager *>(csr.getMemoryManager());
 
-    AllocationProperties properties{csr.getRootDeviceIndex(), false, 1234, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, pDevice->getDeviceBitfield()};
-    GraphicsAllocation *mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, reinterpret_cast<void *>(0x12340000));
+    constexpr size_t mapAllocationSize = MemoryConstants::pageSize * 2;
+    auto mapAllocationPtr = allocateAlignedMemory(mapAllocationSize, MemoryConstants::pageSize);
+
+    AllocationProperties properties{csr.getRootDeviceIndex(), false, mapAllocationSize, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, pDevice->getDeviceBitfield()};
+    GraphicsAllocation *mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, reinterpret_cast<void *>(mapAllocationPtr.get()));
 
     auto mapAllocationOffset = 0x1234;
     auto mapPtr = reinterpret_cast<void *>(mapAllocation->getGpuAddress() + mapAllocationOffset);
@@ -979,7 +1040,7 @@ HWTEST_F(BcsTests, givenSvmAllocationWhenBlitCalledThenUsePassedPointers) {
             EXPECT_EQ(gpuAllocation, blitProperties.srcAllocation);
             EXPECT_EQ(svmData->cpuAllocation, blitProperties.dstAllocation);
 
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
 
             HardwareParse hwParser;
             hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
@@ -1005,7 +1066,7 @@ HWTEST_F(BcsTests, givenSvmAllocationWhenBlitCalledThenUsePassedPointers) {
                                                                         csr, builtinOpParams);
 
             auto offset = csr.commandStream.getUsed();
-            blitBuffer(&csr, blitProperties, true);
+            blitBuffer(&csr, blitProperties, true, *pDevice);
 
             HardwareParse hwParser;
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
@@ -1029,7 +1090,11 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
     cl_int retVal = CL_SUCCESS;
     auto buffer1 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto buffer2 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation1 = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
     auto graphicsAllocation2 = buffer2->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
@@ -1050,7 +1115,7 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
                                                                                       graphicsAllocation1->getGpuAddress(),
                                                                                       0, 0, {buffer1Offset, 0, 0}, copySize, 0, 0, 0, 0);
 
-                blitBuffer(&csr, blitProperties, true);
+                blitBuffer(&csr, blitProperties, true, *pDevice);
 
                 hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
@@ -1074,7 +1139,7 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
                                                                                       graphicsAllocation1->getGpuAddress(),
                                                                                       0, 0, {buffer1Offset, 0, 0}, copySize, 0, 0, 0, 0);
 
-                blitBuffer(&csr, blitProperties, true);
+                blitBuffer(&csr, blitProperties, true, *pDevice);
 
                 hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
@@ -1092,11 +1157,11 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
                 // Buffer to Buffer
                 HardwareParse hwParser;
                 auto offset = csr.commandStream.getUsed();
-                auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(graphicsAllocation1,
-                                                                                       graphicsAllocation2,
-                                                                                       {buffer1Offset, 0, 0}, {buffer2Offset, 0, 0}, copySize, 0, 0, 0, 0, csr.getClearColorAllocation());
+                auto blitProperties = BlitProperties::constructPropertiesForCopy(graphicsAllocation1,
+                                                                                 graphicsAllocation2,
+                                                                                 {buffer1Offset, 0, 0}, {buffer2Offset, 0, 0}, copySize, 0, 0, 0, 0, csr.getClearColorAllocation());
 
-                blitBuffer(&csr, blitProperties, true);
+                blitBuffer(&csr, blitProperties, true, *pDevice);
 
                 hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
@@ -1121,7 +1186,11 @@ HWTEST_F(BcsTests, givenBufferWithBigSizesWhenBlitOperationCalledThenProgramCorr
     cl_int retVal = CL_SUCCESS;
     auto buffer1 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto buffer2 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    void *hostPtr = reinterpret_cast<void *>(0x4000);
+
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     auto graphicsAllocation = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
     size_t srcOrigin[] = {1, 2, 0};
@@ -1149,7 +1218,7 @@ HWTEST_F(BcsTests, givenBufferWithBigSizesWhenBlitOperationCalledThenProgramCorr
                                                                           srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch);
 
     memoryManager->returnFakeAllocation = false;
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
     hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
     //1st rectangle  xCopy = maxWidthToCopy, yCopy = maxHeightToCopy, zCopy = 1
@@ -1241,7 +1310,7 @@ HWTEST_F(BcsTests, givenAuxTranslationRequestWhenBlitCalledThenProgramCommandCor
                                                                                    graphicsAllocation, csr.getClearColorAllocation());
 
         auto offset = csr.commandStream.getUsed();
-        blitBuffer(&csr, blitProperties, false);
+        blitBuffer(&csr, blitProperties, false, *pDevice);
 
         HardwareParse hwParser;
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
@@ -1299,7 +1368,7 @@ HWTEST_F(BcsTests, givenBlitterDirectSubmissionEnabledWhenProgrammingBlitterThen
     blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp0);
     blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp1);
 
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream, 0u);
@@ -1311,7 +1380,12 @@ HWTEST_F(BcsTests, givenBlitterDirectSubmissionEnabledWhenProgrammingBlitterThen
     EXPECT_EQ(0ull, bbStart->getBatchBufferStartAddressGraphicsaddress472());
 }
 
-HWTEST_F(BcsTests, givenImage1DWhenAdjustBlitPropertiesForImageIsCalledThenValuesAreSetCorrectly) {
+struct BcsTestsImages : public BcsTests {
+    size_t rowPitch = 0;
+    size_t slicePitch = 0;
+};
+
+HWTEST_F(BcsTestsImages, givenImage1DWhenAdjustBlitPropertiesForImageIsCalledThenValuesAreSetCorrectly) {
     cl_image_desc imgDesc = Image1dDefaults::imageDesc;
     imgDesc.image_width = 10u;
     imgDesc.image_height = 0u;
@@ -1320,36 +1394,47 @@ HWTEST_F(BcsTests, givenImage1DWhenAdjustBlitPropertiesForImageIsCalledThenValue
     Vec3<size_t> size{0, 0, 0};
     size_t bytesPerPixel = 0u;
     size_t expectedBytesPerPixel = image->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
+    size_t expectedRowPitch = image->getImageDesc().image_row_pitch;
+    size_t expectedSlicePitch = image->getImageDesc().image_slice_pitch;
+
     uint64_t gpuAddress = image->getGraphicsAllocation(0)->getGpuAddress();
-    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel, gpuAddress);
+    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel, gpuAddress, rowPitch, slicePitch);
 
     EXPECT_EQ(imgDesc.image_width, size.x);
     EXPECT_EQ(1u, size.y);
     EXPECT_EQ(1u, size.z);
     EXPECT_EQ(expectedBytesPerPixel, bytesPerPixel);
+    EXPECT_EQ(expectedRowPitch, rowPitch);
+    EXPECT_EQ(expectedSlicePitch, slicePitch);
 }
 
-HWTEST_F(BcsTests, givenImage2DArrayWhenAdjustBlitPropertiesForImageIsCalledThenValuesAreSetCorrectly) {
+HWTEST_F(BcsTestsImages, givenImage2DArrayWhenAdjustBlitPropertiesForImageIsCalledThenValuesAreSetCorrectly) {
     cl_image_desc imgDesc = Image1dDefaults::imageDesc;
     imgDesc.image_width = 10u;
     imgDesc.image_height = 3u;
     imgDesc.image_depth = 0u;
     imgDesc.image_array_size = 4u;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D_ARRAY;
+
     std::unique_ptr<Image> image(Image2dArrayHelper<>::create(context.get(), &imgDesc));
     Vec3<size_t> size{0, 0, 0};
     size_t bytesPerPixel = 0u;
     size_t expectedBytesPerPixel = image->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
+    size_t expectedRowPitch = image->getImageDesc().image_row_pitch;
+    size_t expectedSlicePitch = image->getImageDesc().image_slice_pitch;
+
     uint64_t gpuAddress = image->getGraphicsAllocation(0)->getGpuAddress();
-    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel, gpuAddress);
+    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel, gpuAddress, rowPitch, slicePitch);
 
     EXPECT_EQ(imgDesc.image_width, size.x);
     EXPECT_EQ(imgDesc.image_height, size.y);
     EXPECT_EQ(imgDesc.image_array_size, size.z);
     EXPECT_EQ(expectedBytesPerPixel, bytesPerPixel);
+    EXPECT_EQ(expectedRowPitch, rowPitch);
+    EXPECT_EQ(expectedSlicePitch, slicePitch);
 }
 
-HWTEST_F(BcsTests, givenImageWithSurfaceOffsetWhenAdjustBlitPropertiesForImageIsCalledThenGpuAddressIsCorrect) {
+HWTEST_F(BcsTestsImages, givenImageWithSurfaceOffsetWhenAdjustBlitPropertiesForImageIsCalledThenGpuAddressIsCorrect) {
     cl_image_desc imgDesc = Image1dDefaults::imageDesc;
     std::unique_ptr<Image> image(Image2dArrayHelper<>::create(context.get(), &imgDesc));
     Vec3<size_t> size{0, 0, 0};
@@ -1360,13 +1445,16 @@ HWTEST_F(BcsTests, givenImageWithSurfaceOffsetWhenAdjustBlitPropertiesForImageIs
     uint64_t gpuAddress = image->getGraphicsAllocation(0)->getGpuAddress();
     uint64_t expectedGpuAddress = gpuAddress + surfaceOffset;
 
-    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel, gpuAddress);
+    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel, gpuAddress, rowPitch, slicePitch);
 
     EXPECT_EQ(gpuAddress, expectedGpuAddress);
 }
 
 HWTEST_F(BcsTests, givenHostPtrToImageWhenConstructPropertiesIsCalledThenValuesAreSetCorrectly) {
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.image_width = 10u;
     imgDesc.image_height = 12u;
@@ -1381,9 +1469,9 @@ HWTEST_F(BcsTests, givenHostPtrToImageWhenConstructPropertiesIsCalledThenValuesA
     auto expectedDstPtr = image.get()->getGraphicsAllocation(csr.getRootDeviceIndex())->getGpuAddress();
     auto expectedBytesPerPixel = image.get()->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
     auto srcRowPitchExpected = expectedBytesPerPixel * builtinOpParams.size.x;
-    auto dstRowPitchExpected = expectedBytesPerPixel * image.get()->getImageDesc().image_width;
+    auto dstRowPitchExpected = image.get()->getImageDesc().image_row_pitch;
     auto srcSlicePitchExpected = srcRowPitchExpected * builtinOpParams.size.y;
-    auto dstSlicePitchExpected = dstRowPitchExpected * image.get()->getImageDesc().image_height;
+    auto dstSlicePitchExpected = image.get()->getImageDesc().image_slice_pitch;
 
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToImage,
                                                                 csr,
@@ -1401,7 +1489,10 @@ HWTEST_F(BcsTests, givenHostPtrToImageWhenConstructPropertiesIsCalledThenValuesA
 }
 
 HWTEST_F(BcsTests, givenImageToHostPtrWhenConstructPropertiesIsCalledThenValuesAreSetCorrectly) {
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.image_width = 10u;
     imgDesc.image_height = 12u;
@@ -1415,9 +1506,9 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenConstructPropertiesIsCalledThenValuesA
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto expectedSrcPtr = image.get()->getGraphicsAllocation(csr.getRootDeviceIndex())->getGpuAddress();
     auto expectedBytesPerPixel = image.get()->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
-    auto srcRowPitchExpected = expectedBytesPerPixel * image.get()->getImageDesc().image_width;
+    auto srcRowPitchExpected = image.get()->getImageDesc().image_row_pitch;
     auto dstRowPitchExpected = expectedBytesPerPixel * builtinOpParams.size.x;
-    auto srcSlicePitchExpected = srcRowPitchExpected * image.get()->getImageDesc().image_height;
+    auto srcSlicePitchExpected = image.get()->getImageDesc().image_slice_pitch;
     auto dstSlicePitchExpected = dstRowPitchExpected * builtinOpParams.size.y;
 
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::ImageToHostPtr,
@@ -1436,7 +1527,10 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenConstructPropertiesIsCalledThenValuesA
 }
 
 HWTEST_F(BcsTests, givenHostPtrToImageWithInputRowSlicePitchesWhenConstructPropertiesIsCalledThenValuesAreSetCorrectly) {
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     std::unique_ptr<Image> image(Image2dHelper<>::create(context.get(), &imgDesc));
     BuiltinOpParams builtinOpParams{};
@@ -1446,12 +1540,10 @@ HWTEST_F(BcsTests, givenHostPtrToImageWithInputRowSlicePitchesWhenConstructPrope
     builtinOpParams.size = {2, 3, 1};
     auto inputRowPitch = 0x20u;
     auto inputSlicePitch = 0x400u;
-    builtinOpParams.dstRowPitch = inputRowPitch;
-    builtinOpParams.dstSlicePitch = inputSlicePitch;
-
-    auto expectedBytesPerPixel = image.get()->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
-    auto dstRowPitchExpected = expectedBytesPerPixel * image.get()->getImageDesc().image_width;
-    auto dstSlicePitchExpected = dstRowPitchExpected * image.get()->getImageDesc().image_height;
+    builtinOpParams.srcRowPitch = inputRowPitch;
+    builtinOpParams.srcSlicePitch = inputSlicePitch;
+    auto dstRowPitchExpected = image.get()->getImageDesc().image_row_pitch;
+    auto dstSlicePitchExpected = image.get()->getImageDesc().image_slice_pitch;
 
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToImage,
@@ -1465,7 +1557,10 @@ HWTEST_F(BcsTests, givenHostPtrToImageWithInputRowSlicePitchesWhenConstructPrope
 }
 
 HWTEST_F(BcsTests, givenImageToHostPtrWithInputRowSlicePitchesWhenConstructPropertiesIsCalledThenValuesAreSetCorrectly) {
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     std::unique_ptr<Image> image(Image2dHelper<>::create(context.get(), &imgDesc));
     BuiltinOpParams builtinOpParams{};
@@ -1475,12 +1570,11 @@ HWTEST_F(BcsTests, givenImageToHostPtrWithInputRowSlicePitchesWhenConstructPrope
     builtinOpParams.size = {2, 3, 1};
     auto inputRowPitch = 0x20u;
     auto inputSlicePitch = 0x400u;
-    builtinOpParams.srcRowPitch = inputRowPitch;
-    builtinOpParams.srcSlicePitch = inputSlicePitch;
+    builtinOpParams.dstRowPitch = inputRowPitch;
+    builtinOpParams.dstSlicePitch = inputSlicePitch;
 
-    auto expectedBytesPerPixel = image.get()->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
-    auto srcRowPitchExpected = expectedBytesPerPixel * image.get()->getImageDesc().image_width;
-    auto srcSlicePitchExpected = srcRowPitchExpected * image.get()->getImageDesc().image_height;
+    auto srcRowPitchExpected = image.get()->getImageDesc().image_row_pitch;
+    auto srcSlicePitchExpected = image.get()->getImageDesc().image_slice_pitch;
 
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::ImageToHostPtr,
@@ -1497,7 +1591,10 @@ HWTEST_F(BcsTests, givenHostPtrToImageWhenBlitBufferIsCalledThenBlitCmdIsFound) 
     if (!pDevice->getHardwareInfo().capabilityTable.supportsImages) {
         GTEST_SKIP();
     }
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     std::unique_ptr<Image> image(Image2dHelper<>::create(context.get()));
     BuiltinOpParams builtinOpParams{};
     builtinOpParams.srcPtr = hostPtr;
@@ -1507,7 +1604,7 @@ HWTEST_F(BcsTests, givenHostPtrToImageWhenBlitBufferIsCalledThenBlitCmdIsFound) 
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToImage,
                                                                 csr,
                                                                 builtinOpParams);
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
@@ -1519,7 +1616,10 @@ HWTEST_F(BcsTests, given3dImageWhenBlitBufferIsCalledThenBlitCmdIsFoundZtimes) {
     if (!pDevice->getHardwareInfo().capabilityTable.supportsImages) {
         GTEST_SKIP();
     }
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     std::unique_ptr<Image> image(Image3dHelper<>::create(context.get()));
     BuiltinOpParams builtinOpParams{};
     builtinOpParams.srcPtr = hostPtr;
@@ -1530,7 +1630,7 @@ HWTEST_F(BcsTests, given3dImageWhenBlitBufferIsCalledThenBlitCmdIsFoundZtimes) {
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToImage,
                                                                 csr,
                                                                 builtinOpParams);
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
     uint32_t xyCopyBltCmdFound = 0;
@@ -1547,7 +1647,10 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenBlitBufferIsCalledThenBlitCmdIsFound) 
     if (!pDevice->getHardwareInfo().capabilityTable.supportsImages) {
         GTEST_SKIP();
     }
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     std::unique_ptr<Image> image(Image2dHelper<>::create(context.get()));
     BuiltinOpParams builtinOpParams{};
     builtinOpParams.dstPtr = hostPtr;
@@ -1557,7 +1660,7 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenBlitBufferIsCalledThenBlitCmdIsFound) 
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::ImageToHostPtr,
                                                                 csr,
                                                                 builtinOpParams);
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
@@ -1569,7 +1672,10 @@ HWTEST_F(BcsTests, givenHostPtrToImageWhenBlitBufferIsCalledThenBlitCmdIsCorrect
     if (!pDevice->getHardwareInfo().capabilityTable.supportsImages) {
         GTEST_SKIP();
     }
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.image_width = 10;
     imgDesc.image_height = 12;
@@ -1584,7 +1690,7 @@ HWTEST_F(BcsTests, givenHostPtrToImageWhenBlitBufferIsCalledThenBlitCmdIsCorrect
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToImage,
                                                                 csr,
                                                                 builtinOpParams);
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
@@ -1601,7 +1707,10 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenBlitBufferIsCalledThenBlitCmdIsCorrect
     if (!pDevice->getHardwareInfo().capabilityTable.supportsImages) {
         GTEST_SKIP();
     }
-    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    constexpr size_t hostAllocationSize = MemoryConstants::pageSize;
+    auto hostAllocationPtr = allocateAlignedMemory(hostAllocationSize, MemoryConstants::pageSize);
+    void *hostPtr = reinterpret_cast<void *>(hostAllocationPtr.get());
+
     cl_image_desc imgDesc = Image2dDefaults::imageDesc;
     imgDesc.image_width = 10u;
     imgDesc.image_height = 12u;
@@ -1616,7 +1725,7 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenBlitBufferIsCalledThenBlitCmdIsCorrect
     auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::ImageToHostPtr,
                                                                 csr,
                                                                 builtinOpParams);
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
@@ -1629,6 +1738,37 @@ HWTEST_F(BcsTests, givenImageToHostPtrWhenBlitBufferIsCalledThenBlitCmdIsCorrect
     EXPECT_EQ(blitProperties.dstGpuAddress, bltCmd->getDestinationBaseAddress());
 }
 
+HWTEST_F(BcsTests, givenImageToImageWhenBlitBufferIsCalledThenBlitCmdIsCorrectlyProgrammed) {
+    if (!pDevice->getHardwareInfo().capabilityTable.supportsImages) {
+        GTEST_SKIP();
+    }
+    cl_image_desc imgDesc = Image2dDefaults::imageDesc;
+    imgDesc.image_width = 10u;
+    imgDesc.image_height = 12u;
+    std::unique_ptr<Image> srcImage(Image2dHelper<>::create(context.get(), &imgDesc));
+    std::unique_ptr<Image> dstImage(Image2dHelper<>::create(context.get(), &imgDesc));
+
+    BuiltinOpParams builtinOpParams{};
+    builtinOpParams.srcMemObj = srcImage.get();
+    builtinOpParams.dstMemObj = dstImage.get();
+    builtinOpParams.size = {2, 3, 1};
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    auto blitProperties = ClBlitProperties::constructProperties(BlitterConstants::BlitDirection::ImageToImage,
+                                                                csr,
+                                                                builtinOpParams);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
+    auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+    ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+    auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
+
+    EXPECT_EQ(blitProperties.srcGpuAddress, bltCmd->getSourceBaseAddress());
+    EXPECT_EQ(blitProperties.dstGpuAddress, bltCmd->getDestinationBaseAddress());
+}
+
 HWTEST_F(BcsTests, givenBlitBufferCalledWhenClearColorAllocationIseSetThenItIsMadeResident) {
     MockGraphicsAllocation graphicsAllocation1;
     MockGraphicsAllocation graphicsAllocation2;
@@ -1638,9 +1778,9 @@ HWTEST_F(BcsTests, givenBlitBufferCalledWhenClearColorAllocationIseSetThenItIsMa
     csr.storeMakeResidentAllocations = true;
     Vec3<size_t> copySize = {1, 1, 1};
 
-    auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(&graphicsAllocation1,
-                                                                           &graphicsAllocation2, 0, 0, copySize, 0, 0, 0, 0, &clearColorAllocation);
-    blitBuffer(&csr, blitProperties, false);
+    auto blitProperties = BlitProperties::constructPropertiesForCopy(&graphicsAllocation1,
+                                                                     &graphicsAllocation2, 0, 0, copySize, 0, 0, 0, 0, &clearColorAllocation);
+    blitBuffer(&csr, blitProperties, false, *pDevice);
     auto iter = csr.makeResidentAllocations.find(&clearColorAllocation);
     ASSERT_NE(iter, csr.makeResidentAllocations.end());
     EXPECT_EQ(&clearColorAllocation, iter->first);

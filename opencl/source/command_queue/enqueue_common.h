@@ -35,6 +35,7 @@
 #include "opencl/source/helpers/task_information.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
+#include "opencl/source/memory_manager/migration_controller.h"
 #include "opencl/source/program/block_kernel_manager.h"
 #include "opencl/source/program/printf_handler.h"
 
@@ -227,7 +228,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
 
         if (nodesCount > 0) {
-            obtainNewTimestampPacketNodes(nodesCount, timestampPacketDependencies.previousEnqueueNodes, clearAllDependencies, false);
+            obtainNewTimestampPacketNodes(nodesCount, timestampPacketDependencies.previousEnqueueNodes, clearAllDependencies, getGpgpuCommandStreamReceiver());
             csrDeps.timestampPacketContainer.push_back(&timestampPacketDependencies.previousEnqueueNodes);
         }
     }
@@ -241,8 +242,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     }
 
     if (enqueueWithBlitAuxTranslation) {
-        processDispatchForBlitAuxTranslation(multiDispatchInfo, blitPropertiesContainer, timestampPacketDependencies,
-                                             eventsRequest, blockQueue);
+        processDispatchForBlitAuxTranslation(*getBcsForAuxTranslation(), multiDispatchInfo, blitPropertiesContainer,
+                                             timestampPacketDependencies, eventsRequest, blockQueue);
     }
 
     if (eventBuilder.getEvent() && getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
@@ -279,6 +280,10 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
 
         if (isMarkerWithProfiling) {
+            if (numEventsInWaitList == 0) {
+                PipeControlArgs args(false);
+                MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStream, args);
+            }
             processDispatchForMarkerWithTimestampPacket(*this, &commandStream, eventsRequest, csrDeps);
         }
     } else if (isMarkerWithProfiling) {
@@ -289,6 +294,14 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     const EnqueueProperties enqueueProperties(false, !multiDispatchInfo.empty(), isCacheFlushCommand(commandType),
                                               flushDependenciesForNonKernelCommand, isMarkerWithProfiling, &blitPropertiesContainer);
 
+    bool migratedMemory = false;
+
+    if (!blockQueue && multiDispatchInfo.peekMainKernel() && multiDispatchInfo.peekMainKernel()->requiresMemoryMigration()) {
+        for (auto &arg : multiDispatchInfo.peekMainKernel()->getMemObjectsToMigrate()) {
+            MigrationController::handleMigration(*this->context, getGpgpuCommandStreamReceiver(), arg.second);
+            migratedMemory = true;
+        }
+    }
     if (!blockQueue) {
         if (parentKernel) {
             processDeviceEnqueue(devQueueHw, multiDispatchInfo, hwTimeStamps, blocking);
@@ -310,7 +323,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 eventsRequest,
                 eventBuilder,
                 taskLevel,
-                printfHandler.get());
+                printfHandler.get(),
+                getBcsForAuxTranslation());
 
             if (parentKernel) {
                 getGpgpuCommandStreamReceiver().setMediaVFEStateDirty(true);
@@ -332,7 +346,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 eventsRequest,
                 eventBuilder,
                 taskLevel,
-                csrDeps);
+                csrDeps,
+                nullptr);
         } else {
             UNRECOVERABLE_IF(enqueueProperties.operation != EnqueueProperties::Operation::EnqueueWithoutSubmission);
 
@@ -382,7 +397,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                        enqueueProperties,
                        eventsRequest,
                        eventBuilder,
-                       std::move(printfHandler));
+                       std::move(printfHandler),
+                       nullptr);
     }
 
     if (deferredTimestampPackets.get()) {
@@ -394,6 +410,9 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     if (blocking) {
         waitUntilComplete(blockQueue, (blockQueue ? nullptr : printfHandler.get()));
+    }
+    if (migratedMemory) {
+        getGpgpuCommandStreamReceiver().flushBatchedSubmissions();
     }
 }
 
@@ -473,18 +492,17 @@ void CommandQueueHw<GfxFamily>::processDispatchForKernels(const MultiDispatchInf
 }
 
 template <typename GfxFamily>
-BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(const MultiDispatchInfo &multiDispatchInfo,
+BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(CommandStreamReceiver &blitCommandStreamReceiver,
+                                                                        const MultiDispatchInfo &multiDispatchInfo,
                                                                         TimestampPacketDependencies &timestampPacketDependencies,
                                                                         const EventsRequest &eventsRequest, LinearStream *commandStream,
                                                                         uint32_t commandType, bool queueBlocked) {
     auto blitDirection = ClBlitProperties::obtainBlitDirection(commandType);
 
-    auto blitCommandStreamReceiver = getBcsCommandStreamReceiver();
-
-    auto blitProperties = ClBlitProperties::constructProperties(blitDirection, *blitCommandStreamReceiver,
+    auto blitProperties = ClBlitProperties::constructProperties(blitDirection, blitCommandStreamReceiver,
                                                                 multiDispatchInfo.peekBuiltinOpParams());
     if (!queueBlocked) {
-        eventsRequest.fillCsrDependenciesForTimestampPacketContainer(blitProperties.csrDependencies, *blitCommandStreamReceiver,
+        eventsRequest.fillCsrDependenciesForTimestampPacketContainer(blitProperties.csrDependencies, blitCommandStreamReceiver,
                                                                      CsrDependencies::DependenciesType::All);
 
         blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestampPacketDependencies.cacheFlushNodes);
@@ -514,7 +532,8 @@ BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(const Mu
 }
 
 template <typename GfxFamily>
-void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const MultiDispatchInfo &multiDispatchInfo,
+void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(CommandStreamReceiver &bcsCsr,
+                                                                     const MultiDispatchInfo &multiDispatchInfo,
                                                                      BlitPropertiesContainer &blitPropertiesContainer,
                                                                      TimestampPacketDependencies &timestampPacketDependencies,
                                                                      const EventsRequest &eventsRequest, bool queueBlocked) {
@@ -553,11 +572,13 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
 
     if (!queueBlocked) {
         CsrDependencies csrDeps;
-        eventsRequest.fillCsrDependenciesForTimestampPacketContainer(csrDeps, *getBcsCommandStreamReceiver(), CsrDependencies::DependenciesType::All);
+        eventsRequest.fillCsrDependenciesForTimestampPacketContainer(csrDeps, bcsCsr, CsrDependencies::DependenciesType::All);
         BlitProperties::setupDependenciesForAuxTranslation(blitPropertiesContainer, timestampPacketDependencies,
                                                            *this->timestampPacketContainer, csrDeps,
-                                                           getGpgpuCommandStreamReceiver(), *getBcsCommandStreamReceiver());
+                                                           getGpgpuCommandStreamReceiver(), bcsCsr);
     }
+
+    eventsRequest.setupBcsCsrForOutputEvent(bcsCsr);
 }
 
 template <typename GfxFamily>
@@ -725,7 +746,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     EventsRequest &eventsRequest,
     EventBuilder &eventBuilder,
     uint32_t taskLevel,
-    PrintfHandler *printfHandler) {
+    PrintfHandler *printfHandler,
+    CommandStreamReceiver *bcsCsr) {
 
     UNRECOVERABLE_IF(multiDispatchInfo.empty());
 
@@ -831,7 +853,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         }
     }
 
-    auto memoryCompressionState = getGpgpuCommandStreamReceiver().getMemoryCompressionState(auxTranslationRequired);
+    auto memoryCompressionState = getGpgpuCommandStreamReceiver().getMemoryCompressionState(auxTranslationRequired, device->getHardwareInfo());
 
     DispatchFlags dispatchFlags(
         {},                                                                                         //csrDependencies
@@ -860,7 +882,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         usePerDssBackedBuffer,                                                                      //usePerDssBackedBuffer
         kernel->isSingleSubdevicePreferred(),                                                       //useSingleSubdevice
         useGlobalAtomics,                                                                           //useGlobalAtomics
-        kernel->areMultipleSubDevicesInContext()                                                    //areMultipleSubDevicesInContext
+        kernel->areMultipleSubDevicesInContext(),                                                   //areMultipleSubDevicesInContext
+        kernel->requiresMemoryMigration()                                                           //memoryMigrationRequired
     );
 
     dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = mediaSamplerRequired;
@@ -889,7 +912,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     }
 
     if (enqueueProperties.blitPropertiesContainer->size() > 0) {
-        this->bcsTaskCount = getBcsCommandStreamReceiver()->blitBuffer(*enqueueProperties.blitPropertiesContainer, false, this->isProfilingEnabled());
+        this->bcsTaskCount = bcsCsr->blitBuffer(*enqueueProperties.blitPropertiesContainer, false, this->isProfilingEnabled(), getDevice());
         dispatchFlags.implicitFlush = true;
     }
 
@@ -922,7 +945,8 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
     const EnqueueProperties &enqueueProperties,
     EventsRequest &eventsRequest,
     EventBuilder &externalEventBuilder,
-    std::unique_ptr<PrintfHandler> printfHandler) {
+    std::unique_ptr<PrintfHandler> printfHandler,
+    CommandStreamReceiver *bcsCsr) {
 
     TakeOwnershipWrapper<CommandQueueHw<GfxFamily>> queueOwnership(*this);
 
@@ -955,6 +979,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
     if (blockedCommandsData) {
         if (enqueueProperties.blitPropertiesContainer) {
             blockedCommandsData->blitPropertiesContainer = *enqueueProperties.blitPropertiesContainer;
+            blockedCommandsData->bcsCsr = bcsCsr;
             blockedCommandsData->blitEnqueue = true;
         }
 
@@ -1024,7 +1049,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
     EventsRequest &eventsRequest,
     EventBuilder &eventBuilder,
     uint32_t taskLevel,
-    CsrDependencies &csrDeps) {
+    CsrDependencies &csrDeps,
+    CommandStreamReceiver *bcsCsr) {
 
     CompletionStamp completionStamp = {this->taskCount, this->taskLevel, this->flushStamp->peekStamp()};
     bool flushGpgpuCsr = true;
@@ -1054,6 +1080,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
             surface->makeResident(getGpgpuCommandStreamReceiver());
         }
 
+        auto rootDeviceIndex = getDevice().getRootDeviceIndex();
         DispatchFlags dispatchFlags(
             {},                                                                  //csrDependencies
             &timestampPacketDependencies.barrierNodes,                           //barrierTimestampPacketNodes
@@ -1081,7 +1108,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
             false,                                                               //usePerDssBackedBuffer
             false,                                                               //useSingleSubdevice
             false,                                                               //useGlobalAtomics
-            1u);                                                                 //numDevicesInContext
+            context->containsMultipleSubDevices(rootDeviceIndex),                //areMultipleSubDevicesInContext
+            false);                                                              //memoryMigrationRequired
 
         if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
             eventsRequest.fillCsrDependenciesForTimestampPacketContainer(dispatchFlags.csrDependencies, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
@@ -1101,7 +1129,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
 
     if (enqueueProperties.operation == EnqueueProperties::Operation::Blit) {
         UNRECOVERABLE_IF(!enqueueProperties.blitPropertiesContainer);
-        this->bcsTaskCount = getBcsCommandStreamReceiver()->blitBuffer(*enqueueProperties.blitPropertiesContainer, false, this->isProfilingEnabled());
+        this->bcsTaskCount = bcsCsr->blitBuffer(*enqueueProperties.blitPropertiesContainer, false, this->isProfilingEnabled(), getDevice());
     }
 
     return completionStamp;
@@ -1136,13 +1164,14 @@ size_t CommandQueueHw<GfxFamily>::calculateHostPtrSizeForImage(const size_t *reg
 
 template <typename GfxFamily>
 template <uint32_t cmdType>
-void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispatchInfo, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking) {
+void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispatchInfo, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking, CommandStreamReceiver &bcsCsr) {
     auto commandStreamRecieverOwnership = getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
 
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
     EventBuilder eventBuilder;
 
     setupEvent(eventBuilder, eventsRequest.outEvent, cmdType);
+    eventsRequest.setupBcsCsrForOutputEvent(bcsCsr);
 
     std::unique_ptr<KernelOperation> blockedCommandsData;
     TakeOwnershipWrapper<CommandQueueHw<GfxFamily>> queueOwnership(*this);
@@ -1163,8 +1192,8 @@ void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispat
     BlitPropertiesContainer blitPropertiesContainer;
     CsrDependencies csrDeps;
 
-    eventsRequest.fillCsrDependenciesForTimestampPacketContainer(csrDeps, *getBcsCommandStreamReceiver(), CsrDependencies::DependenciesType::All);
-    auto allocator = getBcsCommandStreamReceiver()->getTimestampPacketAllocator();
+    eventsRequest.fillCsrDependenciesForTimestampPacketContainer(csrDeps, bcsCsr, CsrDependencies::DependenciesType::All);
+    auto allocator = bcsCsr.getTimestampPacketAllocator();
 
     if (isCacheFlushForBcsRequired() && isGpgpuSubmissionForBcsRequired(blockQueue)) {
         timestampPacketDependencies.cacheFlushNodes.add(allocator->getTag());
@@ -1174,7 +1203,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispat
         timestampPacketDependencies.barrierNodes.add(allocator->getTag());
     }
 
-    obtainNewTimestampPacketNodes(1, timestampPacketDependencies.previousEnqueueNodes, clearAllDependencies, true);
+    obtainNewTimestampPacketNodes(1, timestampPacketDependencies.previousEnqueueNodes, clearAllDependencies, bcsCsr);
     csrDeps.timestampPacketContainer.push_back(&timestampPacketDependencies.previousEnqueueNodes);
 
     LinearStream *gpgpuCommandStream = {};
@@ -1188,7 +1217,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispat
         eventBuilder.getEvent()->addTimestampPacketNodes(*timestampPacketContainer);
     }
 
-    blitPropertiesContainer.push_back(processDispatchForBlitEnqueue(multiDispatchInfo, timestampPacketDependencies,
+    blitPropertiesContainer.push_back(processDispatchForBlitEnqueue(bcsCsr, multiDispatchInfo, timestampPacketDependencies,
                                                                     eventsRequest, gpgpuCommandStream, cmdType, blockQueue));
 
     CompletionStamp completionStamp = {CompletionStamp::notReady, taskLevel, 0};
@@ -1196,7 +1225,9 @@ void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispat
     const EnqueueProperties enqueueProperties(true, false, false, false, false, &blitPropertiesContainer);
 
     if (!blockQueue) {
-        completionStamp = enqueueCommandWithoutKernel(nullptr, 0, gpgpuCommandStream, gpgpuCommandStreamStart, blocking, enqueueProperties, timestampPacketDependencies, eventsRequest, eventBuilder, taskLevel, csrDeps);
+        completionStamp = enqueueCommandWithoutKernel(nullptr, 0, gpgpuCommandStream, gpgpuCommandStreamStart, blocking,
+                                                      enqueueProperties, timestampPacketDependencies, eventsRequest,
+                                                      eventBuilder, taskLevel, csrDeps, &bcsCsr);
 
         if (eventBuilder.getEvent()) {
             eventBuilder.getEvent()->flushStamp->replaceStampObject(this->flushStamp->getStampReference());
@@ -1207,7 +1238,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispat
     updateFromCompletionStamp(completionStamp, eventBuilder.getEvent());
 
     if (blockQueue) {
-        enqueueBlocked(cmdType, nullptr, 0, multiDispatchInfo, timestampPacketDependencies, blockedCommandsData, enqueueProperties, eventsRequest, eventBuilder, nullptr);
+        enqueueBlocked(cmdType, nullptr, 0, multiDispatchInfo, timestampPacketDependencies, blockedCommandsData, enqueueProperties, eventsRequest, eventBuilder, nullptr, &bcsCsr);
     }
 
     timestampPacketDependencies.moveNodesToNewContainer(*deferredTimestampPackets);
@@ -1222,13 +1253,11 @@ void CommandQueueHw<GfxFamily>::enqueueBlit(const MultiDispatchInfo &multiDispat
 
 template <typename GfxFamily>
 template <uint32_t cmdType, size_t surfaceCount>
-void CommandQueueHw<GfxFamily>::dispatchBcsOrGpgpuEnqueue(MultiDispatchInfo &dispatchInfo, Surface *(&surfaces)[surfaceCount], EBuiltInOps::Type builtInOperation, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking, bool blitAllowed) {
-    const bool blitPreferred = blitEnqueuePreferred(cmdType, dispatchInfo.peekBuiltinOpParams());
-    const bool blitRequired = isCopyOnly;
-    const bool blit = blitAllowed && (blitPreferred || blitRequired);
+void CommandQueueHw<GfxFamily>::dispatchBcsOrGpgpuEnqueue(MultiDispatchInfo &dispatchInfo, Surface *(&surfaces)[surfaceCount], EBuiltInOps::Type builtInOperation, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking, CommandStreamReceiver &csr) {
+    const bool blit = EngineHelpers::isBcs(csr.getOsContext().getEngineType());
 
     if (blit) {
-        enqueueBlit<cmdType>(dispatchInfo, numEventsInWaitList, eventWaitList, event, blocking);
+        enqueueBlit<cmdType>(dispatchInfo, numEventsInWaitList, eventWaitList, event, blocking, csr);
     } else {
         auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(builtInOperation,
                                                                                 this->getClDevice());

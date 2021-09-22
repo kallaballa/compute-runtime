@@ -45,7 +45,8 @@ struct KernelImp : Kernel {
 
     ze_result_t getKernelName(size_t *pSize, char *pName) override;
 
-    ze_result_t suggestMaxCooperativeGroupCount(uint32_t *totalGroupCount) override;
+    ze_result_t suggestMaxCooperativeGroupCount(uint32_t *totalGroupCount, NEO::EngineGroupType engineGroupType,
+                                                bool isEngineInstanced) override;
 
     const uint8_t *getCrossThreadData() const override { return crossThreadData.get(); }
     uint32_t getCrossThreadDataSize() const override { return crossThreadDataSize; }
@@ -126,8 +127,6 @@ struct KernelImp : Kernel {
     ze_result_t setGlobalOffsetExp(uint32_t offsetX, uint32_t offsetY, uint32_t offsetZ) override;
     void patchGlobalOffset() override;
 
-    void patchWorkDim(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) override;
-
     ze_result_t setCacheConfig(ze_cache_config_flags_t flags) override;
     bool usesRayTracing() {
         return kernelImmData->getDescriptor().hasRTCalls();
@@ -142,6 +141,20 @@ struct KernelImp : Kernel {
     bool hasIndirectAccess() {
         return kernelHasIndirectAccess;
     }
+
+    NEO::GraphicsAllocation *allocatePrivateMemoryGraphicsAllocation() override;
+    void patchCrossthreadDataWithPrivateAllocation(NEO::GraphicsAllocation *privateAllocation) override;
+
+    NEO::GraphicsAllocation *getPrivateMemoryGraphicsAllocation() override {
+        return privateMemoryGraphicsAllocation;
+    }
+
+    ze_result_t setSchedulingHintExp(ze_scheduling_hint_exp_desc_t *pHint) override;
+    uint32_t getSchedulingHintExp();
+
+    NEO::ImplicitArgs *getImplicitArgs() const override { return pImplicitArgs.get(); }
+    uint32_t getSizeForImplicitArgsPatching() const override;
+    void patchImplicitArgs(void *&pOut) const override;
 
   protected:
     KernelImp() = default;
@@ -196,6 +209,9 @@ struct KernelImp : Kernel {
     ze_cache_config_flags_t cacheConfigFlags = 0u;
 
     bool kernelHasIndirectAccess = true;
+
+    uint32_t schedulingHintExpFlag = 0u;
+    std::unique_ptr<NEO::ImplicitArgs> pImplicitArgs;
 };
 
 } // namespace L0

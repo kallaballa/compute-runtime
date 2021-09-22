@@ -8,7 +8,6 @@
 #pragma once
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/command_stream/scratch_space_controller.h"
-#include "shared/source/command_stream/stream_properties.h"
 #include "shared/source/command_stream/submissions_aggregator.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
@@ -40,8 +39,8 @@ struct CommandQueueHw : public CommandQueueImp {
     size_t estimateStateBaseAddressCmdSize();
     MOCKABLE_VIRTUAL void programFrontEnd(uint64_t scratchAddress, uint32_t perThreadScratchSpaceSize, NEO::LinearStream &commandStream);
 
-    size_t estimateFrontEndCmdSizeForMultipleCommandLists(bool isFrontEndStateDirty, uint32_t numCommandLists,
-                                                          ze_command_list_handle_t *phCommandLists);
+    MOCKABLE_VIRTUAL size_t estimateFrontEndCmdSizeForMultipleCommandLists(bool isFrontEndStateDirty, uint32_t numCommandLists,
+                                                                           ze_command_list_handle_t *phCommandLists);
     size_t estimateFrontEndCmdSize();
     size_t estimatePipelineSelect();
     void programPipelineSelect(NEO::LinearStream &commandStream);
@@ -53,8 +52,6 @@ struct CommandQueueHw : public CommandQueueImp {
 
     bool getPreemptionCmdProgramming() override;
     void patchCommands(CommandList &commandList, uint64_t scratchAddress);
-
-    NEO::StreamProperties streamProperties{};
 };
 
 } // namespace L0

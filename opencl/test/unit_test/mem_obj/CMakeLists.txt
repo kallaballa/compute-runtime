@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -11,6 +11,7 @@ set(IGDRCL_SRCS_tests_mem_obj
     ${CMAKE_CURRENT_SOURCE_DIR}/buffer_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/buffer_bcs_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/create_image_format_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/create_image_in_local_memory_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/destructor_callback_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/get_mem_object_info_subbuffer_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/get_mem_object_info_tests.cpp
@@ -27,7 +28,7 @@ set(IGDRCL_SRCS_tests_mem_obj
     ${CMAKE_CURRENT_SOURCE_DIR}/image_set_arg_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image_snorm_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image_tests.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/image_tests_tgllp_plus.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/image_tests_tgllp_and_later.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image_tiled_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image_transfer_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image_validate_tests.cpp
@@ -41,5 +42,13 @@ set(IGDRCL_SRCS_tests_mem_obj
     ${CMAKE_CURRENT_SOURCE_DIR}/sub_buffer_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/zero_copy_tests.cpp
 )
+
+if(TESTS_XEHP_AND_LATER)
+  list(APPEND IGDRCL_SRCS_tests_mem_obj
+       ${CMAKE_CURRENT_SOURCE_DIR}/buffer_tests_xehp_and_later.cpp
+       ${CMAKE_CURRENT_SOURCE_DIR}/image_tests_xehp_and_later.cpp
+  )
+endif()
+
 target_sources(igdrcl_tests PRIVATE ${IGDRCL_SRCS_tests_mem_obj})
 add_subdirectories()

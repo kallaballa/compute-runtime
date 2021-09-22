@@ -86,6 +86,12 @@ BDWTEST_F(ThreadArbitrationGen8, givenPolicyWhenThreadArbitrationProgrammedThenD
     EXPECT_EQ(0u, HwHelperHw<BDWFamily>::get().getDefaultThreadArbitrationPolicy());
 }
 
+BDWTEST_F(ThreadArbitrationGen8, whenGetSupportThreadArbitrationPoliciesIsCalledThenEmptyVectorIsReturned) {
+    auto supportedPolicies = PreambleHelper<BDWFamily>::getSupportedThreadArbitrationPolicies();
+
+    EXPECT_EQ(0u, supportedPolicies.size());
+}
+
 typedef PreambleFixture Gen8UrbEntryAllocationSize;
 BDWTEST_F(Gen8UrbEntryAllocationSize, WhenPreambleIsCreatedThenUrbEntryAllocationSizeIsCorrect) {
     uint32_t actualVal = PreambleHelper<FamilyType>::getUrbEntryAllocationSize();
@@ -98,8 +104,7 @@ BDWTEST_F(PreambleVfeState, WhenProgrammingVfeStateThenProgrammingIsCorrect) {
     LinearStream &cs = linearStream;
     auto pVfeCmd = PreambleHelper<BDWFamily>::getSpaceForVfeState(&linearStream, *defaultHwInfo, EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<BDWFamily>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, 0, 168u,
-                                               AdditionalKernelExecInfo::NotApplicable, emptyProperties);
+    PreambleHelper<BDWFamily>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, 0, 168u, emptyProperties);
 
     parseCommands<BDWFamily>(cs);
 

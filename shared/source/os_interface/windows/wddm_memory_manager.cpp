@@ -61,7 +61,10 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
     initialized = true;
 }
 
-GraphicsAllocation *WddmMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
+GraphicsAllocation *WddmMemoryManager::allocateMemoryByKMD(const AllocationData &allocationData) {
+    if (allocationData.size > getHugeGfxMemoryChunkSize(GfxMemoryAllocationMethod::AllocateByKmd)) {
+        return allocateHugeGraphicsMemory(allocationData, false);
+    }
     auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocationData.hostPtr, allocationData.size, 0u, false);
     auto allocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex,
                                                        1u, // numGmms
@@ -95,15 +98,19 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImageImpl(const 
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(const AllocationData &allocationData) {
-    size_t sizeAligned = alignUp(allocationData.size, MemoryConstants::pageSize64k);
-    if (sizeAligned > getHugeGfxMemoryChunkSize()) {
+    return allocateGraphicsMemoryUsingKmdAndMapItToCpuVA(allocationData, true);
+}
+
+GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryUsingKmdAndMapItToCpuVA(const AllocationData &allocationData, bool allowLargePages) {
+    size_t sizeAligned = alignUp(allocationData.size, allowLargePages ? MemoryConstants::pageSize64k : MemoryConstants::pageSize);
+    if (sizeAligned > getHugeGfxMemoryChunkSize(GfxMemoryAllocationMethod::AllocateByKmd)) {
         return allocateHugeGraphicsMemory(allocationData, false);
     }
 
     auto wddmAllocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex,
                                                            1u, // numGmms
                                                            allocationData.type, nullptr,
-                                                           sizeAligned, nullptr, MemoryPool::System64KBPages,
+                                                           sizeAligned, nullptr, allowLargePages ? MemoryPool::System64KBPages : MemoryPool::System4KBPages,
                                                            0u, // shareable
                                                            maxOsContextCount);
 
@@ -111,19 +118,26 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(const Allocati
                        sizeAligned, 0u,
                        allocationData.flags.uncacheable,
                        allocationData.flags.preferRenderCompressed, true,
-                       allocationData.storageInfo);
+                       allocationData.storageInfo,
+                       allowLargePages);
     wddmAllocation->setDefaultGmm(gmm);
     wddmAllocation->setFlushL3Required(allocationData.flags.flushL3);
     wddmAllocation->storageInfo = allocationData.storageInfo;
 
-    if (!getWddm(allocationData.rootDeviceIndex).createAllocation64k(gmm, wddmAllocation->getHandleToModify(0u))) {
+    if (!getWddm(allocationData.rootDeviceIndex).createAllocation(gmm, wddmAllocation->getHandleToModify(0u))) {
         delete gmm;
         return nullptr;
     }
 
     auto cpuPtr = gmm->isCompressionEnabled ? nullptr : lockResource(wddmAllocation.get());
 
-    [[maybe_unused]] auto status = mapGpuVirtualAddress(wddmAllocation.get(), cpuPtr);
+    [[maybe_unused]] auto status = true;
+
+    if (executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo()->capabilityTable.gpuAddressSpace >= MemoryConstants::max64BitAppAddress || is32bit) {
+        status = mapGpuVirtualAddress(wddmAllocation.get(), cpuPtr);
+    } else {
+        status = mapGpuVirtualAddress(wddmAllocation.get(), nullptr);
+    }
     DEBUG_BREAK_IF(!status);
     wddmAllocation->setCpuAddress(cpuPtr);
     return wddmAllocation.release();
@@ -149,7 +163,7 @@ GraphicsAllocation *WddmMemoryManager::allocateHugeGraphicsMemory(const Allocati
         }
     }
 
-    auto chunkSize = getHugeGfxMemoryChunkSize();
+    auto chunkSize = getHugeGfxMemoryChunkSize(GfxMemoryAllocationMethod::UseUmdSystemPtr);
     auto numGmms = (alignedSize + chunkSize - 1) / chunkSize;
     auto wddmAllocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex, numGmms,
                                                            allocationData.type, hostPtr, allocationData.size,
@@ -191,9 +205,19 @@ GraphicsAllocation *WddmMemoryManager::allocateUSMHostGraphicsMemory(const Alloc
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) {
+    auto pageSize = NEO::OSInterface::osEnabled64kbPages ? MemoryConstants::pageSize64k : MemoryConstants::pageSize;
+    bool requiresNonStandardAlignment = allocationData.alignment > pageSize;
+    if ((preferredAllocationMethod == GfxMemoryAllocationMethod::UseUmdSystemPtr) || requiresNonStandardAlignment) {
+        return allocateSystemMemoryAndCreateGraphicsAllocationFromIt(allocationData);
+    } else {
+        return allocateGraphicsMemoryUsingKmdAndMapItToCpuVA(allocationData, NEO::OSInterface::osEnabled64kbPages);
+    }
+}
+
+GraphicsAllocation *WddmMemoryManager::allocateSystemMemoryAndCreateGraphicsAllocationFromIt(const AllocationData &allocationData) {
     size_t newAlignment = allocationData.alignment ? alignUp(allocationData.alignment, MemoryConstants::pageSize) : MemoryConstants::pageSize;
     size_t sizeAligned = allocationData.size ? alignUp(allocationData.size, MemoryConstants::pageSize) : MemoryConstants::pageSize;
-    if (sizeAligned > getHugeGfxMemoryChunkSize()) {
+    if (sizeAligned > getHugeGfxMemoryChunkSize(GfxMemoryAllocationMethod::UseUmdSystemPtr)) {
         return allocateHugeGraphicsMemory(allocationData, true);
     }
     void *pSysMem = allocateSystemMemory(sizeAligned, newAlignment);
@@ -240,7 +264,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithAlignment(const
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) {
     auto alignedSize = alignSizeWholePage(allocationData.hostPtr, allocationData.size);
-    if (alignedSize > getHugeGfxMemoryChunkSize()) {
+    if (alignedSize > getHugeGfxMemoryChunkSize(GfxMemoryAllocationMethod::UseUmdSystemPtr)) {
         return allocateHugeGraphicsMemory(allocationData, false);
     }
 
@@ -268,7 +292,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(co
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) {
-    if (allocationData.size > getHugeGfxMemoryChunkSize()) {
+    if (allocationData.size > getHugeGfxMemoryChunkSize(GfxMemoryAllocationMethod::UseUmdSystemPtr)) {
         return allocateHugeGraphicsMemory(allocationData, false);
     }
 
@@ -313,7 +337,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
         ptrAligned = alignDown(allocationData.hostPtr, MemoryConstants::allocationAlignment);
         sizeAligned = alignSizeWholePage(allocationData.hostPtr, sizeAligned);
         offset = ptrDiff(allocationData.hostPtr, ptrAligned);
-    } else {
+    } else if (preferredAllocationMethod == GfxMemoryAllocationMethod::UseUmdSystemPtr) {
         sizeAligned = alignUp(sizeAligned, MemoryConstants::allocationAlignment);
         pSysMem = allocateSystemMemory(sizeAligned, MemoryConstants::allocationAlignment);
         if (pSysMem == nullptr) {
@@ -344,6 +368,11 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
     auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
     auto baseAddress = getGfxPartition(allocationData.rootDeviceIndex)->getHeapBase(heapAssigner.get32BitHeapIndex(allocationData.type, useLocalMemory, *hwInfo, allocationData.flags.use32BitFrontWindow));
     wddmAllocation->setGpuBaseAddress(GmmHelper::canonize(baseAddress));
+
+    if (preferredAllocationMethod != GfxMemoryAllocationMethod::UseUmdSystemPtr) {
+        auto lockedPtr = lockResource(wddmAllocation.get());
+        wddmAllocation->setCpuAddress(lockedPtr);
+    }
 
     return wddmAllocation.release();
 }
@@ -628,6 +657,10 @@ GraphicsAllocation *WddmMemoryManager::createGraphicsAllocation(OsHandleStorage 
 
 uint64_t WddmMemoryManager::getSystemSharedMemory(uint32_t rootDeviceIndex) {
     return getWddm(rootDeviceIndex).getSystemSharedMemory();
+}
+
+double WddmMemoryManager::getPercentOfGlobalMemoryAvailable(uint32_t rootDeviceIndex) {
+    return 0.8;
 }
 
 AlignedMallocRestrictions *WddmMemoryManager::getAlignedMallocRestrictions() {

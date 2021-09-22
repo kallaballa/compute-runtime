@@ -13,11 +13,14 @@
 #include "shared/source/os_interface/windows/wddm_memory_manager.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_io_functions.h"
 #include "shared/test/common/mocks/windows/mock_wddm_direct_submission.h"
 #include "shared/test/common/os_interface/windows/wddm_fixture.h"
+
+using namespace NEO;
 
 struct WddmDirectSubmissionFixture : public WddmFixture {
     void SetUp() override {
@@ -28,7 +31,9 @@ struct WddmDirectSubmissionFixture : public WddmFixture {
 
         executionEnvironment->memoryManager.reset(new WddmMemoryManager{*executionEnvironment});
         device.reset(MockDevice::create<MockDevice>(executionEnvironment.get(), 0u));
-        osContext = std::make_unique<OsContextWin>(*wddm, 0u, device->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::ThreadGroup, false);
+        osContext = std::make_unique<OsContextWin>(*wddm, 0u,
+                                                   EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_RCS, EngineUsage::Regular},
+                                                                                                PreemptionMode::ThreadGroup, device->getDeviceBitfield()));
         osContext->ensureContextInitialized();
         device->setPreemptionMode(PreemptionMode::ThreadGroup);
     }
@@ -39,8 +44,6 @@ struct WddmDirectSubmissionFixture : public WddmFixture {
 };
 
 using WddmDirectSubmissionTest = WddmDirectSubmissionFixture;
-
-using namespace NEO;
 
 HWTEST_F(WddmDirectSubmissionTest, givenWddmWhenDirectIsInitializedAndStartedThenExpectProperCommandsDispatched) {
     std::unique_ptr<MockWddmDirectSubmission<FamilyType, RenderDispatcher<FamilyType>>> wddmDirectSubmission =

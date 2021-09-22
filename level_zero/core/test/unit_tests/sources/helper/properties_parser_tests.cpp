@@ -161,7 +161,7 @@ TEST(L0StructuresLookupTableTests, givenL0StructuresWithUnsupportedExportHandles
     EXPECT_FALSE(l0LookupTable.exportMemory);
 }
 
-TEST(L0StructuresLookupTableTests, givenL0StructuresWithSupportedExportHandlesAndImageDescWhenPrepareLookupTableThenUnsuppoertedErrorIsReturned) {
+TEST(L0StructuresLookupTableTests, givenL0StructuresWithSupportedExportHandlesAndImageDescWhenPrepareLookupTableThenUnsupportedErrorIsReturned) {
     ze_image_desc_t imageDesc = {};
     imageDesc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
 

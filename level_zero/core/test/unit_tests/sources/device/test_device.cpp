@@ -7,6 +7,7 @@
 
 #include "shared/source/device/root_device.h"
 #include "shared/source/helpers/bindless_heaps_helper.h"
+#include "shared/source/helpers/preamble.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_inc_base.h"
 #include "shared/source/os_interface/os_time.h"
@@ -23,6 +24,7 @@
 #include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/source/driver/host_pointer_manager.h"
+#include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_built_ins.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
 
@@ -31,6 +33,10 @@
 #include <memory>
 
 using ::testing::Return;
+
+namespace NEO {
+extern HwHelper *hwHelperFactory[IGFX_MAX_CORE];
+} // namespace NEO
 
 namespace L0 {
 namespace ult {
@@ -418,6 +424,62 @@ TEST_F(DeviceTest, givenEmptySVmAllocStorageWhenAllocateMemoryFromHostPtrThenVal
     neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
 }
 
+TEST_F(DeviceTest, givenNonEmptyAllocationsListWhenRequestingAllocationSmallerOrEqualInSizeThenAllocationFromListIsReturned) {
+    auto deviceImp = static_cast<DeviceImp *>(device);
+    constexpr auto dataSize = 1024u;
+    auto data = std::make_unique<int[]>(dataSize);
+
+    constexpr auto allocationSize = sizeof(int) * dataSize;
+
+    auto allocation = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties({device->getNEODevice()->getRootDeviceIndex(),
+                                                                                                           allocationSize,
+                                                                                                           NEO::GraphicsAllocation::AllocationType::FILL_PATTERN,
+                                                                                                           neoDevice->getDeviceBitfield()});
+    device->storeReusableAllocation(*allocation);
+    EXPECT_FALSE(deviceImp->allocationsForReuse.peekIsEmpty());
+    auto obtaindedAllocation = device->obtainReusableAllocation(dataSize, NEO::GraphicsAllocation::AllocationType::FILL_PATTERN);
+    EXPECT_TRUE(deviceImp->allocationsForReuse.peekIsEmpty());
+    EXPECT_NE(nullptr, obtaindedAllocation);
+    EXPECT_EQ(allocation, obtaindedAllocation);
+    neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
+}
+
+TEST_F(DeviceTest, givenNonEmptyAllocationsListWhenRequestingAllocationBiggerInSizeThenNullptrIsReturned) {
+    auto deviceImp = static_cast<DeviceImp *>(device);
+    constexpr auto dataSize = 1024u;
+    auto data = std::make_unique<int[]>(dataSize);
+
+    constexpr auto allocationSize = sizeof(int) * dataSize;
+
+    auto allocation = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties({device->getNEODevice()->getRootDeviceIndex(),
+                                                                                                           allocationSize,
+                                                                                                           NEO::GraphicsAllocation::AllocationType::FILL_PATTERN,
+                                                                                                           neoDevice->getDeviceBitfield()});
+    device->storeReusableAllocation(*allocation);
+    EXPECT_FALSE(deviceImp->allocationsForReuse.peekIsEmpty());
+    auto obtaindedAllocation = device->obtainReusableAllocation(4 * dataSize + 1u, NEO::GraphicsAllocation::AllocationType::FILL_PATTERN);
+    EXPECT_EQ(nullptr, obtaindedAllocation);
+    EXPECT_FALSE(deviceImp->allocationsForReuse.peekIsEmpty());
+}
+
+TEST_F(DeviceTest, givenNonEmptyAllocationsListAndUnproperAllocationTypeWhenRequestingAllocationThenNullptrIsReturned) {
+    auto deviceImp = static_cast<DeviceImp *>(device);
+    constexpr auto dataSize = 1024u;
+    auto data = std::make_unique<int[]>(dataSize);
+
+    constexpr auto allocationSize = sizeof(int) * dataSize;
+
+    auto allocation = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties({device->getNEODevice()->getRootDeviceIndex(),
+                                                                                                           allocationSize,
+                                                                                                           NEO::GraphicsAllocation::AllocationType::BUFFER,
+                                                                                                           neoDevice->getDeviceBitfield()});
+    device->storeReusableAllocation(*allocation);
+    EXPECT_FALSE(deviceImp->allocationsForReuse.peekIsEmpty());
+    auto obtaindedAllocation = device->obtainReusableAllocation(4 * dataSize + 1u, NEO::GraphicsAllocation::AllocationType::FILL_PATTERN);
+    EXPECT_EQ(nullptr, obtaindedAllocation);
+    EXPECT_FALSE(deviceImp->allocationsForReuse.peekIsEmpty());
+}
+
 struct DeviceHostPointerTest : public ::testing::Test {
     void SetUp() override {
         executionEnvironment = new NEO::ExecutionEnvironment();
@@ -502,6 +564,116 @@ TEST_F(DeviceTest, givenKernelExtendedPropertiesStructureWhenKernelPropertiesCal
     EXPECT_EQ(maxValue, kernelExtendedProperties.fp16Flags);
     EXPECT_EQ(maxValue, kernelExtendedProperties.fp32Flags);
     EXPECT_EQ(maxValue, kernelExtendedProperties.fp64Flags);
+}
+
+HWTEST_F(DeviceTest, whenPassingSchedulingHintExpStructToGetPropertiesThenPropertiesWithCorrectFlagIsReturned) {
+
+    ze_device_module_properties_t kernelProperties = {};
+    kernelProperties.stype = ZE_STRUCTURE_TYPE_KERNEL_PROPERTIES;
+
+    ze_scheduling_hint_exp_properties_t schedulingHintProperties = {};
+    schedulingHintProperties.stype = ZE_STRUCTURE_TYPE_SCHEDULING_HINT_EXP_PROPERTIES;
+    schedulingHintProperties.schedulingHintFlags = ZE_SCHEDULING_HINT_EXP_FLAG_FORCE_UINT32;
+
+    kernelProperties.pNext = &schedulingHintProperties;
+
+    ze_result_t res = device->getKernelProperties(&kernelProperties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    EXPECT_NE(ZE_SCHEDULING_HINT_EXP_FLAG_FORCE_UINT32, schedulingHintProperties.schedulingHintFlags);
+    auto supportedThreadArbitrationPolicies = NEO::PreambleHelper<FamilyType>::getSupportedThreadArbitrationPolicies();
+    for (uint32_t &p : supportedThreadArbitrationPolicies) {
+        switch (p) {
+        case ThreadArbitrationPolicy::AgeBased:
+            EXPECT_NE(0u, (schedulingHintProperties.schedulingHintFlags &
+                           ZE_SCHEDULING_HINT_EXP_FLAG_OLDEST_FIRST));
+            break;
+        case ThreadArbitrationPolicy::RoundRobin:
+            EXPECT_NE(0u, (schedulingHintProperties.schedulingHintFlags &
+                           ZE_SCHEDULING_HINT_EXP_FLAG_ROUND_ROBIN));
+            break;
+        case ThreadArbitrationPolicy::RoundRobinAfterDependency:
+            EXPECT_NE(0u, (schedulingHintProperties.schedulingHintFlags &
+                           ZE_SCHEDULING_HINT_EXP_FLAG_STALL_BASED_ROUND_ROBIN));
+            break;
+        default:
+            FAIL();
+        }
+    }
+}
+
+HWTEST2_F(DeviceTest, givenAllThreadArbitrationPoliciesWhenPassingSchedulingHintExpStructToGetPropertiesThenPropertiesWithAllFlagsAreReturned, MatchAny) {
+    struct MockHwInfoConfig : NEO::HwInfoConfigHw<productFamily> {
+        std::vector<uint32_t> getKernelSupportedThreadArbitrationPolicies() override {
+            return threadArbPolicies;
+        }
+        std::vector<uint32_t> threadArbPolicies;
+    };
+
+    const uint32_t rootDeviceIndex = 0u;
+    auto hwInfo = *NEO::defaultHwInfo;
+    auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo,
+                                                                                              rootDeviceIndex);
+
+    Mock<L0::DeviceImp> deviceImp(neoMockDevice, neoMockDevice->getExecutionEnvironment());
+
+    MockHwInfoConfig hwInfoConfig{};
+    hwInfoConfig.threadArbPolicies = {ThreadArbitrationPolicy::AgeBased,
+                                      ThreadArbitrationPolicy::RoundRobin,
+                                      ThreadArbitrationPolicy::RoundRobinAfterDependency};
+    VariableBackup<HwInfoConfig *> hwInfoConfigFactoryBackup{&NEO::hwInfoConfigFactory[static_cast<size_t>(hwInfo.platform.eProductFamily)]};
+    hwInfoConfigFactoryBackup = &hwInfoConfig;
+
+    ze_device_module_properties_t kernelProperties = {};
+    kernelProperties.stype = ZE_STRUCTURE_TYPE_KERNEL_PROPERTIES;
+
+    ze_scheduling_hint_exp_properties_t schedulingHintProperties = {};
+    schedulingHintProperties.stype = ZE_STRUCTURE_TYPE_SCHEDULING_HINT_EXP_PROPERTIES;
+    schedulingHintProperties.schedulingHintFlags = ZE_SCHEDULING_HINT_EXP_FLAG_FORCE_UINT32;
+
+    kernelProperties.pNext = &schedulingHintProperties;
+
+    ze_result_t res = deviceImp.getKernelProperties(&kernelProperties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ze_scheduling_hint_exp_flags_t expected = (ZE_SCHEDULING_HINT_EXP_FLAG_OLDEST_FIRST |
+                                               ZE_SCHEDULING_HINT_EXP_FLAG_ROUND_ROBIN |
+                                               ZE_SCHEDULING_HINT_EXP_FLAG_STALL_BASED_ROUND_ROBIN);
+    EXPECT_EQ(expected, schedulingHintProperties.schedulingHintFlags);
+}
+
+HWTEST2_F(DeviceTest, givenIncorrectThreadArbitrationPolicyWhenPassingSchedulingHintExpStructToGetPropertiesThenNoneIsReturned, MatchAny) {
+    struct MockHwInfoConfig : NEO::HwInfoConfigHw<productFamily> {
+        std::vector<uint32_t> getKernelSupportedThreadArbitrationPolicies() override {
+            return threadArbPolicies;
+        }
+        std::vector<uint32_t> threadArbPolicies;
+    };
+
+    const uint32_t rootDeviceIndex = 0u;
+    auto hwInfo = *NEO::defaultHwInfo;
+    auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo,
+                                                                                              rootDeviceIndex);
+
+    Mock<L0::DeviceImp> deviceImp(neoMockDevice, neoMockDevice->getExecutionEnvironment());
+
+    MockHwInfoConfig hwInfoConfig{};
+    hwInfoConfig.threadArbPolicies = {ThreadArbitrationPolicy::NotPresent};
+    VariableBackup<HwInfoConfig *> hwInfoConfigFactoryBackup{&NEO::hwInfoConfigFactory[static_cast<size_t>(hwInfo.platform.eProductFamily)]};
+    hwInfoConfigFactoryBackup = &hwInfoConfig;
+
+    ze_device_module_properties_t kernelProperties = {};
+    kernelProperties.stype = ZE_STRUCTURE_TYPE_KERNEL_PROPERTIES;
+
+    ze_scheduling_hint_exp_properties_t schedulingHintProperties = {};
+    schedulingHintProperties.stype = ZE_STRUCTURE_TYPE_SCHEDULING_HINT_EXP_PROPERTIES;
+    schedulingHintProperties.schedulingHintFlags = ZE_SCHEDULING_HINT_EXP_FLAG_FORCE_UINT32;
+
+    kernelProperties.pNext = &schedulingHintProperties;
+
+    ze_result_t res = deviceImp.getKernelProperties(&kernelProperties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_EQ(0u, schedulingHintProperties.schedulingHintFlags);
 }
 
 TEST_F(DeviceTest, givenKernelPropertiesStructureWhenKernelPropertiesCalledThenAllPropertiesAreAssigned) {
@@ -624,6 +796,19 @@ TEST_F(DeviceTest, givenCallToDevicePropertiesThenMaximumMemoryToBeAllocatedIsCo
     deviceProperties.maxMemAllocSize = 0;
     device->getProperties(&deviceProperties);
     EXPECT_EQ(deviceProperties.maxMemAllocSize, this->neoDevice->getDeviceInfo().maxMemAllocSize);
+    HardwareCapabilities hwCaps = {0};
+    auto &hwHelper = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
+    hwHelper.setupHardwareCapabilities(&hwCaps, *defaultHwInfo);
+    auto expectedSize = this->neoDevice->getDeviceInfo().globalMemSize;
+    if (!this->neoDevice->getDeviceInfo().sharedSystemAllocationsSupport) {
+        expectedSize = std::min(expectedSize, hwCaps.maxMemAllocSize);
+    }
+    EXPECT_EQ(deviceProperties.maxMemAllocSize, expectedSize);
+}
+
+TEST_F(DeviceTest, whenCheckingIfStatelessCompressionIsSupportedThenReturnFalse) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.allowStatelessCompression(*defaultHwInfo));
 }
 
 struct DeviceHwInfoTest : public ::testing::Test {
@@ -1187,6 +1372,24 @@ struct MultipleDevicesTest : public ::testing::Test {
     const uint32_t numSubDevices = 2u;
 };
 
+TEST_F(MultipleDevicesTest, whenCallingGetMemoryPropertiesWithSubDevicesThenCorrectSizeReturned) {
+    L0::Device *device0 = driverHandle->devices[0];
+    uint32_t count = 1;
+
+    DebugManager.flags.EnableWalkerPartition.set(0);
+    ze_device_memory_properties_t memProperties = {};
+    ze_result_t res = device0->getMemoryProperties(&count, &memProperties);
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+    EXPECT_EQ(1u, count);
+    EXPECT_EQ(memProperties.totalSize, device0->getNEODevice()->getDeviceInfo().globalMemSize / numSubDevices);
+
+    DebugManager.flags.EnableWalkerPartition.set(1);
+    res = device0->getMemoryProperties(&count, &memProperties);
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+    EXPECT_EQ(1u, count);
+    EXPECT_EQ(memProperties.totalSize, device0->getNEODevice()->getDeviceInfo().globalMemSize);
+}
+
 TEST_F(MultipleDevicesTest, whenRetrievingNumberOfSubdevicesThenCorrectNumberIsReturned) {
     L0::Device *device0 = driverHandle->devices[0];
 
@@ -1587,6 +1790,77 @@ TEST_F(MultipleDevicesTest, givenTopologyMapForSubdeviceZeroWhenGettingPhysicalS
     EXPECT_FALSE(ret);
 }
 
+using MultipleDevicesWithCustomHwInfoTest = Test<MultipleDevicesWithCustomHwInfo>;
+
+TEST_F(MultipleDevicesWithCustomHwInfoTest, givenTopologyWhenMappingToAndFromApiAndPhysicalSliceIdThenIdsAreMatching) {
+    L0::Device *device0 = driverHandle->devices[0];
+    auto hwInfo = device0->getHwInfo();
+
+    uint32_t subDeviceCount = numSubDevices;
+    std::vector<ze_device_handle_t> subDevices0(subDeviceCount);
+    auto res = device0->getSubDevices(&subDeviceCount, subDevices0.data());
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    L0::Device *subDevice1 = Device::fromHandle(subDevices0[1]);
+    L0::DeviceImp *subDeviceImp1 = static_cast<DeviceImp *>(subDevice1);
+    L0::DeviceImp *device = static_cast<DeviceImp *>(device0);
+
+    NEO::TopologyMap map;
+    TopologyMapping mapping;
+
+    mapping.sliceIndices.resize(hwInfo.gtSystemInfo.SliceCount);
+    for (uint32_t i = 0; i < hwInfo.gtSystemInfo.SliceCount; i++) {
+        mapping.sliceIndices[i] = i;
+    }
+    map[0] = mapping;
+
+    for (uint32_t i = 0; i < hwInfo.gtSystemInfo.SliceCount; i++) {
+        mapping.sliceIndices[i] = i + 1;
+    }
+    map[1] = mapping;
+
+    uint32_t deviceIndex = 0;
+
+    ze_device_properties_t deviceProperties = {};
+    device->getProperties(&deviceProperties);
+
+    for (uint32_t i = 0; i < deviceProperties.numSlices; i++) {
+        uint32_t sliceId = i;
+        auto ret = device->toPhysicalSliceId(map, sliceId, deviceIndex);
+
+        EXPECT_TRUE(ret);
+        if (i < sliceCount) {
+            EXPECT_EQ(i, sliceId);
+            EXPECT_EQ(0u, deviceIndex);
+        } else {
+            EXPECT_EQ(i + 1 - (deviceProperties.numSlices / subDeviceCount), sliceId);
+            EXPECT_EQ(1u, deviceIndex);
+        }
+
+        ret = device->toApiSliceId(map, sliceId, deviceIndex);
+
+        EXPECT_TRUE(ret);
+        EXPECT_EQ(i, sliceId);
+    }
+
+    subDeviceImp1->getProperties(&deviceProperties);
+
+    for (uint32_t i = 0; i < deviceProperties.numSlices; i++) {
+        uint32_t sliceId = i;
+        auto ret = subDeviceImp1->toPhysicalSliceId(map, sliceId, deviceIndex);
+
+        EXPECT_TRUE(ret);
+
+        EXPECT_EQ(i + 1, sliceId);
+        EXPECT_EQ(1u, deviceIndex);
+        ret = subDeviceImp1->toApiSliceId(map, sliceId, deviceIndex);
+
+        EXPECT_TRUE(ret);
+        EXPECT_EQ(i, sliceId);
+    }
+}
+
 struct MultipleDevicesDifferentLocalMemorySupportTest : public MultipleDevicesTest {
     void SetUp() override {
         MultipleDevicesTest::SetUp();
@@ -1686,6 +1960,49 @@ TEST_F(DeviceTest, givenValidDeviceWhenCallingReleaseResourcesThenResourcesRelea
     EXPECT_TRUE(nullptr == deviceImp->getDebugSurface());
     deviceImp->releaseResources();
     EXPECT_TRUE(deviceImp->resourcesReleased);
+}
+
+HWTEST_F(DeviceTest, givenCooperativeDispatchSupportedWhenQueryingPropertiesFlagsThenCooperativeKernelsAreSupported) {
+    struct MockHwHelper : NEO::HwHelperHw<FamilyType> {
+        bool isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const HardwareInfo &hwInfo) const override {
+            return isCooperativeDispatchSupportedValue;
+        }
+        bool isCooperativeDispatchSupportedValue = true;
+    };
+
+    const uint32_t rootDeviceIndex = 0u;
+    auto hwInfo = *NEO::defaultHwInfo;
+    hwInfo.featureTable.ftrCCSNode = true;
+    hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_CCS;
+    auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo,
+                                                                                              rootDeviceIndex);
+    Mock<L0::DeviceImp> deviceImp(neoMockDevice, neoMockDevice->getExecutionEnvironment());
+
+    MockHwHelper hwHelper{};
+    VariableBackup<HwHelper *> hwHelperFactoryBackup{&NEO::hwHelperFactory[static_cast<size_t>(hwInfo.platform.eRenderCoreFamily)]};
+    hwHelperFactoryBackup = &hwHelper;
+
+    uint32_t count = 0;
+    ze_result_t res = deviceImp.getCommandQueueGroupProperties(&count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    NEO::EngineGroupType engineGroupTypes[] = {NEO::EngineGroupType::RenderCompute, NEO::EngineGroupType::Compute};
+    for (auto isCooperativeDispatchSupported : ::testing::Bool()) {
+        hwHelper.isCooperativeDispatchSupportedValue = isCooperativeDispatchSupported;
+
+        std::vector<ze_command_queue_group_properties_t> properties(count);
+        res = deviceImp.getCommandQueueGroupProperties(&count, properties.data());
+        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+        for (auto engineGroupType : engineGroupTypes) {
+            auto groupOrdinal = static_cast<size_t>(engineGroupType);
+            if (groupOrdinal >= count) {
+                continue;
+            }
+            auto actualValue = NEO::isValueSet(properties[groupOrdinal].flags, ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COOPERATIVE_KERNELS);
+            EXPECT_EQ(isCooperativeDispatchSupported, actualValue);
+        }
+    }
 }
 
 TEST(DevicePropertyFlagIsIntegratedTest, givenIntegratedDeviceThenCorrectDevicePropertyFlagSet) {

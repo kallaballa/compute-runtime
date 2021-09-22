@@ -18,10 +18,10 @@ apply_macro_for_each_gen("TESTED")
 
 set(IGDRCL_SRCS_LIB_ULT
     ${NEO_SOURCE_DIR}/opencl/source/compiler_interface/default_cache_config.cpp
+    ${NEO_SOURCE_DIR}/opencl/source/dll/debug_manager.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/abort.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/execution_environment_helper.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/execution_environment_helper.h
-    ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/debug_manager.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/io_functions.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/ult_aub_command_stream_receiver.h
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/ult_command_stream_receiver.h
@@ -47,9 +47,7 @@ add_library(igdrcl_libult_cs OBJECT EXCLUDE_FROM_ALL
 )
 
 set(IGDRCL_SRCS_LIB_ULT_ENV
-    ${NEO_SOURCE_DIR}/opencl/test/unit_test/custom_event_listener.h
-    ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
-    ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.h
+    ${NEO_SOURCE_DIR}/shared/test/common/helpers/custom_event_listener.h
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/main.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/options_unit_tests.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/command_queue/command_queue_fixture.cpp
@@ -66,7 +64,7 @@ set(IGDRCL_SRCS_LIB_ULT_ENV
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/fixtures/program_fixture.h
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/kernel_binary_helper.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/kernel_binary_helper.h
-    ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}/kernel_binary_helper_hash_value.cpp
+    ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}kernel_binary_helper_hash_value.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/indirect_heap/indirect_heap_fixture.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/indirect_heap/indirect_heap_fixture.h
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_config_listener.cpp
@@ -104,7 +102,6 @@ endif()
 
 target_include_directories(igdrcl_libult_env PRIVATE
                            $<TARGET_PROPERTY:gmock-gtest,INTERFACE_INCLUDE_DIRECTORIES>
-                           ${NEO_SHARED_TEST_DIRECTORY}/common/mocks${BRANCH_DIR_SUFFIX}
 )
 
 set_property(GLOBAL PROPERTY IGDRCL_SRCS_ENABLE_TESTED_HW ${IGDRCL_SRCS_ENABLE_TESTED_HW})

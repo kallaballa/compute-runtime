@@ -39,7 +39,7 @@ Device *RootDevice::getRootDevice() const {
 
 void RootDevice::createBindlessHeapsHelper() {
     if (ApiSpecificConfig::getBindlessConfiguration()) {
-        this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->createBindlessHeapsHelper(getMemoryManager(), getNumAvailableDevices() > 1, rootDeviceIndex);
+        this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->createBindlessHeapsHelper(getMemoryManager(), getNumGenericSubDevices() > 1, rootDeviceIndex);
     }
 }
 
@@ -54,7 +54,7 @@ bool RootDevice::createEngines() {
 }
 
 void RootDevice::initializeRootCommandStreamReceiver() {
-    this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
+    rootCsrCreated = true;
 
     std::unique_ptr<CommandStreamReceiver> rootCommandStreamReceiver(createCommandStream(*executionEnvironment, rootDeviceIndex, getDeviceBitfield()));
 
@@ -62,11 +62,9 @@ void RootDevice::initializeRootCommandStreamReceiver() {
     auto defaultEngineType = getChosenEngineType(hwInfo);
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
-    auto osContext = getMemoryManager()->createAndRegisterOsContext(rootCommandStreamReceiver.get(),
-                                                                    EngineTypeUsage{defaultEngineType, EngineUsage::Regular},
-                                                                    getDeviceBitfield(),
-                                                                    preemptionMode,
-                                                                    true);
+    EngineDescriptor engineDescriptor(EngineTypeUsage{defaultEngineType, EngineUsage::Regular}, getDeviceBitfield(), preemptionMode, true, false);
+
+    auto osContext = getMemoryManager()->createAndRegisterOsContext(rootCommandStreamReceiver.get(), engineDescriptor);
 
     osContext->ensureContextInitialized();
     rootCommandStreamReceiver->setupContext(*osContext);

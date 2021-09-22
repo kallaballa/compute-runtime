@@ -13,6 +13,7 @@ get_property(NEO_SHARED_aub_tests_configurations GLOBAL PROPERTY NEO_SHARED_aub_
 
 list(APPEND L0_AUB_TESTS__TARGET_OBJECTS
      ${CMAKE_CURRENT_SOURCE_DIR}/aub_hello_world_test.cpp
+     ${CMAKE_CURRENT_SOURCE_DIR}/options_aub_tests.cpp
      ${CMAKE_CURRENT_SOURCE_DIR}/test_mode.h
      ${NEO_SOURCE_DIR}/level_zero/core/test/unit_tests/main.cpp
      ${NEO_SHARED_aub_tests_configurations}
@@ -26,6 +27,10 @@ function(ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION)
 endfunction()
 
 ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION()
+
+if(DEFINED AUB_STREAM_PROJECT_NAME)
+  list(APPEND L0_AUB_TESTS__TARGET_OBJECTS $<TARGET_OBJECTS:${AUB_STREAM_PROJECT_NAME}_all_hw>)
+endif()
 
 add_executable(${TARGET_NAME}
                ${L0_AUB_TESTS__TARGET_OBJECTS}
@@ -48,7 +53,7 @@ target_sources(${TARGET_NAME} PRIVATE
                ${NEO_SHARED_TEST_DIRECTORY}/common/libult/os_interface.cpp
                ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/ult_device_factory.cpp
                ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/ult_device_factory.h
-               ${NEO_SHARED_TEST_DIRECTORY}/common/mocks${BRANCH_SUFIX_DIR}/mock_gmm_client_context.cpp
+               ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_gmm_client_context.cpp
                ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_cif.cpp
                ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_command_stream_receiver.cpp
                ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_compiler_interface_spirv.cpp
@@ -67,16 +72,19 @@ target_sources(${TARGET_NAME} PRIVATE
                $<TARGET_OBJECTS:${TARGET_NAME_L0}_fixtures>
                $<TARGET_OBJECTS:${TARGET_NAME_L0}_mocks>
                $<TARGET_OBJECTS:igdrcl_libult_common>
-               $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDLESS_LIB_NAME}>
 )
+if(TARGET ${BUILTINS_SPIRV_LIB_NAME})
+  target_sources(${TARGET_NAME} PRIVATE
+                 $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
+  )
+endif()
 
 target_sources(${TARGET_NAME} PRIVATE
-               ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}/kernel_binary_helper_hash_value.cpp
+               ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}kernel_binary_helper_hash_value.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/create_command_stream.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/io_functions.cpp
-               ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/abort.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_gmm_page_table_mngr.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_memory_manager.cpp

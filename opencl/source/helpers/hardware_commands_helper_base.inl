@@ -59,9 +59,13 @@ size_t HardwareCommandsHelper<GfxFamily>::getSizeRequiredIOH(const Kernel &kerne
 
     auto numChannels = kernelInfo.kernelDescriptor.kernelAttributes.numLocalIdChannels;
     uint32_t grfSize = sizeof(typename GfxFamily::GRF);
-    return alignUp((kernel.getCrossThreadDataSize() +
-                    getPerThreadDataSizeTotal(kernelInfo.getMaxSimdSize(), grfSize, numChannels, localWorkSize)),
-                   WALKER_TYPE::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
+    auto size = kernel.getCrossThreadDataSize() +
+                getPerThreadDataSizeTotal(kernelInfo.getMaxSimdSize(), grfSize, numChannels, localWorkSize);
+
+    if (kernel.getImplicitArgs()) {
+        size += sizeof(ImplicitArgs) + alignUp(getPerThreadDataSizeTotal(kernelInfo.getMaxSimdSize(), grfSize, 3u, localWorkSize), MemoryConstants::cacheLineSize);
+    }
+    return alignUp(size, WALKER_TYPE::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
 }
 
 template <typename GfxFamily>
@@ -239,12 +243,30 @@ size_t HardwareCommandsHelper<GfxFamily>::sendIndirectState(
         samplerCount = samplerTable.numSamplers;
         samplerStateOffset = EncodeStates<GfxFamily>::copySamplerState(&dsh, samplerTable.tableOffset,
                                                                        samplerCount, samplerTable.borderColor,
-                                                                       kernel.getDynamicStateHeap(), device.getBindlessHeapsHelper());
+                                                                       kernel.getDynamicStateHeap(), device.getBindlessHeapsHelper(),
+                                                                       device.getHardwareInfo());
     }
 
     auto localWorkItems = localWorkSize[0] * localWorkSize[1] * localWorkSize[2];
     auto threadsPerThreadGroup = static_cast<uint32_t>(getThreadsPerWG(simd, localWorkItems));
     auto numChannels = static_cast<uint32_t>(kernelInfo.kernelDescriptor.kernelAttributes.numLocalIdChannels);
+
+    auto pImplicitArgs = kernel.getImplicitArgs();
+    if (pImplicitArgs) {
+        constexpr uint32_t grfSize = sizeof(typename GfxFamily::GRF);
+        auto offsetLocalIds = sendPerThreadData(
+            ioh,
+            simd,
+            grfSize,
+            3u, // all channels for implicit args
+            std::array<uint16_t, 3>{{static_cast<uint16_t>(localWorkSize[0]), static_cast<uint16_t>(localWorkSize[1]), static_cast<uint16_t>(localWorkSize[2])}},
+            {{kernelInfo.kernelDescriptor.kernelAttributes.workgroupDimensionsOrder[0],
+              kernelInfo.kernelDescriptor.kernelAttributes.workgroupDimensionsOrder[1],
+              kernelInfo.kernelDescriptor.kernelAttributes.workgroupDimensionsOrder[2]}},
+            kernel.usesOnlyImages());
+
+        pImplicitArgs->localIdTablePtr = offsetLocalIds + ioh.getGraphicsAllocation()->getGpuAddress();
+    }
 
     uint32_t sizeCrossThreadData = kernel.getCrossThreadDataSize();
 

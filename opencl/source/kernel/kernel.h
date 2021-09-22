@@ -14,6 +14,7 @@
 #include "shared/source/helpers/address_patch.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/helpers/timestamp_packet.h"
+#include "shared/source/kernel/implicit_args.h"
 #include "shared/source/unified_memory/unified_memory.h"
 #include "shared/source/utilities/stackvec.h"
 
@@ -227,7 +228,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void patchDefaultDeviceQueue(DeviceQueue *devQueue);
     void patchEventPool(DeviceQueue *devQueue);
     void patchBlocksSimdSize();
-    bool usesSyncBuffer();
+    bool usesSyncBuffer() const;
     void patchSyncBuffer(GraphicsAllocation *gfxAllocation, size_t bufferOffset);
     void *patchBindlessSurfaceState(NEO::GraphicsAllocation *alloc, uint32_t bindless);
 
@@ -424,6 +425,9 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void setMultiDeviceKernel(MultiDeviceKernel *pMultiDeviceKernelToSet) { pMultiDeviceKernel = pMultiDeviceKernelToSet; }
 
     bool areMultipleSubDevicesInContext() const;
+    bool requiresMemoryMigration() const { return migratableArgsMap.size() > 0; }
+    const std::map<uint32_t, MemObj *> &getMemObjectsToMigrate() const { return migratableArgsMap; }
+    ImplicitArgs *getImplicitArgs() const { return pImplicitArgs.get(); }
 
   protected:
     struct ObjectCounts {
@@ -510,6 +514,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void resolveArgs();
 
     void reconfigureKernel();
+    bool hasDirectStatelessAccessToSharedBuffer() const;
     bool hasDirectStatelessAccessToHostMemory() const;
     bool hasIndirectStatelessAccessToHostMemory() const;
 
@@ -521,7 +526,9 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     const ClDevice &getDevice() const {
         return clDevice;
     }
+    cl_int patchPrivateSurface();
 
+    bool containsStatelessWrites = true;
     const ExecutionEnvironment &executionEnvironment;
     Program *program;
     ClDevice &clDevice;
@@ -540,7 +547,6 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     bool usingImages = false;
     bool usingImagesOnly = false;
     bool auxTranslationRequired = false;
-    bool containsStatelessWrites = true;
     uint32_t patchedArgumentsNum = 0;
     uint32_t startOffset = 0;
     uint32_t statelessUncacheableArgsCount = 0;
@@ -549,6 +555,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     std::vector<PatchInfoData> patchInfoDataList;
     std::unique_ptr<ImageTransformer> imageTransformer;
+    std::map<uint32_t, MemObj *> migratableArgsMap{};
 
     bool specialPipelineSelectMode = false;
     bool svmAllocationsRequireCacheFlush = false;
@@ -556,7 +563,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     UnifiedMemoryControls unifiedMemoryControls{};
     bool isUnifiedMemorySyncRequired = true;
     bool debugEnabled = false;
-    uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+    uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::DisableOverdispatch;
 
     uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
     uint32_t maxKernelWorkGroupSize = 0;
@@ -610,17 +617,18 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         std::unique_ptr<TimestampPacketContainer> kernelStandardTimestamps;
         std::unique_ptr<TimestampPacketContainer> kernelSubdeviceTimestamps;
         TunningStatus status;
-        bool singleSubdevicePrefered = false;
+        bool singleSubdevicePreferred = false;
     };
 
     bool hasTunningFinished(KernelSubmissionData &submissionData);
     bool hasRunFinished(TimestampPacketContainer *timestampContainer);
 
     std::unordered_map<KernelConfig, KernelSubmissionData, KernelConfigHash> kernelSubmissionMap;
-    bool singleSubdevicePreferedInCurrentEnqueue = false;
+    bool singleSubdevicePreferredInCurrentEnqueue = false;
 
     bool kernelHasIndirectAccess = true;
     MultiDeviceKernel *pMultiDeviceKernel = nullptr;
+    std::unique_ptr<ImplicitArgs> pImplicitArgs = nullptr;
 };
 
 } // namespace NEO

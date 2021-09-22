@@ -133,7 +133,7 @@ class CompilerInterface {
                                                const TranslationInput &input,
                                                TranslationOutput &output);
 
-    MOCKABLE_VIRTUAL TranslationOutput::ErrorCode getSipKernelBinary(NEO::Device &device, SipKernelType type, std::vector<char> &retBinary,
+    MOCKABLE_VIRTUAL TranslationOutput::ErrorCode getSipKernelBinary(NEO::Device &device, SipKernelType type, bool bindlessSip, std::vector<char> &retBinary,
                                                                      std::vector<char> &stateSaveAreaHeader);
 
   protected:
@@ -183,5 +183,7 @@ class CompilerInterface {
         bool requiresIgc = (IGC::CodeType::oclC != translationSrc) || ((IGC::CodeType::spirV != translationDst) && (IGC::CodeType::llvmBc != translationDst) && (IGC::CodeType::llvmLl != translationDst));
         return (isFclAvailable() || (false == requiresFcl)) && (isIgcAvailable() || (false == requiresIgc));
     }
+
+    bool isMidThreadPreemptionSupported(const HardwareInfo &hwInfo);
 };
 } // namespace NEO

@@ -61,9 +61,7 @@ GEN11TEST_F(Gen11PreambleVfeState, GivenWaOffWhenProgrammingVfeStateThenProgramm
     LinearStream &cs = linearStream;
     auto pVfeCmd = PreambleHelper<ICLFamily>::getSpaceForVfeState(&linearStream, pPlatform->getClDevice(0)->getHardwareInfo(), EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<ICLFamily>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u,
-                                               AdditionalKernelExecInfo::NotApplicable,
-                                               emptyProperties);
+    PreambleHelper<ICLFamily>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u, emptyProperties);
 
     parseCommands<ICLFamily>(cs);
 
@@ -83,9 +81,7 @@ GEN11TEST_F(Gen11PreambleVfeState, GivenWaOnWhenProgrammingVfeStateThenProgrammi
     LinearStream &cs = linearStream;
     auto pVfeCmd = PreambleHelper<ICLFamily>::getSpaceForVfeState(&linearStream, pPlatform->getClDevice(0)->getHardwareInfo(), EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<ICLFamily>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u,
-                                               AdditionalKernelExecInfo::NotApplicable,
-                                               emptyProperties);
+    PreambleHelper<ICLFamily>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u, emptyProperties);
 
     parseCommands<ICLFamily>(cs);
 
@@ -148,4 +144,19 @@ GEN11TEST_F(ThreadArbitrationGen11, givenPreambleWhenItIsProgrammedThenThreadArb
 
 GEN11TEST_F(ThreadArbitrationGen11, GivenDefaultWhenProgrammingPreambleThenArbitrationPolicyIsRoundRobin) {
     EXPECT_EQ(ThreadArbitrationPolicy::RoundRobinAfterDependency, HwHelperHw<ICLFamily>::get().getDefaultThreadArbitrationPolicy());
+}
+
+GEN11TEST_F(ThreadArbitrationGen11, whenGetSupportThreadArbitrationPoliciesIsCalledThenAllPoliciesAreReturned) {
+    auto supportedPolicies = PreambleHelper<ICLFamily>::getSupportedThreadArbitrationPolicies();
+
+    EXPECT_EQ(3u, supportedPolicies.size());
+    EXPECT_NE(supportedPolicies.end(), std::find(supportedPolicies.begin(),
+                                                 supportedPolicies.end(),
+                                                 ThreadArbitrationPolicy::AgeBased));
+    EXPECT_NE(supportedPolicies.end(), std::find(supportedPolicies.begin(),
+                                                 supportedPolicies.end(),
+                                                 ThreadArbitrationPolicy::RoundRobin));
+    EXPECT_NE(supportedPolicies.end(), std::find(supportedPolicies.begin(),
+                                                 supportedPolicies.end(),
+                                                 ThreadArbitrationPolicy::RoundRobinAfterDependency));
 }

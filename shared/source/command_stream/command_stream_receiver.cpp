@@ -8,6 +8,7 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 
 #include "shared/source/built_ins/built_ins.h"
+#include "shared/source/command_container/implicit_scaling.h"
 #include "shared/source/command_stream/experimental_command_buffer.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/command_stream/scratch_space_controller.h"
@@ -23,6 +24,7 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/surface.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/cpuintrinsics.h"
@@ -51,7 +53,7 @@ CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvi
     }
     internalAllocationStorage = std::make_unique<InternalAllocationStorage>(*this);
 
-    if (deviceBitfield.count() > 1 && DebugManager.flags.EnableStaticPartitioning.get() != 0) {
+    if (deviceBitfield.count() > 1 && DebugManager.flags.EnableStaticPartitioning.get() != 0 && NEO::ImplicitScalingHelper::isImplicitScalingEnabled(deviceBitfield, true)) {
         this->staticWorkPartitioningEnabled = true;
     }
 }
@@ -83,10 +85,10 @@ CommandStreamReceiver::~CommandStreamReceiver() {
 }
 
 bool CommandStreamReceiver::submitBatchBuffer(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
-    this->latestFlushedTaskCount = taskCount + 1;
     this->latestSentTaskCount = taskCount + 1;
 
     auto ret = this->flush(batchBuffer, allocationsForResidency);
+    this->latestFlushedTaskCount = taskCount + 1;
     taskCount++;
 
     return ret;
@@ -255,6 +257,10 @@ void CommandStreamReceiver::cleanupResources() {
 }
 
 bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
+    return waitForCompletionWithTimeout(getTagAddress(), enableTimeout, timeoutMicroseconds, taskCountToWait, 1u, 0u);
+}
+
+bool CommandStreamReceiver::waitForCompletionWithTimeout(volatile uint32_t *pollAddress, bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait, uint32_t partitionCount, uint32_t offsetSize) {
     std::chrono::high_resolution_clock::time_point time1, time2;
     int64_t timeDiff = 0;
 
@@ -269,21 +275,33 @@ bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int
         }
     }
 
+    volatile uint32_t *partitionAddress = pollAddress;
+
     time1 = std::chrono::high_resolution_clock::now();
-    while (*getTagAddress() < taskCountToWait && timeDiff <= timeoutMicroseconds) {
-        if (WaitUtils::waitFunction(getTagAddress(), taskCountToWait)) {
-            break;
+    for (uint32_t i = 0; i < partitionCount; i++) {
+        while (*partitionAddress < taskCountToWait && timeDiff <= timeoutMicroseconds) {
+            if (WaitUtils::waitFunction(partitionAddress, taskCountToWait)) {
+                break;
+            }
+
+            if (enableTimeout) {
+                time2 = std::chrono::high_resolution_clock::now();
+                timeDiff = std::chrono::duration_cast<std::chrono::microseconds>(time2 - time1).count();
+            }
         }
 
-        if (enableTimeout) {
-            time2 = std::chrono::high_resolution_clock::now();
-            timeDiff = std::chrono::duration_cast<std::chrono::microseconds>(time2 - time1).count();
+        partitionAddress = ptrOffset(partitionAddress, offsetSize);
+    }
+
+    partitionAddress = pollAddress;
+    for (uint32_t i = 0; i < partitionCount; i++) {
+        if (*partitionAddress < taskCountToWait) {
+            return false;
         }
+
+        partitionAddress = ptrOffset(partitionAddress, offsetSize);
     }
-    if (*getTagAddress() >= taskCountToWait) {
-        return true;
-    }
-    return false;
+    return true;
 }
 
 void CommandStreamReceiver::setTagAllocation(GraphicsAllocation *allocation) {
@@ -533,7 +551,7 @@ bool CommandStreamReceiver::createWorkPartitionAllocation(const Device &device) 
     if (!staticWorkPartitioningEnabled) {
         return false;
     }
-    UNRECOVERABLE_IF(device.getNumAvailableDevices() < 2);
+    UNRECOVERABLE_IF(device.getNumGenericSubDevices() < 2);
 
     AllocationProperties properties{this->rootDeviceIndex, true, 4096u, GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE, true, false, deviceBitfield};
     this->workPartitionAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
@@ -664,7 +682,7 @@ bool CommandStreamReceiver::needsPageTableManager(aub_stream::EngineType engineT
     if (rootDeviceEnvironment->pageTableManager.get() != nullptr) {
         return false;
     }
-    return HwHelper::get(hwInfo->platform.eRenderCoreFamily).isPageTableManagerSupported(*hwInfo);
+    return HwInfoConfig::get(hwInfo->platform.eProductFamily)->isPageTableManagerSupported(*hwInfo);
 }
 
 void CommandStreamReceiver::printDeviceIndex() {

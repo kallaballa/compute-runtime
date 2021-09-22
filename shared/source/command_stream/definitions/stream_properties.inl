@@ -11,6 +11,7 @@ namespace NEO {
 
 struct StateComputeModeProperties {
     StreamProperty isCoherencyRequired{};
+    StreamProperty largeGrfMode{};
 
     void setProperties(bool requiresCoherency, uint32_t numGrfRequired, uint32_t threadArbitrationPolicy);
     void setProperties(const StateComputeModeProperties &properties);
@@ -19,7 +20,10 @@ struct StateComputeModeProperties {
 };
 
 struct FrontEndProperties {
-    void setProperties(bool isCooperativeKernel, bool disableOverdispatch, const HardwareInfo &hwInfo);
+    StreamProperty disableOverdispatch{};
+    StreamProperty singleSliceDispatchCcsMode{};
+
+    void setProperties(bool isCooperativeKernel, bool disableOverdispatch, int32_t engineInstancedDevice, const HardwareInfo &hwInfo);
     void setProperties(const FrontEndProperties &properties);
     bool isDirty();
     void clearIsDirty();

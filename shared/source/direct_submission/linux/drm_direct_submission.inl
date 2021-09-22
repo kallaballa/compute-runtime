@@ -34,15 +34,8 @@ DrmDirectSubmission<GfxFamily, Dispatcher>::DrmDirectSubmission(Device &device,
 
 template <typename GfxFamily, typename Dispatcher>
 inline DrmDirectSubmission<GfxFamily, Dispatcher>::~DrmDirectSubmission() {
-    if (this->ringStart) {
-        this->stopRingBuffer();
-        if (this->disableMonitorFence) {
-            this->currentTagData.tagValue++;
-        }
-        this->wait(static_cast<uint32_t>(this->currentTagData.tagValue));
-        auto bb = static_cast<DrmAllocation *>(this->ringBuffer)->getBO();
-        bb->wait(-1);
-    }
+    this->stopRingBuffer();
+    this->wait(static_cast<uint32_t>(this->currentTagData.tagValue));
     this->deallocateResources();
 }
 
@@ -66,12 +59,15 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::submit(uint64_t gpuAddress, siz
 
     this->handleResidency();
 
+    auto currentBase = this->ringCommandStream.getGraphicsAllocation()->getGpuAddress();
+    auto offset = ptrDiff(gpuAddress, currentBase);
+
     bool ret = false;
     uint32_t drmContextId = 0u;
     for (auto drmIterator = 0u; drmIterator < osContextLinux->getDeviceBitfield().size(); drmIterator++) {
         if (osContextLinux->getDeviceBitfield().test(drmIterator)) {
             ret |= !!bb->exec(static_cast<uint32_t>(size),
-                              0,
+                              offset,
                               execFlags,
                               false,
                               &this->osContext,
@@ -97,7 +93,7 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::handleResidency() {
 template <typename GfxFamily, typename Dispatcher>
 bool DrmDirectSubmission<GfxFamily, Dispatcher>::isNewResourceHandleNeeded() {
     auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
-    auto newResourcesBound = osContextLinux->getDrm().getNewResourceBound();
+    auto newResourcesBound = osContextLinux->getNewResourceBound();
 
     if (DebugManager.flags.DirectSubmissionNewResourceTlbFlush.get() != -1) {
         newResourcesBound = DebugManager.flags.DirectSubmissionNewResourceTlbFlush.get();
@@ -109,13 +105,11 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::isNewResourceHandleNeeded() {
 template <typename GfxFamily, typename Dispatcher>
 void DrmDirectSubmission<GfxFamily, Dispatcher>::handleNewResourcesSubmission() {
     if (isNewResourceHandleNeeded()) {
-        Dispatcher::dispatchTlbFlush(this->ringCommandStream);
+        Dispatcher::dispatchTlbFlush(this->ringCommandStream, this->gpuVaForMiFlush);
     }
 
     auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
-    if (!EngineHelpers::isBcs(osContextLinux->getEngineType())) {
-        osContextLinux->getDrm().setNewResourceBound(false);
-    }
+    osContextLinux->setNewResourceBound(false);
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -127,6 +121,13 @@ size_t DrmDirectSubmission<GfxFamily, Dispatcher>::getSizeNewResourceHandler() {
     }
 
     return size;
+}
+
+template <typename GfxFamily, typename Dispatcher>
+void DrmDirectSubmission<GfxFamily, Dispatcher>::handleStopRingBuffer() {
+    if (this->disableMonitorFence) {
+        this->currentTagData.tagValue++;
+    }
 }
 
 template <typename GfxFamily, typename Dispatcher>

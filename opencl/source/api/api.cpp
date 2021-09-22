@@ -289,7 +289,7 @@ cl_int CL_API_CALL clCreateSubDevices(cl_device_id inDevice,
     if (pInDevice == nullptr) {
         return CL_INVALID_DEVICE;
     }
-    auto subDevicesCount = pInDevice->getNumAvailableDevices();
+    auto subDevicesCount = pInDevice->getNumSubDevices();
     if (subDevicesCount <= 1) {
         return CL_DEVICE_PARTITION_FAILED;
     }
@@ -313,7 +313,7 @@ cl_int CL_API_CALL clCreateSubDevices(cl_device_id inDevice,
     }
 
     for (uint32_t i = 0; i < subDevicesCount; i++) {
-        auto pClDevice = pInDevice->getDeviceById(i);
+        auto pClDevice = pInDevice->getSubDevice(i);
         pClDevice->retainApi();
         outDevices[i] = pClDevice;
     }
@@ -2012,6 +2012,7 @@ cl_int CL_API_CALL clGetEventInfo(cl_event event,
     }
 
     GetInfoHelper info(paramValue, paramValueSize, paramValueSizeRet);
+    auto flushEvents = true;
 
     switch (paramName) {
     default: {
@@ -2041,7 +2042,13 @@ cl_int CL_API_CALL clGetEventInfo(cl_event event,
         TRACING_EXIT(clGetEventInfo, &retVal);
         return retVal;
     case CL_EVENT_COMMAND_EXECUTION_STATUS:
-        neoEvent->tryFlushEvent();
+        if (DebugManager.flags.SkipFlushingEventsOnGetStatusCalls.get()) {
+            flushEvents = false;
+        }
+        if (flushEvents) {
+            neoEvent->tryFlushEvent();
+        }
+
         if (neoEvent->isUserEvent()) {
             auto executionStatus = neoEvent->peekExecutionStatus();
             //Spec requires initial state to be queued
@@ -4450,7 +4457,7 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
     }
 
     auto pDevice = pContext->getDevice(0);
-    bool allowUnrestrictedSize = (flags & CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL);
+    bool allowUnrestrictedSize = (flags & CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) || DebugManager.flags.AllowUnrestrictedSize.get();
 
     if ((size == 0) ||
         (!allowUnrestrictedSize && (size > pDevice->getSharedDeviceInfo().maxMemAllocSize))) {
@@ -5143,8 +5150,7 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             tokenValue != CL_QUEUE_THROTTLE_KHR &&
             tokenValue != CL_QUEUE_SLICE_COUNT_INTEL &&
             tokenValue != CL_QUEUE_FAMILY_INTEL &&
-            tokenValue != CL_QUEUE_INDEX_INTEL &&
-            !isExtraToken(propertiesAddress)) {
+            tokenValue != CL_QUEUE_INDEX_INTEL) {
             err.set(CL_INVALID_VALUE);
             TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
             return commandQueue;
@@ -5152,12 +5158,6 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
 
         propertiesAddress += 2;
         tokenValue = *propertiesAddress;
-    }
-
-    if (!verifyExtraTokens(pDevice, *pContext, properties)) {
-        err.set(CL_INVALID_VALUE);
-        TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
-        return commandQueue;
     }
 
     auto commandQueueProperties = getCmdQueueProperties<cl_command_queue_properties>(properties);
@@ -5932,18 +5932,27 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
 
     auto &device = pCommandQueue->getClDevice();
     auto rootDeviceIndex = device.getRootDeviceIndex();
-    auto &hardwareInfo = device.getHardwareInfo();
-    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    auto engineGroupType = hwHelper.getEngineGroupType(pCommandQueue->getGpgpuEngine().getEngineType(), hardwareInfo);
-    if (!hwHelper.isCooperativeDispatchSupported(engineGroupType, hardwareInfo.platform.eProductFamily)) {
-        retVal = CL_INVALID_COMMAND_QUEUE;
-        return retVal;
-    }
 
     pKernel = pMultiDeviceKernel->getKernel(rootDeviceIndex);
     size_t globalWorkSize[3];
     for (size_t i = 0; i < workDim; i++) {
         globalWorkSize[i] = workgroupCount[i] * localWorkSize[i];
+    }
+
+    if (pKernel->usesSyncBuffer()) {
+        if (pKernel->getExecutionType() != KernelExecutionType::Concurrent) {
+            retVal = CL_INVALID_KERNEL;
+            return retVal;
+        }
+
+        auto &hardwareInfo = device.getHardwareInfo();
+        auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+        auto engineGroupType = hwHelper.getEngineGroupType(pCommandQueue->getGpgpuEngine().getEngineType(),
+                                                           pCommandQueue->getGpgpuEngine().getEngineUsage(), hardwareInfo);
+        if (!hwHelper.isCooperativeDispatchSupported(engineGroupType, hardwareInfo)) {
+            retVal = CL_INVALID_COMMAND_QUEUE;
+            return retVal;
+        }
     }
 
     if (pKernel->getExecutionType() == KernelExecutionType::Concurrent) {
@@ -5958,18 +5967,13 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
         }
     }
 
-    if (pKernel->usesSyncBuffer()) {
-        if (pKernel->getExecutionType() != KernelExecutionType::Concurrent) {
-            retVal = CL_INVALID_KERNEL;
-            return retVal;
-        }
-
-        device.getDevice().allocateSyncBufferHandler();
-    }
-
     if (!pCommandQueue->validateCapabilityForOperation(CL_QUEUE_CAPABILITY_KERNEL_INTEL, numEventsInWaitList, eventWaitList, event)) {
         retVal = CL_INVALID_OPERATION;
         return retVal;
+    }
+
+    if (pKernel->usesSyncBuffer()) {
+        device.getDevice().allocateSyncBufferHandler();
     }
 
     TakeOwnershipWrapper<MultiDeviceKernel> kernelOwnership(*pMultiDeviceKernel, gtpinIsGTPinInitialized());

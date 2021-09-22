@@ -42,6 +42,7 @@ int fstatFuncRetVal = 0;
 uint32_t preadFuncCalled = 0u;
 uint32_t mmapFuncCalled = 0u;
 uint32_t munmapFuncCalled = 0u;
+bool isInvalidAILTest = false;
 
 int close(int fileDescriptor) {
     closeFuncCalled++;
@@ -96,6 +97,10 @@ int ioctl(int fileDescriptor, unsigned long int request, void *arg) {
     return 0;
 }
 
+unsigned int getProcessId() {
+    return 0xABCEDF;
+}
+
 int access(const char *pathName, int mode) {
     if (allowFakeDevicePath || strcmp(pathName, "/sys/dev/char/226:128") == 0) {
         return 0;
@@ -104,6 +109,15 @@ int access(const char *pathName, int mode) {
 }
 
 int readlink(const char *path, char *buf, size_t bufsize) {
+    if (isInvalidAILTest) {
+        return -1;
+    }
+    if (strcmp(path, "/proc/self/exe") == 0) {
+        strcpy_s(buf, sizeof("/proc/self/exe/tests"), "/proc/self/exe/tests");
+
+        return sizeof("/proc/self/exe/tests");
+    }
+
     if (strcmp(path, "/sys/dev/char/226:128") != 0) {
         return -1;
     }
@@ -136,6 +150,10 @@ int fstat(int fd, struct stat *buf) {
 
 ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
     preadFuncCalled++;
+    return 0;
+}
+
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
     return 0;
 }
 

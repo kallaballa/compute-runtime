@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/command_stream/command_stream_receiver.h"
+#include "shared/source/helpers/local_memory_access_modes.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/event/event.h"
@@ -265,7 +266,7 @@ HWTEST_F(EnqueueUnmapMemObjTest, givenMemObjWhenUnmappingThenSetAubWritableBefor
         }
     };
 
-    MyMockCommandQueue myMockCmdQ(BufferDefaults::context, pClDevice, nullptr);
+    MyMockCommandQueue myMockCmdQ(BufferDefaults::context, pClDevice, nullptr, false);
 
     {
         auto mapPtr = myMockCmdQ.enqueueMapBuffer(buffer.get(), CL_TRUE, CL_MAP_WRITE, 0, 8, 0, nullptr, nullptr, retVal);

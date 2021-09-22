@@ -13,8 +13,8 @@ using Family = NEO::TGLLPFamily;
 #include "shared/source/gen12lp/helpers_gen12lp.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.inl"
 #include "shared/source/helpers/hw_helper_base.inl"
-#include "shared/source/helpers/hw_helper_bdw_plus.inl"
-#include "shared/source/helpers/hw_helper_tgllp_plus.inl"
+#include "shared/source/helpers/hw_helper_bdw_and_later.inl"
+#include "shared/source/helpers/hw_helper_tgllp_and_later.inl"
 #include "shared/source/os_interface/hw_info_config.h"
 
 #include "engine_node.h"
@@ -70,74 +70,10 @@ bool HwHelperHw<Family>::isLocalMemoryEnabled(const HardwareInfo &hwInfo) const 
 }
 
 template <>
-bool HwHelperHw<Family>::isPageTableManagerSupported(const HardwareInfo &hwInfo) const {
-    return hwInfo.capabilityTable.ftrRenderCompressedBuffers || hwInfo.capabilityTable.ftrRenderCompressedImages;
-}
-
-template <>
-uint32_t HwHelperHw<Family>::getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const {
-    if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_TIGERLAKE_LP) {
-        switch (stepping) {
-        case REVISION_A0:
-            return 0x0;
-        case REVISION_B:
-            return 0x1;
-        case REVISION_C:
-            return 0x3;
-        }
-    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_ROCKETLAKE) {
-        switch (stepping) {
-        case REVISION_A0:
-            return 0x0;
-        case REVISION_B:
-            return 0x1;
-        case REVISION_C:
-            return 0x4;
-        }
-    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_ALDERLAKE_S) {
-        switch (stepping) {
-        case REVISION_A0:
-            return 0x0;
-        case REVISION_B:
-            return 0x4;
-        }
+bool HwHelperHw<Family>::isBufferSizeSuitableForRenderCompression(const size_t size, const HardwareInfo &hwInfo) const {
+    if (DebugManager.flags.OverrideBufferSuitableForRenderCompression.get() != -1) {
+        return !!DebugManager.flags.OverrideBufferSuitableForRenderCompression.get();
     }
-    return Gen12LPHelpers::getHwRevIdFromStepping(stepping, hwInfo);
-}
-
-template <>
-uint32_t HwHelperHw<Family>::getSteppingFromHwRevId(const HardwareInfo &hwInfo) const {
-    if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_TIGERLAKE_LP) {
-        switch (hwInfo.platform.usRevId) {
-        case 0x0:
-            return REVISION_A0;
-        case 0x1:
-            return REVISION_B;
-        case 0x3:
-            return REVISION_C;
-        }
-    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_ROCKETLAKE) {
-        switch (hwInfo.platform.usRevId) {
-        case 0x0:
-            return REVISION_A0;
-        case 0x1:
-            return REVISION_B;
-        case 0x4:
-            return REVISION_C;
-        }
-    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_ALDERLAKE_S) {
-        switch (hwInfo.platform.usRevId) {
-        case 0x0:
-            return REVISION_A0;
-        case 0x4:
-            return REVISION_B;
-        }
-    }
-    return Gen12LPHelpers::getSteppingFromHwRevId(hwInfo);
-}
-
-template <>
-bool HwHelperHw<Family>::isBufferSizeSuitableForRenderCompression(const size_t size) const {
     return false;
 }
 
@@ -179,7 +115,7 @@ uint32_t HwHelperHw<Family>::getMetricsLibraryGenId() const {
 }
 
 template <>
-const HwHelper::EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInstances(const HardwareInfo &hwInfo) const {
+const EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInstances(const HardwareInfo &hwInfo) const {
     auto defaultEngine = getChosenEngineType(hwInfo);
 
     EngineInstancesContainer engines = {
@@ -200,7 +136,7 @@ const HwHelper::EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInsta
 };
 
 template <>
-EngineGroupType HwHelperHw<Family>::getEngineGroupType(aub_stream::EngineType engineType, const HardwareInfo &hwInfo) const {
+EngineGroupType HwHelperHw<Family>::getEngineGroupType(aub_stream::EngineType engineType, EngineUsage engineUsage, const HardwareInfo &hwInfo) const {
     switch (engineType) {
     case aub_stream::ENGINE_RCS:
         return EngineGroupType::RenderCompute;
@@ -285,8 +221,8 @@ bool MemorySynchronizationCommands<TGLLPFamily>::isPipeControlPriorToPipelineSel
 
 template <>
 void HwHelperHw<TGLLPFamily>::setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const HardwareInfo &hwInfo) const {
-    HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-    if (hwHelper.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    if (hwInfoConfig.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed) {
         if (GraphicsAllocation::isCpuAccessRequired(properties.allocationType)) {
             allocationData.flags.useSystemMemory = true;
         }

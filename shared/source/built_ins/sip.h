@@ -39,7 +39,9 @@ class SipKernel {
     static void freeSipKernels(RootDeviceEnvironment *rootDeviceEnvironment, MemoryManager *memoryManager);
 
     static const SipKernel &getSipKernel(Device &device);
+    static const SipKernel &getBindlessDebugSipKernel(Device &device);
     static SipKernelType getSipKernelType(Device &device);
+    static SipKernelType getSipKernelType(Device &device, bool debuggingEnable);
 
     static const size_t maxDbgSurfaceSize;
     static SipClassType classType;
@@ -50,8 +52,8 @@ class SipKernel {
 
     static bool initBuiltinsSipKernel(SipKernelType type, Device &device);
     static bool initRawBinaryFromFileKernel(SipKernelType type, Device &device, std::string &fileName);
-
-    static void selectSipClassType(std::string &fileName);
+    static bool initHexadecimalArraySipKernel(SipKernelType type, Device &device);
+    static void selectSipClassType(std::string &fileName, const HardwareInfo &hwInfo);
 
     const std::vector<char> stateSaveAreaHeader;
     GraphicsAllocation *sipAllocation = nullptr;

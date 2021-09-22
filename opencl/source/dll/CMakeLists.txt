@@ -18,7 +18,7 @@ set(RUNTIME_SRCS_DLL_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/create_tbx_sockets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/debug_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger_dll.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/get_devices.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/get_devices.cpp
     ${NEO_SHARED_DIRECTORY}/built_ins/sip_init.cpp
     ${NEO_SHARED_DIRECTORY}/dll/options_dll.cpp
     ${NEO_SHARED_DIRECTORY}/gmm_helper/resource_info.cpp
@@ -45,7 +45,8 @@ set(RUNTIME_SRCS_DLL_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/drm_neo_create.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/options_linux.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/os_interface.cpp
-    ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}/devices.inl
+    ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}devices.inl
+    ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}devices_additional.inl
     ${NEO_SHARED_DIRECTORY}/dll/devices/devices_base.inl
     ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
     ${NEO_SOURCE_DIR}/opencl/source/os_interface/linux/platform_teardown_linux.cpp

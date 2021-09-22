@@ -948,7 +948,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelWhenAuxTrans
     cl_queue_properties queueProperties = {};
     auto mockDevQueue = std::make_unique<MockDeviceQueueHw<FamilyType>>(context, pClDevice, queueProperties);
     context->setDefaultDeviceQueue(mockDevQueue.get());
-    std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(*context, false, false, false, false, false));
+
+    MockParentKernel::CreateParams createParams{};
+    std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(*context, createParams));
     parentKernel->initialize();
 
     parentKernel->auxTranslationRequired = false;
@@ -967,9 +969,37 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelButNoDeviceQ
     MyCmdQ<FamilyType> cmdQ(context, pClDevice);
     size_t gws[3] = {1, 0, 0};
 
-    std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(*context, false, false, false, false, false));
+    MockParentKernel::CreateParams createParams{};
+    std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(*context, createParams));
     parentKernel->initialize();
 
     auto status = cmdQ.enqueueKernel(parentKernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_OPERATION, status);
+}
+
+HWTEST_F(EnqueueKernelTest, givenTimestampWriteEnableWhenMarkerProfilingWithoutWaitListThenSizeHasFourMMIOStoresAndPipeControll) {
+    pDevice->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+    MockKernelWithInternals mockKernel(*pClDevice);
+    DispatchInfo dispatchInfo;
+    MultiDispatchInfo multiDispatchInfo(mockKernel.mockKernel);
+    dispatchInfo.setKernel(mockKernel.mockKernel);
+    multiDispatchInfo.push(dispatchInfo);
+
+    auto baseCommandStreamSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_MARKER, {}, false, false, false, *pCmdQ, multiDispatchInfo, false, false);
+    auto extendedCommandStreamSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_MARKER, {}, false, false, false, *pCmdQ, multiDispatchInfo, true, false);
+
+    EXPECT_EQ(baseCommandStreamSize + 4 * EncodeStoreMMIO<FamilyType>::size + MemorySynchronizationCommands<FamilyType>::getSizeForSinglePipeControl(), extendedCommandStreamSize);
+}
+HWTEST_F(EnqueueKernelTest, givenTimestampWriteEnableWhenMarkerProfilingWithWaitListThenSizeHasFourMMIOStores) {
+    pDevice->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+    MockKernelWithInternals mockKernel(*pClDevice);
+    DispatchInfo dispatchInfo;
+    MultiDispatchInfo multiDispatchInfo(mockKernel.mockKernel);
+    dispatchInfo.setKernel(mockKernel.mockKernel);
+    multiDispatchInfo.push(dispatchInfo);
+
+    auto baseCommandStreamSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_MARKER, {}, false, false, false, *pCmdQ, multiDispatchInfo, false, false);
+    auto extendedCommandStreamSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_MARKER, {}, false, false, false, *pCmdQ, multiDispatchInfo, true, true);
+
+    EXPECT_EQ(baseCommandStreamSize + 4 * EncodeStoreMMIO<FamilyType>::size, extendedCommandStreamSize);
 }

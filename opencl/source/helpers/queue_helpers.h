@@ -25,7 +25,16 @@ inline void releaseVirtualEvent(CommandQueue &commandQueue) {
 inline void releaseVirtualEvent(DeviceQueue &commandQueue) {
 }
 
-bool isCommandWithoutKernel(uint32_t commandType);
+inline bool isCommandWithoutKernel(uint32_t commandType) {
+    return ((commandType == CL_COMMAND_BARRIER) ||
+            (commandType == CL_COMMAND_MARKER) ||
+            (commandType == CL_COMMAND_MIGRATE_MEM_OBJECTS) ||
+            (commandType == CL_COMMAND_RESOURCE_BARRIER) ||
+            (commandType == CL_COMMAND_SVM_FREE) ||
+            (commandType == CL_COMMAND_SVM_MAP) ||
+            (commandType == CL_COMMAND_SVM_MIGRATE_MEM) ||
+            (commandType == CL_COMMAND_SVM_UNMAP));
+}
 
 template <typename QueueType>
 void retainQueue(cl_command_queue commandQueue, cl_int &retVal) {
@@ -60,8 +69,6 @@ inline void releaseQueue<CommandQueue>(cl_command_queue commandQueue, cl_int &re
     }
 }
 
-void getIntelQueueInfo(CommandQueue *queue, cl_command_queue_info paramName, GetInfoHelper &getInfoHelper, cl_int &retVal);
-
 inline void getHostQueueInfo(CommandQueue *queue, cl_command_queue_info paramName, GetInfoHelper &getInfoHelper, cl_int &retVal) {
     switch (paramName) {
     case CL_QUEUE_FAMILY_INTEL:
@@ -71,7 +78,7 @@ inline void getHostQueueInfo(CommandQueue *queue, cl_command_queue_info paramNam
         retVal = changeGetInfoStatusToCLResultType(getInfoHelper.set<cl_uint>(queue->getQueueIndexWithinFamily()));
         break;
     default:
-        getIntelQueueInfo(queue, paramName, getInfoHelper, retVal);
+        retVal = CL_INVALID_VALUE;
         break;
     }
 }
@@ -169,6 +176,4 @@ returnType getCmdQueueProperties(const cl_queue_properties *properties,
     }
     return 0;
 }
-bool isExtraToken(const cl_queue_properties *property);
-bool verifyExtraTokens(ClDevice *&device, Context &context, const cl_queue_properties *properties);
 } // namespace NEO

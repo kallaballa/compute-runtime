@@ -30,7 +30,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenTglLpThenAuxTranslationIsRequired) {
         arg.as<ArgDescPointer>(true).accessedUsingStatelessAddressingMode = accessedUsingStatelessAddressingMode;
         kernelInfo.kernelDescriptor.payloadMappings.explicitArgs.push_back(std::move(arg));
 
-        EXPECT_EQ(accessedUsingStatelessAddressingMode, clHwHelper.requiresAuxResolves(kernelInfo));
+        EXPECT_EQ(accessedUsingStatelessAddressingMode, clHwHelper.requiresAuxResolves(kernelInfo, hardwareInfo));
     }
 }
 
@@ -41,6 +41,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, WhenGettingMaxBarriersPerSliceThenCorrectSize
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12LpSkuWhenGettingCapabilityCoherencyFlagThenExpectValidValue) {
     auto &helper = HwHelper::get(renderCoreFamily);
+    const auto &hwInfoConfig = *HwInfoConfig::get(productFamily);
     bool coherency = false;
     helper.setCapabilityCoherencyFlag(&hardwareInfo, coherency);
 
@@ -50,10 +51,10 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12LpSkuWhenGettingCapabilityCoherency
     }
 
     if (hardwareInfo.platform.eProductFamily == IGFX_TIGERLAKE_LP) {
-        hardwareInfo.platform.usRevId = helper.getHwRevIdFromStepping(REVISION_A1, hardwareInfo);
+        hardwareInfo.platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(REVISION_A1, hardwareInfo);
         helper.setCapabilityCoherencyFlag(&hardwareInfo, coherency);
         EXPECT_TRUE(coherency);
-        hardwareInfo.platform.usRevId = helper.getHwRevIdFromStepping(REVISION_A0, hardwareInfo);
+        hardwareInfo.platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(REVISION_A0, hardwareInfo);
         helper.setCapabilityCoherencyFlag(&hardwareInfo, coherency);
         EXPECT_FALSE(coherency);
     } else {
@@ -91,32 +92,12 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12LpPlatformWhenSetupHardwareCapabili
     EXPECT_TRUE(hwCaps.isStatelesToStatefullWithOffsetSupported);
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, givenCompressionFtrEnabledWhenAskingForPageTableManagerThenReturnCorrectValue) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-
-    hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = false;
-    hardwareInfo.capabilityTable.ftrRenderCompressedImages = false;
-    EXPECT_FALSE(helper.isPageTableManagerSupported(hardwareInfo));
-
-    hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = true;
-    hardwareInfo.capabilityTable.ftrRenderCompressedImages = false;
-    EXPECT_TRUE(helper.isPageTableManagerSupported(hardwareInfo));
-
-    hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = false;
-    hardwareInfo.capabilityTable.ftrRenderCompressedImages = true;
-    EXPECT_TRUE(helper.isPageTableManagerSupported(hardwareInfo));
-
-    hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = true;
-    hardwareInfo.capabilityTable.ftrRenderCompressedImages = true;
-    EXPECT_TRUE(helper.isPageTableManagerSupported(hardwareInfo));
-}
-
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenDifferentSizesOfAllocationWhenCheckingCompressionPreferenceThenReturnCorrectValue) {
     auto &helper = HwHelper::get(renderCoreFamily);
 
     const size_t sizesToCheck[] = {128, 256, 512, 1023, 1024, 1025};
     for (size_t size : sizesToCheck) {
-        EXPECT_FALSE(helper.isBufferSizeSuitableForRenderCompression(size));
+        EXPECT_FALSE(helper.isBufferSizeSuitableForRenderCompression(size, *defaultHwInfo));
     }
 }
 
@@ -165,16 +146,6 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeNotSetWhenGetGpgpuEnginesThenR
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2].first);
-}
-
-GEN12LPTEST_F(HwHelperTestGen12Lp,
-              whenCallingGetInternalCopyEngineThenNullptrIsReturned) {
-    HardwareInfo hwInfo = *defaultHwInfo;
-    hwInfo.featureTable.ftrBcsInfo = 1;
-    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
-
-    auto internalCopyEngine = device->getInternalCopyEngine();
-    EXPECT_EQ(internalCopyEngine, nullptr);
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetWhenGetGpgpuEnginesThenReturnTwoRcsAndCcsEngines) {
@@ -331,25 +302,6 @@ GEN12LPTEST_F(MemorySynchronizatiopCommandsTests, whenSettingCacheFlushExtraFiel
     MemorySynchronizationCommands<FamilyType>::setCacheFlushExtraProperties(args);
     EXPECT_TRUE(args.hdcPipelineFlush);
     EXPECT_FALSE(args.constantCacheInvalidationEnable);
-}
-
-GEN12LPTEST_F(HwHelperTestGen12Lp, givenUnknownProductFamilyWhenGettingIsWorkaroundRequiredThenFalseIsReturned) {
-    HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    uint32_t steppings[] = {
-        REVISION_A0,
-        REVISION_B,
-        REVISION_C,
-        CommonConstants::invalidStepping};
-    hardwareInfo.platform.eProductFamily = IGFX_UNKNOWN;
-
-    for (auto stepping : steppings) {
-        hardwareInfo.platform.usRevId = hwHelper.getHwRevIdFromStepping(stepping, hardwareInfo);
-
-        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
-        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_C, hardwareInfo));
-        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
-        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
-    }
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12WhenCallIsPackedSupportedThenReturnTrue) {

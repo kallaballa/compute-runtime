@@ -10,7 +10,7 @@
 #include "shared/source/helpers/populate_factory.h"
 
 #include "opencl/source/device_queue/device_queue_hw.h"
-#include "opencl/source/device_queue/device_queue_hw_bdw_plus.inl"
+#include "opencl/source/device_queue/device_queue_hw_bdw_and_later.inl"
 
 namespace NEO {
 typedef BDWFamily Family;
@@ -62,12 +62,13 @@ void DeviceQueueHw<Family>::addPipeControlCmdWa(bool isNoopCmd) {}
 
 template <>
 void DeviceQueueHw<Family>::addProfilingEndCmds(uint64_t timestampAddress) {
-    auto pPipeControlCmd = (PIPE_CONTROL *)slbCS.getSpace(sizeof(PIPE_CONTROL));
-    *pPipeControlCmd = Family::cmdInitPipeControl;
-    pPipeControlCmd->setCommandStreamerStallEnable(true);
-    pPipeControlCmd->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP);
-    pPipeControlCmd->setAddressHigh(timestampAddress >> 32);
-    pPipeControlCmd->setAddress(timestampAddress & (0xffffffff));
+    auto pipeControlSpace = (PIPE_CONTROL *)slbCS.getSpace(sizeof(PIPE_CONTROL));
+    auto pipeControlCmd = Family::cmdInitPipeControl;
+    pipeControlCmd.setCommandStreamerStallEnable(true);
+    pipeControlCmd.setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP);
+    pipeControlCmd.setAddressHigh(timestampAddress >> 32);
+    pipeControlCmd.setAddress(timestampAddress & (0xffffffff));
+    *pipeControlSpace = pipeControlCmd;
 }
 
 template <>

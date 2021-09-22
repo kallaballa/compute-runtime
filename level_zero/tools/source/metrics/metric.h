@@ -33,6 +33,8 @@ struct MetricContext {
     static std::unique_ptr<MetricContext> create(struct Device &device);
     static bool isMetricApiAvailable();
     virtual bool loadDependencies() = 0;
+    virtual void setMetricCollectionEnabled(bool enable) = 0;
+    virtual bool getMetricCollectionEnabled() = 0;
     virtual bool isInitialized() = 0;
     virtual void setInitializationState(const ze_result_t state) = 0;
     virtual Device &getDevice() = 0;
@@ -105,7 +107,9 @@ struct MetricStreamer : _zet_metric_streamer_handle_t {
     virtual ze_result_t readData(uint32_t maxReportCount, size_t *pRawDataSize,
                                  uint8_t *pRawData) = 0;
     virtual ze_result_t close() = 0;
-
+    static ze_result_t openForDevice(Device *pDevice, zet_metric_group_handle_t hMetricGroup,
+                                     zet_metric_streamer_desc_t &desc,
+                                     zet_metric_streamer_handle_t *phMetricStreamer);
     static ze_result_t open(zet_context_handle_t hContext, zet_device_handle_t hDevice, zet_metric_group_handle_t hMetricGroup,
                             zet_metric_streamer_desc_t &desc, ze_event_handle_t hNotificationEvent, zet_metric_streamer_handle_t *phMetricStreamer);
     static MetricStreamer *fromHandle(zet_metric_streamer_handle_t handle) {
@@ -123,7 +127,6 @@ struct MetricQueryPool : _zet_metric_query_pool_handle_t {
     virtual ze_result_t createMetricQuery(uint32_t index,
                                           zet_metric_query_handle_t *phMetricQuery) = 0;
 
-    static MetricQueryPool *create(zet_device_handle_t hDevice, zet_metric_group_handle_t hMetricGroup, const zet_metric_query_pool_desc_t &desc);
     static MetricQueryPool *fromHandle(zet_metric_query_pool_handle_t handle);
 
     zet_metric_query_pool_handle_t toHandle();

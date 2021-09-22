@@ -12,6 +12,7 @@
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
+#include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_time_linux.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/stackvec.h"
@@ -141,13 +142,21 @@ int BufferObject::exec(uint32_t used, size_t startOffset, unsigned int flags, bo
     execbuf.rsvd1 = drmContextId;
 
     if (DebugManager.flags.PrintExecutionBuffer.get()) {
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintExecutionBuffer.get(), stdout, "Exec called with drmVmId = %u\n",
+                           static_cast<const OsContextLinux *>(osContext)->getDrmVmIds().size() ? static_cast<const OsContextLinux *>(osContext)->getDrmVmIds()[vmHandleId] : 0);
+
         printExecutionBuffer(execbuf, residencyCount, execObjectsStorage, residency);
     }
 
     int ret = this->drm->ioctl(DRM_IOCTL_I915_GEM_EXECBUFFER2, &execbuf);
 
     if (ret != 0) {
-        static_cast<DrmMemoryOperationsHandler *>(this->drm->getRootDeviceEnvironment().memoryOperationsInterface.get())->evictUnusedAllocations();
+        static_cast<DrmMemoryOperationsHandler *>(this->drm->getRootDeviceEnvironment().memoryOperationsInterface.get())->evictUnusedAllocations(false);
+        ret = this->drm->ioctl(DRM_IOCTL_I915_GEM_EXECBUFFER2, &execbuf);
+    }
+
+    if (ret != 0) {
+        static_cast<DrmMemoryOperationsHandler *>(this->drm->getRootDeviceEnvironment().memoryOperationsInterface.get())->evictUnusedAllocations(true);
         ret = this->drm->ioctl(DRM_IOCTL_I915_GEM_EXECBUFFER2, &execbuf);
     }
 
@@ -166,7 +175,10 @@ int BufferObject::bind(OsContext *osContext, uint32_t vmHandleId) {
     if (!this->bindInfo[contextId][vmHandleId]) {
         retVal = this->drm->bindBufferObject(osContext, vmHandleId, this);
         auto err = this->drm->getErrno();
-        PRINT_DEBUG_STRING(DebugManager.flags.PrintBOBindingResult.get(), stderr, "bind BO-%d to VM %u, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n", this->handle, vmHandleId, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, retVal, err, strerror(err));
+
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintBOBindingResult.get(), stderr, "bind BO-%d to VM %u, drmVmId = %u, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n",
+                           this->handle, vmHandleId, static_cast<const OsContextLinux *>(osContext)->getDrmVmIds().size() ? static_cast<const OsContextLinux *>(osContext)->getDrmVmIds()[vmHandleId] : 0, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, retVal, err, strerror(err));
+
         if (!retVal) {
             this->bindInfo[contextId][vmHandleId] = true;
         }
@@ -180,7 +192,10 @@ int BufferObject::unbind(OsContext *osContext, uint32_t vmHandleId) {
     if (this->bindInfo[contextId][vmHandleId]) {
         retVal = this->drm->unbindBufferObject(osContext, vmHandleId, this);
         auto err = this->drm->getErrno();
-        PRINT_DEBUG_STRING(DebugManager.flags.PrintBOBindingResult.get(), stderr, "unbind BO-%d from VM %u, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n", this->handle, vmHandleId, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, retVal, err, strerror(err));
+
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintBOBindingResult.get(), stderr, "unbind BO-%d from VM %u, drmVmId = %u, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n",
+                           this->handle, vmHandleId, static_cast<const OsContextLinux *>(osContext)->getDrmVmIds().size() ? static_cast<const OsContextLinux *>(osContext)->getDrmVmIds()[vmHandleId] : 0, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, retVal, err, strerror(err));
+
         if (!retVal) {
             this->bindInfo[contextId][vmHandleId] = false;
         }
@@ -216,16 +231,13 @@ void BufferObject::printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const
     printf("%s\n", logger.str().c_str());
 }
 
-int bindBOsWithinContext(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, bool allContexts) {
+int bindBOsWithinContext(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId) {
     auto retVal = 0;
 
     for (auto drmIterator = 0u; drmIterator < osContext->getDeviceBitfield().size(); drmIterator++) {
         if (osContext->getDeviceBitfield().test(drmIterator)) {
             for (size_t i = 0; i < numberOfBos; i++) {
                 retVal |= boToPin[i]->bind(osContext, drmIterator);
-                if (!allContexts) {
-                    return retVal;
-                }
             }
         }
     }
@@ -237,7 +249,7 @@ int BufferObject::pin(BufferObject *const boToPin[], size_t numberOfBos, OsConte
     auto retVal = 0;
 
     if (this->drm->isVmBindAvailable()) {
-        retVal = bindBOsWithinContext(boToPin, numberOfBos, osContext, vmHandleId, true);
+        retVal = bindBOsWithinContext(boToPin, numberOfBos, osContext, vmHandleId);
     } else {
         StackVec<drm_i915_gem_exec_object2, maxFragmentsCount + 1> execObject(numberOfBos + 1);
         retVal = this->exec(4u, 0u, 0u, false, osContext, vmHandleId, drmContextId, boToPin, numberOfBos, &execObject[0]);
@@ -250,7 +262,12 @@ int BufferObject::validateHostPtr(BufferObject *const boToPin[], size_t numberOf
     auto retVal = 0;
 
     if (this->drm->isVmBindAvailable()) {
-        retVal = bindBOsWithinContext(boToPin, numberOfBos, osContext, vmHandleId, false);
+        for (size_t i = 0; i < numberOfBos; i++) {
+            retVal = boToPin[i]->bind(osContext, vmHandleId);
+            if (retVal) {
+                break;
+            }
+        }
     } else {
         StackVec<drm_i915_gem_exec_object2, maxFragmentsCount + 1> execObject(numberOfBos + 1);
         retVal = this->exec(4u, 0u, 0u, false, osContext, vmHandleId, drmContextId, boToPin, numberOfBos, &execObject[0]);

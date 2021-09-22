@@ -12,6 +12,7 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/program/print_formatter.h"
 
 #include "opencl/source/cl_device/cl_device.h"
@@ -22,9 +23,10 @@
 
 namespace NEO {
 
-const uint32_t PrintfHandler::printfSurfaceInitialDataSize;
-
-PrintfHandler::PrintfHandler(ClDevice &deviceArg) : device(deviceArg) {}
+PrintfHandler::PrintfHandler(ClDevice &deviceArg) : device(deviceArg) {
+    printfSurfaceInitialDataSizePtr = std::make_unique<uint32_t>();
+    *printfSurfaceInitialDataSizePtr = sizeof(uint32_t);
+}
 
 PrintfHandler::~PrintfHandler() {
     device.getMemoryManager()->freeGraphicsMemory(printfSurface);
@@ -35,9 +37,10 @@ PrintfHandler *PrintfHandler::create(const MultiDispatchInfo &multiDispatchInfo,
         return new PrintfHandler(device);
     }
     auto mainKernel = multiDispatchInfo.peekMainKernel();
-    if ((mainKernel != nullptr) &&
-        mainKernel->checkIfIsParentKernelAndBlocksUsesPrintf()) {
-        return new PrintfHandler(device);
+    if (mainKernel != nullptr) {
+        if (mainKernel->checkIfIsParentKernelAndBlocksUsesPrintf() || mainKernel->getImplicitArgs()) {
+            return new PrintfHandler(device);
+        }
     }
     return nullptr;
 }
@@ -55,8 +58,8 @@ void PrintfHandler::prepareDispatch(const MultiDispatchInfo &multiDispatchInfo) 
     auto &helper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
     MemoryTransferHelper::transferMemoryToAllocation(helper.isBlitCopyRequiredForLocalMemory(hwInfo, *printfSurface),
-                                                     device.getDevice(), printfSurface, 0, &printfSurfaceInitialDataSize,
-                                                     sizeof(printfSurfaceInitialDataSize));
+                                                     device.getDevice(), printfSurface, 0, printfSurfaceInitialDataSizePtr.get(),
+                                                     sizeof(*printfSurfaceInitialDataSizePtr.get()));
 
     const auto &printfSurfaceArg = kernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress;
     auto printfPatchAddress = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getCrossThreadData()), printfSurfaceArg.stateless);
@@ -69,6 +72,10 @@ void PrintfHandler::prepareDispatch(const MultiDispatchInfo &multiDispatchInfo) 
                                 kernel->getKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics,
                                 kernel->areMultipleSubDevicesInContext());
     }
+    auto pImplicitArgs = kernel->getImplicitArgs();
+    if (pImplicitArgs) {
+        pImplicitArgs->printfBufferPtr = printfSurface->getGpuAddress();
+    }
 }
 
 void PrintfHandler::makeResident(CommandStreamReceiver &commandStreamReceiver) {
@@ -76,6 +83,28 @@ void PrintfHandler::makeResident(CommandStreamReceiver &commandStreamReceiver) {
 }
 
 void PrintfHandler::printEnqueueOutput() {
+    const auto &hwInfoConfig = *HwInfoConfig::get(device.getHardwareInfo().platform.eProductFamily);
+    if (hwInfoConfig.allowStatelessCompression(device.getHardwareInfo())) {
+        auto printOutputSize = static_cast<uint32_t>(printfSurface->getUnderlyingBufferSize());
+        auto printOutputDecompressed = std::make_unique<uint8_t[]>(printOutputSize);
+        auto &bcsEngine = device.getEngine(EngineHelpers::getBcsEngineType(device.getHardwareInfo(), device.getDeviceBitfield(), device.getSelectorCopyEngine(), true), EngineUsage::Regular);
+
+        BlitPropertiesContainer blitPropertiesContainer;
+        blitPropertiesContainer.push_back(
+            BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::BufferToHostPtr,
+                                                            *bcsEngine.commandStreamReceiver, printfSurface, nullptr,
+                                                            printOutputDecompressed.get(),
+                                                            printfSurface->getGpuAddress(),
+                                                            0, 0, 0, Vec3<size_t>(printOutputSize, 0, 0), 0, 0, 0, 0));
+        bcsEngine.commandStreamReceiver->blitBuffer(blitPropertiesContainer, true, false, device.getDevice());
+
+        PrintFormatter printFormatter(printOutputDecompressed.get(), printOutputSize,
+                                      kernel->is32Bit(),
+                                      kernel->getDescriptor().kernelAttributes.flags.usesStringMapForPrintf ? &kernel->getDescriptor().kernelMetadata.printfStringsMap : nullptr);
+        printFormatter.printKernelOutput();
+        return;
+    }
+
     PrintFormatter printFormatter(reinterpret_cast<const uint8_t *>(printfSurface->getUnderlyingBuffer()), static_cast<uint32_t>(printfSurface->getUnderlyingBufferSize()),
                                   kernel->is32Bit(),
                                   kernel->getDescriptor().kernelAttributes.flags.usesStringMapForPrintf ? &kernel->getDescriptor().kernelMetadata.printfStringsMap : nullptr);

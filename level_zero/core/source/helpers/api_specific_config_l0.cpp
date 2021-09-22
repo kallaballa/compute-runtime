@@ -9,6 +9,10 @@
 #include "shared/source/helpers/api_specific_config.h"
 
 namespace NEO {
+bool ApiSpecificConfig::isStatelessCompressionSupported() {
+    return false;
+}
+
 bool ApiSpecificConfig::getHeapConfiguration() {
     return DebugManager.flags.UseExternalAllocatorForSshAndDsh.get();
 }
@@ -23,6 +27,14 @@ bool ApiSpecificConfig::getBindlessConfiguration() {
 
 ApiSpecificConfig::ApiType ApiSpecificConfig::getApiType() {
     return ApiSpecificConfig::L0;
+}
+
+std::string ApiSpecificConfig::getName() {
+    return "l0";
+}
+
+uint64_t ApiSpecificConfig::getReducedMaxAllocSize(uint64_t maxAllocSize) {
+    return maxAllocSize;
 }
 
 } // namespace NEO

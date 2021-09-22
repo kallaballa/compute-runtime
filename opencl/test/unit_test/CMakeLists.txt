@@ -10,25 +10,7 @@ set(OPENCL_TEST_PROJECTS_FOLDER "opencl runtime")
 set(PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER "${OPENCL_TEST_PROJECTS_FOLDER}/test platforms")
 set(OPENCL_UNIT_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
-# disable optimizations for ults
-if(UNIX)
-  string(REPLACE "-O2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-  #disable fortify source as this requires optimization to be on
-  string(REPLACE "-Wp,-D_FORTIFY_SOURCE=2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-  string(REPLACE "-D_FORTIFY_SOURCE=2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O0")
-  set(CMAKE_CXX_FLAGS_RELEASEINTERNAL "${CMAKE_CXX_FLAGS_RELEASEINTERNAL} -O0")
-  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O0")
-  set(CMAKE_C_FLAGS_RELEASEINTERNAL "${CMAKE_C_FLAGS_RELEASEINTERNAL} -O0")
-endif()
-
-if(WIN32)
-  string(REPLACE "/O2" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-  string(REPLACE "/O2" "/Od" CMAKE_CXX_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
-  string(REPLACE "/O2" "/Od" CMAKE_C_FLAGS_RELEASE ${CMAKE_C_FLAGS_RELEASE})
-  string(REPLACE "/O2" "/Od" CMAKE_CXX_FLAGS_RELEASEINTERNAL ${CMAKE_CXX_FLAGS_RELEASEINTERNAL})
-  string(REPLACE "/O2" "/Od" CMAKE_C_FLAGS_RELEASEINTERNAL ${CMAKE_C_FLAGS_RELEASEINTERNAL})
-endif()
+include(${NEO_SOURCE_DIR}/cmake/setup_ult_global_flags.cmake)
 
 function(ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION)
   set(NEO_SUPPORTED_TEST_PRODUCT_FAMILIES ${ALL_TESTED_PRODUCT_FAMILY})
@@ -73,7 +55,7 @@ if(UNIX)
                      TARGET run_unit_tests
                      POST_BUILD
                      COMMAND echo running tests for linux dynamic library - .so in ${TargetDir}
-                     COMMAND igdrcl_linux_dll_tests ${IGDRCL_TESTS_LISTENER_OPTION}
+                     COMMAND igdrcl_linux_dll_tests ${NEO_TESTS_LISTENER_OPTION}
                      COMMAND WORKING_DIRECTORY ${TargetDir}
   )
 endif()
@@ -88,8 +70,12 @@ set(NEO_IGDRCL_TESTS__TARGET_OBJECTS
     $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
     $<TARGET_OBJECTS:${BUILTINS_VME_LIB_NAME}>
     $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
-    $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
 )
+if(TARGET ${SCHEDULER_BINARY_LIB_NAME})
+  list(APPEND NEO_IGDRCL_TESTS__TARGET_OBJECTS
+       $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
+  )
+endif()
 
 if(DEFINED AUB_STREAM_PROJECT_NAME)
   add_library(aub_stream_mock_lib OBJECT EXCLUDE_FROM_ALL
@@ -125,24 +111,15 @@ if(USE_ASAN)
   set(GTEST_ENV "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan_suppressions.txt")
 endif()
 
-if(NOT MSVC)
+if(COMPILER_SUPPORTS_SSE42)
   set_source_files_properties(helpers/uint16_sse4_tests.cpp PROPERTIES COMPILE_FLAGS -msse4.2)
 endif()
 
 target_link_libraries(igdrcl_tests ${NEO_STATICALLY_LINKED_LIBRARIES_MOCKABLE})
 target_link_libraries(igdrcl_tests igdrcl_mocks)
 
-option(SHOW_VERBOSE_UTESTS_RESULTS "Use the default/verbose test output" OFF)
-
-if(NOT SHOW_VERBOSE_UTESTS_RESULTS)
-  set(IGDRCL_TESTS_LISTENER_OPTION "--disable_default_listener")
-else()
-  set(IGDRCL_TESTS_LISTENER_OPTION "--enable_default_listener")
-endif()
-
 target_include_directories(igdrcl_tests PRIVATE
                            ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks${BRANCH_DIR_SUFFIX}
-                           ${NEO_SHARED_TEST_DIRECTORY}/common/mocks${BRANCH_DIR_SUFFIX}
                            ${ENGINE_NODE_DIR}
                            ${KHRONOS_GL_HEADERS_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/config

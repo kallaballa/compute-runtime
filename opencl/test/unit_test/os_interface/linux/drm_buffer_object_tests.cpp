@@ -10,6 +10,7 @@
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/mocks/linux/mock_drm_allocation.h"
@@ -55,7 +56,7 @@ class DrmBufferObjectFixture {
         this->mock = std::make_unique<DrmMockCustom>();
         ASSERT_NE(nullptr, this->mock);
         constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock.get(), 0u);
-        osContext.reset(new OsContextLinux(*this->mock, 0u, 1, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+        osContext.reset(new OsContextLinux(*this->mock, 0u, EngineDescriptorHelper::getDefaultDescriptor()));
         this->mock->reset();
         bo = new TestedBufferObject(this->mock.get());
         ASSERT_NE(nullptr, bo);
@@ -85,7 +86,7 @@ TEST_F(DrmBufferObjectTest, WhenCallingExecThenReturnIsCorrect) {
 }
 
 TEST_F(DrmBufferObjectTest, GivenInvalidParamsWhenCallingExecThenEfaultIsReturned) {
-    mock->ioctl_expected.total = 2;
+    mock->ioctl_expected.total = 3;
     mock->ioctl_res = -1;
     mock->errnoValue = EFAULT;
     drm_i915_gem_exec_object2 execObjectsStorage = {};
@@ -144,7 +145,7 @@ TEST_F(DrmBufferObjectTest, givenAddressThatWhenSizeIsAddedWithin32BitBoundaryWh
 TEST_F(DrmBufferObjectTest, whenExecFailsThenPinFails) {
     std::unique_ptr<uint32_t[]> buff(new uint32_t[1024]);
 
-    mock->ioctl_expected.total = 2;
+    mock->ioctl_expected.total = 3;
     mock->ioctl_res = -1;
     this->mock->errnoValue = EINVAL;
 
@@ -160,7 +161,7 @@ TEST_F(DrmBufferObjectTest, whenExecFailsThenPinFails) {
 TEST_F(DrmBufferObjectTest, whenExecFailsThenValidateHostPtrFails) {
     std::unique_ptr<uint32_t[]> buff(new uint32_t[1024]);
 
-    mock->ioctl_expected.total = 2;
+    mock->ioctl_expected.total = 3;
     mock->ioctl_res = -1;
     this->mock->errnoValue = EINVAL;
 
@@ -190,7 +191,7 @@ TEST_F(DrmBufferObjectTest, givenResidentBOWhenPrintExecutionBufferIsSetToTrueTh
 
     std::string output = testing::internal::GetCapturedStdout();
     auto idx = output.find("drm_i915_gem_execbuffer2 {");
-    size_t expectedValue = 0;
+    size_t expectedValue = 29;
     EXPECT_EQ(expectedValue, idx);
 
     idx = output.find("Buffer Object = { handle: BO-");
@@ -227,7 +228,7 @@ TEST_F(DrmBufferObjectTest, whenPrintExecutionBufferIsSetToTrueThenMessageFoundI
 
     std::string output = testing::internal::GetCapturedStdout();
     auto idx = output.find("drm_i915_gem_execbuffer2 {");
-    size_t expectedValue = 0;
+    size_t expectedValue = 29;
     EXPECT_EQ(expectedValue, idx);
 }
 
@@ -235,7 +236,7 @@ TEST(DrmBufferObjectSimpleTest, givenInvalidBoWhenValidateHostptrIsCalledThenErr
     std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
     std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
     constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock.get(), 0u);
-    OsContextLinux osContext(*mock, 0u, 1, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false);
+    OsContextLinux osContext(*mock, 0u, EngineDescriptorHelper::getDefaultDescriptor());
     ASSERT_NE(nullptr, mock.get());
     std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
     ASSERT_NE(nullptr, bo.get());
@@ -259,7 +260,7 @@ TEST(DrmBufferObjectSimpleTest, givenInvalidBoWhenPinIsCalledThenErrorIsReturned
     std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
     std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
     constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock.get(), 0u);
-    OsContextLinux osContext(*mock, 0u, 1, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false);
+    OsContextLinux osContext(*mock, 0u, EngineDescriptorHelper::getDefaultDescriptor());
     ASSERT_NE(nullptr, mock.get());
     std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
     ASSERT_NE(nullptr, bo.get());
@@ -290,7 +291,7 @@ TEST(DrmBufferObjectSimpleTest, givenArrayOfBosWhenPinnedThenAllBosArePinned) {
     std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
     std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
     ASSERT_NE(nullptr, mock.get());
-    OsContextLinux osContext(*mock, 0u, 1, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false);
+    OsContextLinux osContext(*mock, 0u, EngineDescriptorHelper::getDefaultDescriptor());
 
     std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
     ASSERT_NE(nullptr, bo.get());
@@ -323,7 +324,7 @@ TEST(DrmBufferObjectSimpleTest, givenArrayOfBosWhenValidatedThenAllBosArePinned)
     std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
     std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
     ASSERT_NE(nullptr, mock.get());
-    OsContextLinux osContext(*mock, 0u, 1, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false);
+    OsContextLinux osContext(*mock, 0u, EngineDescriptorHelper::getDefaultDescriptor());
 
     std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
     ASSERT_NE(nullptr, bo.get());

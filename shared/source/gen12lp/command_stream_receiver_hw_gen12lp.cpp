@@ -9,10 +9,10 @@
 
 using Family = NEO::TGLLPFamily;
 
-#include "shared/source/command_stream/command_stream_receiver_hw_bdw_plus.inl"
-#include "shared/source/command_stream/command_stream_receiver_hw_tgllp_plus.inl"
+#include "shared/source/command_stream/command_stream_receiver_hw_bdw_and_later.inl"
+#include "shared/source/command_stream/command_stream_receiver_hw_tgllp_and_later.inl"
 #include "shared/source/command_stream/device_command_stream.h"
-#include "shared/source/helpers/blit_commands_helper_bdw_plus.inl"
+#include "shared/source/helpers/blit_commands_helper_bdw_and_later.inl"
 #include "shared/source/helpers/populate_factory.h"
 
 namespace NEO {
@@ -128,22 +128,22 @@ void BlitCommandsHelper<Family>::appendBlitCommandsForImages(const BlitPropertie
 }
 
 template <>
-void BlitCommandsHelper<Family>::dispatchBlitMemoryColorFill(NEO::GraphicsAllocation *dstAlloc, uint32_t *pattern, size_t patternSize, LinearStream &linearStream, size_t size, const RootDeviceEnvironment &rootDeviceEnvironment) {
+void BlitCommandsHelper<Family>::dispatchBlitMemoryColorFill(NEO::GraphicsAllocation *dstAlloc, uint64_t offset, uint32_t *pattern, size_t patternSize, LinearStream &linearStream, size_t size, const RootDeviceEnvironment &rootDeviceEnvironment) {
     switch (patternSize) {
     case 1:
-        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<1>(dstAlloc, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_8_BIT_COLOR);
+        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<1>(dstAlloc, offset, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_8_BIT_COLOR);
         break;
     case 2:
-        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<2>(dstAlloc, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_16_BIT_COLOR);
+        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<2>(dstAlloc, offset, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_16_BIT_COLOR);
         break;
     case 4:
-        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<4>(dstAlloc, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_32_BIT_COLOR);
+        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<4>(dstAlloc, offset, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_32_BIT_COLOR);
         break;
     case 8:
-        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<8>(dstAlloc, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_64_BIT_COLOR);
+        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<8>(dstAlloc, offset, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_64_BIT_COLOR);
         break;
     default:
-        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<16>(dstAlloc, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_128_BIT_COLOR);
+        NEO::BlitCommandsHelper<Family>::dispatchBlitMemoryFill<16>(dstAlloc, offset, pattern, linearStream, size, rootDeviceEnvironment, COLOR_DEPTH::COLOR_DEPTH_128_BIT_COLOR);
     }
 }
 

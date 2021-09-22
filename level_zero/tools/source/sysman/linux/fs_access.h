@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "shared/source/os_interface/linux/sys_calls.h"
+
 #include "level_zero/ze_api.h"
 #include "level_zero/zet_api.h"
 
@@ -52,6 +54,7 @@ class FsAccess {
 
   protected:
     FsAccess();
+    decltype(&NEO::SysCalls::access) accessSyscall = NEO::SysCalls::access;
 };
 
 class ProcfsAccess : private FsAccess {
@@ -77,7 +80,7 @@ class ProcfsAccess : private FsAccess {
     static const std::string fdDir;
 };
 
-class SysfsAccess : private FsAccess {
+class SysfsAccess : protected FsAccess {
   public:
     static SysfsAccess *create(const std::string file);
     SysfsAccess() = default;
@@ -108,6 +111,7 @@ class SysfsAccess : private FsAccess {
     MOCKABLE_VIRTUAL bool fileExists(const std::string file) override;
     MOCKABLE_VIRTUAL bool isMyDeviceFile(const std::string dev);
     MOCKABLE_VIRTUAL bool directoryExists(const std::string path) override;
+    MOCKABLE_VIRTUAL bool isRootUser() override;
 
   private:
     SysfsAccess(const std::string file);

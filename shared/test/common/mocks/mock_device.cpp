@@ -30,14 +30,13 @@ MockDevice::MockDevice()
     CommandStreamReceiver *commandStreamReceiver = createCommandStream(*executionEnvironment, this->getRootDeviceIndex(), this->getDeviceBitfield());
     commandStreamReceivers.resize(1);
     commandStreamReceivers[0].reset(commandStreamReceiver);
-    OsContext *osContext = getMemoryManager()->createAndRegisterOsContext(commandStreamReceiver,
-                                                                          EngineTypeUsage{aub_stream::ENGINE_CCS, EngineUsage::Regular},
-                                                                          this->getDeviceBitfield(),
-                                                                          PreemptionMode::Disabled, true);
+
+    EngineDescriptor engineDescriptor = {EngineTypeUsage{aub_stream::ENGINE_CCS, EngineUsage::Regular}, this->getDeviceBitfield(), PreemptionMode::Disabled, true, false};
+
+    OsContext *osContext = getMemoryManager()->createAndRegisterOsContext(commandStreamReceiver, engineDescriptor);
     commandStreamReceiver->setupContext(*osContext);
     this->engines.resize(1);
     this->engines[0] = {commandStreamReceiver, osContext};
-    this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
     initializeCaps();
 }
 
@@ -49,7 +48,6 @@ MockDevice::MockDevice(ExecutionEnvironment *executionEnvironment, uint32_t root
     : RootDevice(executionEnvironment, rootDeviceIndex) {
     UltDeviceFactory::initializeMemoryManager(*executionEnvironment);
     this->osTime = MockOSTime::create();
-    this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
     auto &hwInfo = getHardwareInfo();
     executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(&hwInfo);
     initializeCaps();

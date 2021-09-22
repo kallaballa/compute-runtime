@@ -10,11 +10,14 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/sampler/sampler.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+
+#include "gmock/gmock.h"
 
 using namespace NEO;
 
@@ -140,9 +143,138 @@ HWTEST_F(HwInfoConfigTest, givenSamplerStateWhenAdjustSamplerStateThenNothingIsC
     EXPECT_EQ(0, memcmp(&initialState, &state, sizeof(SAMPLER_STATE)));
 }
 
-HWTEST_F(HwInfoConfigTest, whenCallingIsAdditionalStateBaseAddressWARequiredThenFalseIsReturned) {
+HWTEST_F(HwInfoConfigTest, givenHardwareInfoWhenCallingIsAdditionalStateBaseAddressWARequiredThenFalseIsReturned) {
     auto hwInfoConfig = HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
     bool ret = hwInfoConfig->isAdditionalStateBaseAddressWARequired(pInHwInfo);
 
     EXPECT_FALSE(ret);
+}
+
+HWTEST_F(HwInfoConfigTest, givenHardwareInfoWhenCallingIsMaxThreadsForWorkgroupWARequiredThenFalseIsReturned) {
+    auto hwInfoConfig = HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    bool ret = hwInfoConfig->isMaxThreadsForWorkgroupWARequired(pInHwInfo);
+
+    EXPECT_FALSE(ret);
+}
+
+HWTEST_F(HwInfoConfigTest, givenHwInfoConfigWhenAskedForPageTableManagerSupportThenReturnCorrectValue) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_EQ(hwInfoConfig.isPageTableManagerSupported(pInHwInfo), UnitTestHelper<FamilyType>::isPageTableManagerSupported(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, givenVariousValuesWhenConvertingHwRevIdAndSteppingThenConversionIsCorrect) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+
+    for (uint32_t testValue = 0; testValue < 0x10; testValue++) {
+        auto hwRevIdFromStepping = hwInfoConfig.getHwRevIdFromStepping(testValue, pInHwInfo);
+        if (hwRevIdFromStepping != CommonConstants::invalidStepping) {
+            pInHwInfo.platform.usRevId = hwRevIdFromStepping;
+            EXPECT_EQ(testValue, hwInfoConfig.getSteppingFromHwRevId(pInHwInfo));
+        }
+        pInHwInfo.platform.usRevId = testValue;
+        auto steppingFromHwRevId = hwInfoConfig.getSteppingFromHwRevId(pInHwInfo);
+        if (steppingFromHwRevId != CommonConstants::invalidStepping) {
+            EXPECT_EQ(testValue, hwInfoConfig.getHwRevIdFromStepping(steppingFromHwRevId, pInHwInfo));
+        }
+    }
+}
+
+HWTEST_F(HwInfoConfigTest, givenVariousValuesWhenGettingAubStreamSteppingFromHwRevIdThenReturnValuesAreCorrect) {
+    struct MockHwInfoConfig : HwInfoConfigHw<IGFX_UNKNOWN> {
+        uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo) const override {
+            return returnedStepping;
+        }
+        std::vector<uint32_t> getKernelSupportedThreadArbitrationPolicies() override {
+            return std::vector<uint32_t>();
+        }
+        uint32_t returnedStepping = 0;
+    };
+    MockHwInfoConfig mockHwInfoConfig;
+    mockHwInfoConfig.returnedStepping = REVISION_A0;
+    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = REVISION_A1;
+    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = REVISION_A3;
+    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = REVISION_B;
+    EXPECT_EQ(AubMemDump::SteppingValues::B, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = REVISION_C;
+    EXPECT_EQ(AubMemDump::SteppingValues::C, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = REVISION_D;
+    EXPECT_EQ(AubMemDump::SteppingValues::D, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = REVISION_K;
+    EXPECT_EQ(AubMemDump::SteppingValues::K, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+    mockHwInfoConfig.returnedStepping = CommonConstants::invalidStepping;
+    EXPECT_EQ(AubMemDump::SteppingValues::A, mockHwInfoConfig.getAubStreamSteppingFromHwRevId(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, givenHwInfoConfigWhenAskedForDefaultEngineTypeAdjustmentThenFalseIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.isDefaultEngineTypeAdjustmentRequired(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, whenCallingGetDeviceMemoryNameThenDdrIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    auto deviceMemoryName = hwInfoConfig.getDeviceMemoryName();
+    EXPECT_THAT(deviceMemoryName, testing::HasSubstr(std::string("DDR")));
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, HwInfoConfigTest, givenHwInfoConfigWhenAdditionalKernelExecInfoSupportCheckedThenCorrectValueIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.isDisableOverdispatchAvailable(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, WhenAllowRenderCompressionIsCalledThenTrueIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_TRUE(hwInfoConfig.allowRenderCompression(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, WhenAllowStatelessCompressionIsCalledThenReturnCorrectValue) {
+    DebugManagerStateRestore restore;
+
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.allowStatelessCompression(pInHwInfo));
+
+    for (auto enable : {-1, 0, 1}) {
+        DebugManager.flags.EnableStatelessCompression.set(enable);
+
+        if (enable > 0) {
+            EXPECT_TRUE(hwInfoConfig.allowStatelessCompression(pInHwInfo));
+        } else {
+            EXPECT_FALSE(hwInfoConfig.allowStatelessCompression(pInHwInfo));
+        }
+    }
+}
+
+HWTEST_F(HwInfoConfigTest, givenVariousDebugKeyValuesWhenGettingLocalMemoryAccessModeThenCorrectValueIsReturned) {
+    struct MockHwInfoConfig : HwInfoConfigHw<IGFX_UNKNOWN> {
+        using HwInfoConfig::getDefaultLocalMemoryAccessMode;
+    };
+
+    DebugManagerStateRestore restore{};
+    auto mockHwInfoConfig = static_cast<MockHwInfoConfig &>(*HwInfoConfig::get(productFamily));
+    const auto &hwInfoConfig = *HwInfoConfig::get(productFamily);
+    EXPECT_EQ(mockHwInfoConfig.getDefaultLocalMemoryAccessMode(pInHwInfo), mockHwInfoConfig.getLocalMemoryAccessMode(pInHwInfo));
+
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(0);
+    EXPECT_EQ(LocalMemoryAccessMode::Default, hwInfoConfig.getLocalMemoryAccessMode(pInHwInfo));
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(1);
+    EXPECT_EQ(LocalMemoryAccessMode::CpuAccessAllowed, hwInfoConfig.getLocalMemoryAccessMode(pInHwInfo));
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(3);
+    EXPECT_EQ(LocalMemoryAccessMode::CpuAccessDisallowed, hwInfoConfig.getLocalMemoryAccessMode(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, givenHwInfoConfigWhenAskedIfAllocationSizeAdjustmentIsRequiredThenFalseIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.isAllocationSizeAdjustmentRequired(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, givenHwInfoConfigWhenAskedIfPrefetchDisablingIsRequiredThenFalseIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.isPrefetchDisablingRequired(pInHwInfo));
+}
+
+HWTEST_F(HwInfoConfigTest, givenHwInfoConfigWhenAskedIfPipeControlPriorToNonPipelinedStateCommandsWARequiredThenFalseIsReturned) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(pInHwInfo.platform.eProductFamily);
+    EXPECT_FALSE(hwInfoConfig.isPipeControlPriorToNonPipelinedStateCommandsWARequired(pInHwInfo));
 }

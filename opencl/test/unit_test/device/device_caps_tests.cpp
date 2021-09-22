@@ -16,6 +16,7 @@
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_sip.h"
 
+#include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/source/platform/extensions.h"
 #include "opencl/test/unit_test/fixtures/device_info_fixture.h"
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
@@ -135,7 +136,7 @@ TEST_F(DeviceGetCapsTest, WhenCreatingDeviceThenCapsArePopulatedCorrectly) {
     EXPECT_GT(caps.openclCAllVersions.size(), 0u);
     EXPECT_GT(caps.openclCFeatures.size(), 0u);
     EXPECT_EQ(caps.extensionsWithVersion.size(), 0u);
-    EXPECT_STREQ("v2020-11-23-00", caps.latestConformanceVersionPassed);
+    EXPECT_STREQ("v2021-06-16-00", caps.latestConformanceVersionPassed);
 
     EXPECT_NE(nullptr, caps.spirVersions);
     EXPECT_NE(nullptr, caps.deviceExtensions);
@@ -437,12 +438,13 @@ TEST_F(DeviceGetCapsTest, givenForce32bitAddressingWhenCapsAreCreatedThenDeviceR
         auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
         const auto &caps = device->getDeviceInfo();
         const auto &sharedCaps = device->getSharedDeviceInfo();
+        const auto memSizePercent = device->getMemoryManager()->getPercentOfGlobalMemoryAvailable(device->getRootDeviceIndex());
         if constexpr (is64bit) {
             EXPECT_TRUE(sharedCaps.force32BitAddressess);
         } else {
             EXPECT_FALSE(sharedCaps.force32BitAddressess);
         }
-        auto expectedSize = (cl_ulong)(4 * 0.8 * GB);
+        auto expectedSize = (cl_ulong)(4 * memSizePercent * GB);
         EXPECT_LE(sharedCaps.globalMemSize, expectedSize);
         EXPECT_LE(sharedCaps.maxMemAllocSize, expectedSize);
         EXPECT_LE(caps.maxConstantBufferSize, expectedSize);
@@ -465,13 +467,14 @@ TEST_F(DeviceGetCapsTest, Given32bitAddressingWhenDeviceIsCreatedThenGlobalMemSi
     auto pMemManager = device->getMemoryManager();
     auto enabledOcl21Features = device->areOcl21FeaturesEnabled();
     bool addressing32Bit = is32bit || (is64bit && (enabledOcl21Features == false)) || DebugManager.flags.Force32bitAddressing.get();
+    const auto memSizePercent = pMemManager->getPercentOfGlobalMemoryAvailable(device->getRootDeviceIndex());
 
     cl_ulong sharedMem = (cl_ulong)pMemManager->getSystemSharedMemory(0u);
     cl_ulong maxAppAddrSpace = (cl_ulong)pMemManager->getMaxApplicationAddress() + 1ULL;
     cl_ulong memSize = std::min(sharedMem, maxAppAddrSpace);
-    memSize = (cl_ulong)((double)memSize * 0.8);
+    memSize = (cl_ulong)((double)memSize * memSizePercent);
     if (addressing32Bit) {
-        memSize = std::min(memSize, (uint64_t)(4 * GB * 0.8));
+        memSize = std::min(memSize, (uint64_t)(4 * GB * memSizePercent));
     }
     cl_ulong expectedSize = alignDown(memSize, MemoryConstants::pageSize);
 
@@ -487,13 +490,14 @@ TEST_F(DeviceGetCapsTest, givenDeviceCapsWhenLocalMemoryIsEnabledThenCalculateGl
     auto pMemManager = device->getMemoryManager();
     auto enabledOcl21Features = device->areOcl21FeaturesEnabled();
     bool addressing32Bit = is32bit || (is64bit && (enabledOcl21Features == false)) || DebugManager.flags.Force32bitAddressing.get();
+    const auto memSizePercent = pMemManager->getPercentOfGlobalMemoryAvailable(device->getRootDeviceIndex());
 
     auto localMem = pMemManager->getLocalMemorySize(0u, static_cast<uint32_t>(device->getDeviceBitfield().to_ulong()));
     auto maxAppAddrSpace = pMemManager->getMaxApplicationAddress() + 1;
     auto memSize = std::min(localMem, maxAppAddrSpace);
-    memSize = static_cast<cl_ulong>(memSize * 0.8);
+    memSize = static_cast<cl_ulong>(memSize * memSizePercent);
     if (addressing32Bit) {
-        memSize = std::min(memSize, static_cast<cl_ulong>(4 * GB * 0.8));
+        memSize = std::min(memSize, static_cast<cl_ulong>(4 * GB * memSizePercent));
     }
     cl_ulong expectedSize = alignDown(memSize, MemoryConstants::pageSize);
 
@@ -503,8 +507,8 @@ TEST_F(DeviceGetCapsTest, givenDeviceCapsWhenLocalMemoryIsEnabledThenCalculateGl
 TEST_F(DeviceGetCapsTest, givenGlobalMemSizeAndSharedSystemAllocationsNotSupportedWhenCalculatingMaxAllocSizeThenAdjustToHWCap) {
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.EnableSharedSystemUsmSupport.set(0);
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-    const auto &caps = device->getDeviceInfo();
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    const auto &caps = device->getSharedDeviceInfo();
 
     HardwareCapabilities hwCaps = {0};
     auto &hwHelper = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
@@ -515,18 +519,13 @@ TEST_F(DeviceGetCapsTest, givenGlobalMemSizeAndSharedSystemAllocationsNotSupport
     EXPECT_EQ(caps.maxMemAllocSize, expectedSize);
 }
 
-TEST_F(DeviceGetCapsTest, givenGlobalMemSizeAndSharedSystemAllocationsSupportedWhenCalculatingMaxAllocSizeThenAdjustToGlobalMemSize) {
+TEST_F(DeviceGetCapsTest, givenGlobalMemSizeAndSharedSystemAllocationsSupportedWhenCalculatingMaxAllocSizeThenEqualsToGlobalMemSize) {
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.EnableSharedSystemUsmSupport.set(1);
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-    const auto &caps = device->getDeviceInfo();
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    const auto &caps = device->getSharedDeviceInfo();
 
-    HardwareCapabilities hwCaps = {0};
-    auto &hwHelper = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
-    hwHelper.setupHardwareCapabilities(&hwCaps, *defaultHwInfo);
-
-    uint64_t expectedSize = std::max((caps.globalMemSize / 2), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
-    EXPECT_EQ(caps.maxMemAllocSize, expectedSize);
+    EXPECT_EQ(caps.maxMemAllocSize, caps.globalMemSize);
 }
 
 TEST_F(DeviceGetCapsTest, whenDriverModelHasLimitationForMaxMemoryAllocationSizeThenTakeItIntoAccount) {
@@ -588,10 +587,10 @@ TEST_F(DeviceGetCapsTest, givenEnableSharingFormatQuerySetTrueAndEnabledMultiple
     auto rootDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     EXPECT_THAT(rootDevice->getDeviceInfo().deviceExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_intel_sharing_format_query "))));
 
-    auto subDevice0 = rootDevice->getDeviceById(0);
+    auto subDevice0 = rootDevice->getSubDevice(0);
     EXPECT_THAT(subDevice0->getDeviceInfo().deviceExtensions, ::testing::HasSubstr(std::string("cl_intel_sharing_format_query ")));
 
-    auto subDevice1 = rootDevice->getDeviceById(1);
+    auto subDevice1 = rootDevice->getSubDevice(1);
     EXPECT_THAT(subDevice1->getDeviceInfo().deviceExtensions, ::testing::HasSubstr(std::string("cl_intel_sharing_format_query ")));
 }
 
@@ -1375,6 +1374,7 @@ TEST_F(DeviceGetCapsTest, givenFlagEnabled64kbPagesWhenCallConstructorMemoryMana
             return 0;
         };
         uint64_t getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) override { return 0; };
+        double getPercentOfGlobalMemoryAvailable(uint32_t rootDeviceIndex) override { return 0; }
         AddressRange reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) override {
             return {};
         }
@@ -1389,7 +1389,7 @@ TEST_F(DeviceGetCapsTest, givenFlagEnabled64kbPagesWhenCallConstructorMemoryMana
         GraphicsAllocation *allocateGraphicsMemoryWithGpuVa(const AllocationData &allocationData) override { return nullptr; };
 
         GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override { return nullptr; };
-        GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) override { return nullptr; };
+        GraphicsAllocation *allocateMemoryByKMD(const AllocationData &allocationData) override { return nullptr; };
         void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override { return nullptr; };
         void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override{};
     };
@@ -1685,6 +1685,31 @@ HWTEST_F(QueueFamilyNameTest, givenBcsWhenGettingQueueFamilyNameThenReturnProper
 HWTEST_F(QueueFamilyNameTest, givenInvalidEngineGroupWhenGettingQueueFamilyNameThenReturnEmptyName) {
     verify(EngineGroupType::MaxEngineGroups, "");
 }
+
+HWTEST_F(QueueFamilyNameTest, givenTooBigQueueFamilyNameWhenGettingQueueFamilyNameThenExceptionIsThrown) {
+    struct MockClHwHelper : NEO::ClHwHelperHw<FamilyType> {
+        bool getQueueFamilyName(std::string &name, EngineGroupType type) const override {
+            name = familyNameOverride;
+            return true;
+        }
+        std::string familyNameOverride = "";
+    };
+
+    MockClHwHelper clHwHelper{};
+    VariableBackup<ClHwHelper *> clHwHelperFactoryBackup{
+        &NEO::clHwHelperFactory[static_cast<size_t>(defaultHwInfo->platform.eRenderCoreFamily)]};
+    clHwHelperFactoryBackup = &clHwHelper;
+
+    char name[CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL] = "";
+
+    clHwHelper.familyNameOverride = std::string(CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL - 1, 'a');
+    device->getQueueFamilyName(name, EngineGroupType::MaxEngineGroups);
+    EXPECT_EQ(0, std::strcmp(name, clHwHelper.familyNameOverride.c_str()));
+
+    clHwHelper.familyNameOverride = std::string(CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL, 'a');
+    EXPECT_ANY_THROW(device->getQueueFamilyName(name, EngineGroupType::MaxEngineGroups));
+}
+
 HWCMDTEST_F(IGFX_GEN8_CORE, DeviceGetCapsTest, givenSysInfoWhenDeviceCreatedThenMaxWorkGroupCalculatedCorrectly) {
     HardwareInfo myHwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &mySysInfo = myHwInfo.gtSystemInfo;

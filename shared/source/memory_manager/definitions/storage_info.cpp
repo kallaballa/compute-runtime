@@ -19,7 +19,7 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
     }
 
     const auto deviceCount = HwHelper::getSubDevicesCount(executionEnvironment.rootDeviceEnvironments[properties.rootDeviceIndex]->getHardwareInfo());
-    const auto leastOccupiedBank = localMemoryUsageBankSelector[properties.rootDeviceIndex]->getLeastOccupiedBank(properties.subDevicesBitfield);
+    const auto leastOccupiedBank = getLocalMemoryUsageBankSelector(properties.allocationType, properties.rootDeviceIndex)->getLeastOccupiedBank(properties.subDevicesBitfield);
     const auto subDevicesMask = executionEnvironment.rootDeviceEnvironments[properties.rootDeviceIndex]->deviceAffinityMask.getGenericSubDevicesMask().to_ulong();
 
     const DeviceBitfield allTilesValue(properties.subDevicesBitfield.count() == 1
@@ -34,6 +34,7 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
     }
 
     StorageInfo storageInfo{preferredTile, allTilesValue};
+    storageInfo.subDeviceBitfield = properties.subDevicesBitfield;
     storageInfo.isLockable = GraphicsAllocation::isLockable(properties.allocationType);
     storageInfo.cpuVisibleSegment = GraphicsAllocation::isCpuAccessRequired(properties.allocationType);
 
@@ -44,10 +45,9 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
     case GraphicsAllocation::AllocationType::KERNEL_ISA:
     case GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL:
     case GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA: {
-        auto placeIsaOnMultiTile = true;
+        auto placeIsaOnMultiTile = (properties.subDevicesBitfield.count() != 1);
 
-        if (executionEnvironment.isDebuggingEnabled() &&
-            executionEnvironment.rootDeviceEnvironments[properties.rootDeviceIndex]->debugger.get()) {
+        if (executionEnvironment.isDebuggingEnabled()) {
             placeIsaOnMultiTile = false;
         }
 
@@ -60,16 +60,26 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
             storageInfo.tileInstanced = true;
         } else {
             storageInfo.cloningOfPageTables = true;
-            storageInfo.memoryBanks = 0x1;
+            storageInfo.memoryBanks = preferredTile;
             storageInfo.tileInstanced = false;
         }
     } break;
     case GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA:
-    case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
     case GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE:
         storageInfo.cloningOfPageTables = false;
         storageInfo.memoryBanks = allTilesValue;
         storageInfo.tileInstanced = true;
+        break;
+    case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
+        storageInfo.cloningOfPageTables = false;
+
+        if (properties.subDevicesBitfield.count() == 1) {
+            storageInfo.memoryBanks = preferredTile;
+            storageInfo.pageTablesVisibility = preferredTile;
+        } else {
+            storageInfo.memoryBanks = allTilesValue;
+            storageInfo.tileInstanced = true;
+        }
         break;
     case GraphicsAllocation::AllocationType::COMMAND_BUFFER:
     case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
@@ -93,10 +103,8 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
         break;
     case GraphicsAllocation::AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER:
         if (properties.flags.multiOsContextCapable) {
-            storageInfo.memoryBanks = allTilesValue;
             storageInfo.cloningOfPageTables = true;
         } else {
-            storageInfo.memoryBanks = preferredTile;
             storageInfo.pageTablesVisibility = preferredTile;
             storageInfo.cloningOfPageTables = false;
         }

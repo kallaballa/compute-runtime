@@ -13,19 +13,15 @@ namespace L0 {
 
 NEO::Device *DeviceImp::getActiveDevice() const {
     if (isMultiDeviceCapable()) {
-        return this->neoDevice->getDeviceById(0);
+        return this->neoDevice->getNearestGenericSubDevice(0);
     }
     return this->neoDevice;
 }
 
 bool DeviceImp::isMultiDeviceCapable() const {
-    return neoDevice->getNumAvailableDevices() > 1u;
+    return neoDevice->getNumGenericSubDevices() > 1u;
 }
 
 void DeviceImp::processAdditionalKernelProperties(NEO::HwHelper &hwHelper, ze_device_module_properties_t *pKernelProperties) {
-}
-
-void DeviceImp::getDeviceMemoryName(std::string &memoryName) {
-    memoryName = "DDR";
 }
 } // namespace L0

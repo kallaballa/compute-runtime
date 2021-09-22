@@ -5,12 +5,14 @@
  *
  */
 
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/context_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
-
-#include "gtest/gtest.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
+#include "test.h"
 
 using namespace NEO;
 
@@ -122,7 +124,9 @@ INSTANTIATE_TEST_CASE_P(
     GetCommandQueueInfoTest,
     ::testing::ValuesIn(DefaultCommandQueueProperties));
 
-TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilyNotSelectedWhenGettingFamilyAndQueueIndexThenValuesAreReturned) {
+using GetCommandQueueFamilyInfoTests = ::testing::Test;
+
+TEST_F(GetCommandQueueFamilyInfoTests, givenQueueFamilyNotSelectedWhenGettingFamilyAndQueueIndexThenValuesAreReturned) {
     MockContext context{};
     MockCommandQueue queue{context};
     queue.queueFamilySelected = false;
@@ -131,7 +135,8 @@ TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilyNotSelectedWhenGettingFamily
 
     const auto &hwInfo = context.getDevice(0)->getHardwareInfo();
     const auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-    const auto engineGroupType = hwHelper.getEngineGroupType(context.getDevice(0)->getDefaultEngine().getEngineType(), hwInfo);
+    const auto engineGroupType = hwHelper.getEngineGroupType(context.getDevice(0)->getDefaultEngine().getEngineType(),
+                                                             context.getDevice(0)->getDefaultEngine().getEngineUsage(), hwInfo);
     const auto expectedFamilyIndex = context.getDevice(0)->getDevice().getIndexOfNonEmptyEngineGroup(engineGroupType);
 
     cl_uint familyIndex{};
@@ -153,7 +158,7 @@ TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilyNotSelectedWhenGettingFamily
     EXPECT_EQ(0u, queueIndex);
 }
 
-TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilySelectedWhenGettingFamilyAndQueueIndexThenValuesAreReturned) {
+TEST_F(GetCommandQueueFamilyInfoTests, givenQueueFamilySelectedWhenGettingFamilyAndQueueIndexThenValuesAreReturned) {
     MockCommandQueue queue;
     queue.queueFamilySelected = true;
     queue.queueFamilyIndex = 12u;
@@ -177,4 +182,88 @@ TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilySelectedWhenGettingFamilyAnd
         nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(queue.queueIndexWithinFamily, queueIndex);
+}
+
+HWCMDTEST_F(IGFX_XE_HP_CORE, GetCommandQueueFamilyInfoTests, givenFamilyIdWhenGettingCommandQueueInfoThenCorrectValueIsReturned) {
+    HardwareInfo hwInfo = *defaultHwInfo.get();
+    hwInfo.featureTable.ftrCCSNode = true;
+    MockClDevice mockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0)};
+
+    const cl_device_id deviceId = &mockClDevice;
+    auto context = clCreateContext(nullptr, 1, &deviceId, nullptr, nullptr, nullptr);
+    auto ccsFamily = mockClDevice.getDevice().getIndexOfNonEmptyEngineGroup(EngineGroupType::Compute);
+    cl_command_queue_properties properties[] = {CL_QUEUE_FAMILY_INTEL, ccsFamily, CL_QUEUE_INDEX_INTEL, 0, 0};
+    EXPECT_EQ(0u, mockClDevice.getNumGenericSubDevices());
+    auto commandQueue = clCreateCommandQueueWithProperties(context, deviceId, properties, nullptr);
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+
+    cl_uint familyParameter;
+    auto retVal = neoQueue->getCommandQueueInfo(
+        CL_QUEUE_FAMILY_INTEL,
+        sizeof(familyParameter),
+        &familyParameter,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(ccsFamily, familyParameter);
+
+    cl_uint indexParameter;
+    retVal = neoQueue->getCommandQueueInfo(
+        CL_QUEUE_INDEX_INTEL,
+        sizeof(indexParameter),
+        &indexParameter,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(0u, indexParameter);
+
+    clReleaseCommandQueue(commandQueue);
+    clReleaseContext(context);
+}
+
+HWCMDTEST_F(IGFX_XE_HP_CORE, GetCommandQueueFamilyInfoTests, givenNonZeroFamilyIdWhenCreatingCommandQueueForRootDeviceWithMultipleSubDevicesThenInvalidValueIsReturned) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CreateMultipleSubDevices.set(2);
+    initPlatform();
+
+    auto rootDevice = platform()->getClDevice(0);
+    const cl_device_id deviceId = rootDevice;
+    auto context = clCreateContext(nullptr, 1, &deviceId, nullptr, nullptr, nullptr);
+
+    cl_command_queue_properties properties[] = {CL_QUEUE_FAMILY_INTEL, 1u, CL_QUEUE_INDEX_INTEL, 0, 0};
+    EXPECT_EQ(2u, rootDevice->getNumGenericSubDevices());
+    cl_int retVal;
+    auto commandQueue = clCreateCommandQueueWithProperties(context, rootDevice, properties, &retVal);
+
+    EXPECT_EQ(CL_INVALID_QUEUE_PROPERTIES, retVal);
+    EXPECT_EQ(nullptr, commandQueue);
+
+    clReleaseContext(context);
+}
+
+using MultiEngineQueueHwTests = ::testing::Test;
+HWCMDTEST_F(IGFX_XE_HP_CORE, MultiEngineQueueHwTests, givenLimitedNumberOfCcsWhenCreatingCmdQueueThenFailOnNotSupportedCcs) {
+    HardwareInfo localHwInfo = *defaultHwInfo;
+    localHwInfo.gtSystemInfo.CCSInfo.IsValid = true;
+    localHwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 4;
+    localHwInfo.gtSystemInfo.CCSInfo.Instances.CCSEnableMask = 0b1111;
+    localHwInfo.featureTable.ftrCCSNode = true;
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    MockContext context(device.get());
+    context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
+
+    const uint32_t ccsCount = 4;
+
+    auto ccsEngine = device->getDevice().getIndexOfNonEmptyEngineGroup(EngineGroupType::Compute);
+    cl_queue_properties properties[5] = {CL_QUEUE_FAMILY_INTEL, ccsEngine, CL_QUEUE_INDEX_INTEL, 0, 0};
+
+    auto mutableHwInfo = device->getRootDeviceEnvironment().getMutableHardwareInfo();
+
+    for (uint32_t i = 0; i < ccsCount; i++) {
+        properties[3] = i;
+        mutableHwInfo->gtSystemInfo.CCSInfo.Instances.CCSEnableMask = (1 << i);
+
+        cl_int retVal = CL_SUCCESS;
+        cl_command_queue clCommandQueue = clCreateCommandQueueWithProperties(&context, device.get(), properties, &retVal);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        clReleaseCommandQueue(clCommandQueue);
+    }
 }

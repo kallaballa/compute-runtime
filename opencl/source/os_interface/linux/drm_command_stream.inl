@@ -8,6 +8,7 @@
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/direct_submission/linux/drm_direct_submission.h"
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/gmm_helper/client_context/gmm_client_context.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/helpers/aligned_memory.h"
@@ -116,7 +117,7 @@ bool DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Reside
     }
 
     if (isUserFenceWaitActive()) {
-        this->flushStamp->setStamp(taskCount);
+        this->flushStamp->setStamp(latestSentTaskCount);
     } else {
         this->flushStamp->setStamp(bb->peekHandle());
     }
@@ -211,17 +212,27 @@ DrmMemoryManager *DrmCommandStreamReceiver<GfxFamily>::getMemoryManager() const 
 
 template <typename GfxFamily>
 GmmPageTableMngr *DrmCommandStreamReceiver<GfxFamily>::createPageTableManager() {
-    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->getGmmClientContext(), TT_TYPE::AUXTT, nullptr);
+    auto rootDeviceEnvironment = this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex].get();
+    auto gmmClientContext = rootDeviceEnvironment->getGmmClientContext();
+
+    GMM_DEVICE_INFO deviceInfo{};
+    GMM_DEVICE_CALLBACKS_INT deviceCallbacks{};
+    deviceInfo.pDeviceCb = &deviceCallbacks;
+    gmmClientContext->setGmmDeviceInfo(&deviceInfo);
+
+    auto gmmPageTableMngr = GmmPageTableMngr::create(gmmClientContext, TT_TYPE::AUXTT, nullptr);
     gmmPageTableMngr->setCsrHandle(this);
-    this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->pageTableManager.reset(gmmPageTableMngr);
+
+    rootDeviceEnvironment->pageTableManager.reset(gmmPageTableMngr);
+
     return gmmPageTableMngr;
 }
 
 template <typename GfxFamily>
-bool DrmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStamp) {
+bool DrmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStamp, uint32_t partitionCount, uint32_t offsetSize) {
     auto waitValue = static_cast<uint32_t>(flushStamp);
     if (isUserFenceWaitActive()) {
-        waitUserFence(waitValue);
+        waitUserFence(waitValue, partitionCount, offsetSize);
     } else {
         this->drm->waitHandle(waitValue, kmdWaitTimeout);
     }

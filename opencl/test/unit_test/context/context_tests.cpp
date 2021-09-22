@@ -6,6 +6,8 @@
  */
 
 #include "shared/source/device/device.h"
+#include "shared/source/helpers/blit_commands_helper.h"
+#include "shared/source/helpers/local_memory_access_modes.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_deferred_deleter.h"
@@ -14,6 +16,7 @@
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.inl"
 #include "opencl/source/device_queue/device_queue.h"
+#include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/sharings/sharing.h"
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -22,8 +25,7 @@
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
-
-#include "gtest/gtest.h"
+#include "test.h"
 
 using namespace NEO;
 
@@ -117,7 +119,7 @@ TEST_F(ContextTest, WhenSettingSpecialQueueThenQueueIsAvailable) {
     auto specialQ = context.getSpecialQueue(0u);
     EXPECT_EQ(specialQ, nullptr);
 
-    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0);
+    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0, false);
     context.setSpecialQueue(cmdQ, 0u);
     specialQ = context.getSpecialQueue(0u);
     EXPECT_NE(specialQ, nullptr);
@@ -142,7 +144,7 @@ TEST_F(ContextTest, givenCmdQueueWithoutContextWhenBeingCreatedNextDeletedThenCo
     delete cmdQ1;
     EXPECT_EQ(1, context.getRefInternalCount());
 
-    auto cmdQ2 = new MockCommandQueue(nullptr, (ClDevice *)devices[0], 0);
+    auto cmdQ2 = new MockCommandQueue(nullptr, (ClDevice *)devices[0], 0, false);
     EXPECT_EQ(1, context.getRefInternalCount());
 
     delete cmdQ2;
@@ -172,7 +174,7 @@ TEST_F(ContextTest, givenCmdQueueWithContextWhenBeingCreatedNextDeletedThenConte
     MockContext context((ClDevice *)devices[0]);
     EXPECT_EQ(1, context.getRefInternalCount());
 
-    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0);
+    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0, false);
     EXPECT_EQ(2, context.getRefInternalCount());
 
     delete cmdQ;
@@ -234,7 +236,7 @@ TEST_F(ContextTest, givenSpecialCmdQueueWithContextWhenBeingCreatedNextAutoDelet
     MockContext context((ClDevice *)devices[0], true);
     EXPECT_EQ(1, context.getRefInternalCount());
 
-    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0);
+    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0, false);
     context.overrideSpecialQueueAndDecrementRefCount(cmdQ, 0u);
     EXPECT_EQ(1, context.getRefInternalCount());
 
@@ -245,7 +247,7 @@ TEST_F(ContextTest, givenSpecialCmdQueueWithContextWhenBeingCreatedNextDeletedTh
     MockContext context((ClDevice *)devices[0], true);
     EXPECT_EQ(1, context.getRefInternalCount());
 
-    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0);
+    auto cmdQ = new MockCommandQueue(&context, (ClDevice *)devices[0], 0, false);
     context.overrideSpecialQueueAndDecrementRefCount(cmdQ, 0u);
     EXPECT_EQ(1, context.getRefInternalCount());
 
@@ -498,4 +500,71 @@ TEST(Context, WhenSettingContextDestructorCallbackThenCallOrderIsPreserved) {
     EXPECT_EQ(3u, callbacksReturnValues[0]);
     EXPECT_EQ(2u, callbacksReturnValues[1]);
     EXPECT_EQ(1u, callbacksReturnValues[2]);
+}
+
+TEST(Context, givenContextAndDevicesWhenIsTileOnlyThenProperValueReturned) {
+    UltClDeviceFactory deviceFactoryWithSubDevices{1, 2};
+    UltClDeviceFactory deviceFactoryWithMultipleDevices{2, 0};
+    cl_device_id devices[] = {deviceFactoryWithMultipleDevices.rootDevices[0], deviceFactoryWithMultipleDevices.rootDevices[1]};
+
+    MockContext tileOnlyContext(deviceFactoryWithMultipleDevices.rootDevices[0]);
+    MockContext subDevicesContext(deviceFactoryWithSubDevices.rootDevices[0]);
+    MockContext multipleDevicesContext(ClDeviceVector(devices, 2));
+
+    EXPECT_TRUE(tileOnlyContext.isSingleDeviceContext());
+    EXPECT_FALSE(subDevicesContext.isSingleDeviceContext());
+    EXPECT_FALSE(multipleDevicesContext.isSingleDeviceContext());
+}
+
+TEST(InvalidExtraPropertiesTests, givenInvalidExtraPropertiesWhenCreatingContextThenContextIsNotCreated) {
+    constexpr cl_context_properties INVALID_PROPERTY_TYPE = (1 << 31);
+    constexpr cl_context_properties INVALID_CONTEXT_FLAG = (1 << 31);
+
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    cl_device_id deviceID = device.get();
+    cl_int retVal = 0;
+    std::unique_ptr<Context> context;
+
+    {
+        cl_context_properties properties[] = {INVALID_PROPERTY_TYPE, INVALID_CONTEXT_FLAG, 0};
+        context.reset(Context::create<Context>(properties, ClDeviceVector(&deviceID, 1), nullptr, nullptr, retVal));
+        EXPECT_EQ(CL_INVALID_PROPERTY, retVal);
+        EXPECT_EQ(nullptr, context.get());
+    }
+}
+
+using ContextCreateTests = ::testing::Test;
+
+HWCMDTEST_F(IGFX_XE_HP_CORE, ContextCreateTests, givenLocalMemoryAllocationWhenBlitMemoryToAllocationIsCalledThenSuccessIsReturned) {
+    if (is32bit) {
+        GTEST_SKIP();
+    }
+
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableLocalMemory.set(true);
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::Default));
+    UltClDeviceFactory deviceFactory{1, 2};
+
+    ClDevice *devicesToTest[] = {deviceFactory.rootDevices[0], deviceFactory.subDevices[0], deviceFactory.subDevices[1]};
+
+    for (const auto &testedDevice : devicesToTest) {
+
+        MockContext context(testedDevice);
+        cl_int retVal;
+        auto buffer = std::unique_ptr<Buffer>(Buffer::create(&context, {}, 1, nullptr, retVal));
+        auto memory = buffer->getGraphicsAllocation(testedDevice->getRootDeviceIndex());
+        uint8_t hostMemory[1];
+        auto executionEnv = testedDevice->getExecutionEnvironment();
+        executionEnv->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = false;
+
+        const auto &hwInfo = testedDevice->getHardwareInfo();
+        auto isBlitterRequired = HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBlitCopyRequiredForLocalMemory(hwInfo, *memory);
+
+        auto expectedStatus = isBlitterRequired ? BlitOperationResult::Success : BlitOperationResult::Unsupported;
+
+        EXPECT_EQ(expectedStatus, BlitHelper::blitMemoryToAllocation(buffer->getContext()->getDevice(0)->getDevice(), memory, buffer->getOffset(), hostMemory, {1, 1, 1}));
+
+        executionEnv->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = true;
+        EXPECT_EQ(BlitOperationResult::Success, BlitHelper::blitMemoryToAllocation(buffer->getContext()->getDevice(0)->getDevice(), memory, buffer->getOffset(), hostMemory, {1, 1, 1}));
+    }
 }

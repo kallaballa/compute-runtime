@@ -160,21 +160,19 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
         return CL_PROFILING_INFO_NOT_AVAILABLE;
     }
 
+    uint64_t timestamp = 0u;
+
     // if paramValue is NULL, it is ignored
     switch (paramName) {
     case CL_PROFILING_COMMAND_QUEUED:
-        src = &queueTimeStamp.CPUTimeinNS;
-        if (DebugManager.flags.ReturnRawGpuTimestamps.get()) {
-            src = &queueTimeStamp.GPUTimeStamp;
-        }
+        timestamp = getTimeInNSFromTimestampData(queueTimeStamp);
+        src = &timestamp;
         srcSize = sizeof(cl_ulong);
         break;
 
     case CL_PROFILING_COMMAND_SUBMIT:
-        src = &submitTimeStamp.CPUTimeinNS;
-        if (DebugManager.flags.ReturnRawGpuTimestamps.get()) {
-            src = &submitTimeStamp.GPUTimeStamp;
-        }
+        timestamp = getTimeInNSFromTimestampData(submitTimeStamp);
+        src = &timestamp;
         srcSize = sizeof(cl_ulong);
         break;
 
@@ -220,13 +218,26 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
     return retVal;
 } // namespace NEO
 
+void Event::setupBcs(aub_stream::EngineType bcsEngineType) {
+    DEBUG_BREAK_IF(!EngineHelpers::isBcs(bcsEngineType));
+    this->bcsState.engineType = bcsEngineType;
+}
+
+uint32_t Event::peekBcsTaskCountFromCommandQueue() {
+    if (bcsState.isValid()) {
+        return this->cmdQueue->peekBcsTaskCount(bcsState.engineType);
+    } else {
+        return 0u;
+    }
+}
+
 uint32_t Event::getCompletionStamp() const {
     return this->taskCount;
 }
 
 void Event::updateCompletionStamp(uint32_t gpgpuTaskCount, uint32_t bcsTaskCount, uint32_t tasklevel, FlushStamp flushStamp) {
     this->taskCount = gpgpuTaskCount;
-    this->bcsTaskCount = bcsTaskCount;
+    this->bcsState.taskCount = bcsTaskCount;
     this->taskLevel = tasklevel;
     this->flushStamp->setStamp(flushStamp);
 }
@@ -247,6 +258,26 @@ cl_ulong Event::getDelta(cl_ulong startTime,
     }
 
     return Delta;
+}
+
+uint64_t Event::getTimeInNSFromTimestampData(const TimeStampData &timestamp) const {
+    if (isCPUProfilingPath()) {
+        return timestamp.CPUTimeinNS;
+    }
+
+    if (DebugManager.flags.ReturnRawGpuTimestamps.get()) {
+        return timestamp.GPUTimeStamp;
+    }
+
+    if (cmdQueue && DebugManager.flags.EnableDeviceBasedTimestamps.get()) {
+        auto &device = cmdQueue->getDevice();
+        auto &hwHelper = HwHelper::get(device.getHardwareInfo().platform.eRenderCoreFamily);
+        double resolution = device.getDeviceInfo().profilingTimerResolution;
+
+        return hwHelper.getGpuTimeStampInNS(timestamp.GPUTimeStamp, resolution);
+    }
+
+    return timestamp.CPUTimeinNS;
 }
 
 bool Event::calcProfilingData() {
@@ -294,23 +325,29 @@ bool Event::calcProfilingData() {
 }
 
 void Event::calculateProfilingDataInternal(uint64_t contextStartTS, uint64_t contextEndTS, uint64_t *contextCompleteTS, uint64_t globalStartTS) {
-
     uint64_t gpuDuration = 0;
     uint64_t cpuDuration = 0;
 
     uint64_t gpuCompleteDuration = 0;
     uint64_t cpuCompleteDuration = 0;
 
-    auto &hwHelper = HwHelper::get(this->cmdQueue->getDevice().getHardwareInfo().platform.eRenderCoreFamily);
-    auto frequency = cmdQueue->getDevice().getDeviceInfo().profilingTimerResolution;
-    auto gpuTimeStamp = queueTimeStamp.GPUTimeStamp;
+    auto &device = this->cmdQueue->getDevice();
+    auto &hwHelper = HwHelper::get(device.getHardwareInfo().platform.eRenderCoreFamily);
+    auto frequency = device.getDeviceInfo().profilingTimerResolution;
+    auto gpuQueueTimeStamp = hwHelper.getGpuTimeStampInNS(queueTimeStamp.GPUTimeStamp, frequency);
 
-    int64_t c0 = queueTimeStamp.CPUTimeinNS - hwHelper.getGpuTimeStampInNS(gpuTimeStamp, frequency);
-
-    startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency) + c0;
-    if (startTimeStamp < queueTimeStamp.CPUTimeinNS) {
-        c0 += static_cast<uint64_t>((1ULL << (hwHelper.getGlobalTimeStampBits())) * frequency);
+    if (DebugManager.flags.EnableDeviceBasedTimestamps.get()) {
+        startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency);
+        if (startTimeStamp < gpuQueueTimeStamp) {
+            startTimeStamp += static_cast<uint64_t>((1ULL << hwHelper.getGlobalTimeStampBits()) * frequency);
+        }
+    } else {
+        int64_t c0 = queueTimeStamp.CPUTimeinNS - gpuQueueTimeStamp;
         startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency) + c0;
+        if (startTimeStamp < queueTimeStamp.CPUTimeinNS) {
+            c0 += static_cast<uint64_t>((1ULL << (hwHelper.getGlobalTimeStampBits())) * frequency);
+            startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency) + c0;
+        }
     }
 
     /* calculation based on equation
@@ -371,7 +408,7 @@ inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
         }
     }
 
-    cmdQueue->waitUntilComplete(taskCount.load(), this->bcsTaskCount, flushStamp->peekStamp(), useQuickKmdSleep);
+    cmdQueue->waitUntilComplete(taskCount.load(), this->bcsState.taskCount, flushStamp->peekStamp(), useQuickKmdSleep);
     updateExecutionStatus();
 
     DEBUG_BREAK_IF(this->taskLevel == CompletionStamp::notReady && this->executionStatus >= 0);
@@ -408,7 +445,7 @@ void Event::updateExecutionStatus() {
         // Note : Intentional fallthrough (no return) to check for CL_COMPLETE
     }
 
-    if ((cmdQueue != nullptr) && (cmdQueue->isCompleted(getCompletionStamp(), this->bcsTaskCount))) {
+    if ((cmdQueue != nullptr) && (cmdQueue->isCompleted(getCompletionStamp(), this->bcsState))) {
         transitionExecutionStatus(CL_COMPLETE);
         executeCallbacks(CL_COMPLETE);
         unblockEventsBlockedByThis(CL_COMPLETE);
@@ -532,7 +569,7 @@ void Event::submitCommand(bool abortTasks) {
         if (profilingCpuPath && this->isProfilingEnabled()) {
             setEndTimeStamp();
         }
-        updateTaskCount(complStamp.taskCount, cmdQueue->peekBcsTaskCount());
+        updateTaskCount(complStamp.taskCount, peekBcsTaskCountFromCommandQueue());
         flushStamp->setStamp(complStamp.flushStamp);
         submittedCmd.exchange(cmdToProcess.release());
     } else if (profilingCpuPath && endTimeStamp == 0) {
@@ -542,7 +579,7 @@ void Event::submitCommand(bool abortTasks) {
         if (!this->isUserEvent() && this->eventWithoutCommand) {
             if (this->cmdQueue) {
                 auto lockCSR = this->getCommandQueue()->getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
-                updateTaskCount(this->cmdQueue->getGpgpuCommandStreamReceiver().peekTaskCount(), cmdQueue->peekBcsTaskCount());
+                updateTaskCount(this->cmdQueue->getGpgpuCommandStreamReceiver().peekTaskCount(), peekBcsTaskCountFromCommandQueue());
             }
         }
         //make sure that task count is synchronized for events with kernels

@@ -9,6 +9,7 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
@@ -479,7 +480,7 @@ TEST(MemoryManagerTest, givenEnabled64kbPagesWhenGraphicsMemoryIsAllocatedWithHo
 
     auto allocation = memoryManager.allocateGraphicsMemory(allocData);
     ASSERT_NE(nullptr, allocation);
-    EXPECT_EQ(1u, allocation->fragmentsStorage.fragmentCount);
+    EXPECT_EQ((executionEnvironment.rootDeviceEnvironments[0u]->getHardwareInfo()->capabilityTable.hostPtrTrackingEnabled || is32bit), allocation->fragmentsStorage.fragmentCount);
     EXPECT_EQ(MemoryPool::System4KBPages, allocation->getMemoryPool());
 
     memoryManager.freeGraphicsMemory(allocation);
@@ -800,7 +801,7 @@ HWTEST_F(GetAllocationDataTestHw, givenSemaphoreBufferAllocationWhenGetAllocatio
     MockMemoryManager mockMemoryManager;
     AllocationProperties properties{mockRootDeviceIndex, 0x1000u, GraphicsAllocation::AllocationType::SEMAPHORE_BUFFER, mockDeviceBitfield};
     mockMemoryManager.getAllocationData(allocData, properties, nullptr, mockMemoryManager.createStorageInfoFromProperties(properties));
-    EXPECT_FALSE(allocData.flags.useSystemMemory);
+    EXPECT_TRUE(allocData.flags.useSystemMemory);
     EXPECT_TRUE(allocData.flags.allocateMemory);
     EXPECT_FALSE(allocData.flags.allow32Bit);
     EXPECT_FALSE(allocData.flags.allow64kbPages);
@@ -982,9 +983,7 @@ TEST(MemoryManagerTest, givenPropertiesWithOsContextWhenGetAllocationDataIsCalle
     MockMemoryManager mockMemoryManager;
     AllocationProperties properties{0, 1, GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA, mockDeviceBitfield};
 
-    MockOsContext osContext(0u, 1,
-                            HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
-                            PreemptionMode::Disabled, false);
+    MockOsContext osContext(0u, EngineDescriptorHelper::getDefaultDescriptor(HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0]));
 
     properties.osContext = &osContext;
 
@@ -1020,10 +1019,7 @@ TEST(MemoryManagerTest, givenEnabledLocalMemoryWhenAllocatingSharedResourceCopyT
     localPlatformDevice = *defaultHwInfo;
     localPlatformDevice.featureTable.ftrLocalMemory = true;
 
-    platformsImpl->clear();
-    auto executionEnvironment = constructPlatform()->peekExecutionEnvironment();
-    executionEnvironment->prepareRootDeviceEnvironments(1u);
-    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&localPlatformDevice);
+    auto executionEnvironment = std::unique_ptr<ExecutionEnvironment>(MockDevice::prepareExecutionEnvironment(&localPlatformDevice, 0u));
     executionEnvironment->rootDeviceEnvironments[0]->initGmm();
 
     MockMemoryManager memoryManager(false, true, *executionEnvironment);
@@ -1035,7 +1031,7 @@ TEST(MemoryManagerTest, givenEnabledLocalMemoryWhenAllocatingSharedResourceCopyT
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
     auto memoryProperties = MemoryPropertiesHelper::createMemoryProperties(0, 0, 0, deviceFactory.rootDevices[0]);
-    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(mockRootDeviceIndex, imgInfo, true, memoryProperties, localPlatformDevice, mockDeviceBitfield);
+    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(mockRootDeviceIndex, imgInfo, true, memoryProperties, localPlatformDevice, mockDeviceBitfield, true);
     allocProperties.allocationType = GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY;
 
     auto allocation = memoryManager.allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);

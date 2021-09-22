@@ -123,8 +123,12 @@ if(${GENERATE_EXECUTABLE})
        $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_VME_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
-       $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
   )
+  if(TARGET ${SCHEDULER_BINARY_LIB_NAME})
+    list(APPEND NEO_DYNAMIC_LIB__TARGET_OBJECTS
+         $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
+    )
+  endif()
 
   if(DEFINED AUB_STREAM_PROJECT_NAME)
     list(APPEND NEO_DYNAMIC_LIB__TARGET_OBJECTS $<TARGET_OBJECTS:${AUB_STREAM_PROJECT_NAME}_all_hw>)
@@ -185,7 +189,9 @@ if(${GENERATE_EXECUTABLE})
                    ${NEO_SHARED_DIRECTORY}/os_interface/windows/gmm_interface_win.cpp
     )
   else()
-    target_link_libraries(${NEO_DYNAMIC_LIB_NAME} ${GMM_LINK_NAME})
+    if(${NEO_TARGET_PROCESSOR} STREQUAL "x86_64")
+      target_link_libraries(${NEO_DYNAMIC_LIB_NAME} ${GMM_LINK_NAME})
+    endif()
     target_include_directories(${NEO_DYNAMIC_LIB_NAME} PRIVATE
                                ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}
     )

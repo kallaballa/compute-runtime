@@ -46,7 +46,8 @@ HWTEST_F(PrepareDeviceEnvironmentsTest, givenPrepareDeviceEnvironmentsWhenCsrIsS
     DebugManager.flags.CreateMultipleRootDevices.set(expectedDevices);
     for (int productFamilyIndex = 0; productFamilyIndex < IGFX_MAX_PRODUCT; productFamilyIndex++) {
         const char *hwPrefix = hardwarePrefix[productFamilyIndex];
-        if (hwPrefix == nullptr) {
+        auto hwInfoConfig = hwInfoConfigFactory[productFamilyIndex];
+        if (hwPrefix == nullptr || hwInfoConfig == nullptr) {
             continue;
         }
         const std::string productFamily(hwPrefix);
@@ -117,7 +118,7 @@ HWTEST_F(PrepareDeviceEnvironmentsTest, givenUpperCaseProductFamilyOverrideFlagS
     PRODUCT_FAMILY productFamily;
 
     for (int productFamilyIndex = 0; productFamilyIndex < IGFX_MAX_PRODUCT; productFamilyIndex++) {
-        if (hardwarePrefix[productFamilyIndex]) {
+        if (hardwarePrefix[productFamilyIndex] && hwInfoConfigFactory[productFamilyIndex]) {
             hwPrefix = hardwarePrefix[productFamilyIndex];
             productFamily = static_cast<PRODUCT_FAMILY>(productFamilyIndex);
             break;
@@ -190,5 +191,21 @@ HWTEST_F(PrepareDeviceEnvironmentsTest, givenPrepareDeviceEnvironmentsAndUnknown
             }
         }
     }
+}
+
+TEST(MultiDeviceTests, givenCreateMultipleRootDevicesAndLimitAmountOfReturnedDevicesFlagWhenClGetDeviceIdsIsCalledThenLowerValueIsReturned) {
+    platformsImpl->clear();
+    VariableBackup<UltHwConfig> backup(&ultHwConfig);
+    ultHwConfig.useHwCsr = true;
+    ultHwConfig.forceOsAgnosticMemoryManager = false;
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.CreateMultipleRootDevices.set(2);
+    DebugManager.flags.LimitAmountOfReturnedDevices.set(1);
+    cl_uint numDevices = 0;
+
+    auto retVal = clGetDeviceIDs(nullptr, CL_DEVICE_TYPE_GPU, 0, nullptr, &numDevices);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(1u, numDevices);
 }
 } // namespace NEO

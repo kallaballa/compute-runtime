@@ -490,6 +490,71 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     EXPECT_TRUE(containsHint(expectedHint, userData));
 }
 
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallFillWithKernelObjsForAuxTranslationOnUnifiedMemoryThenContextProvidesProperHint) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.PrintDriverDiagnostics.set(1);
+    DebugManager.flags.EnableStatelessCompression.set(1);
+
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    char data[128];
+    void *ptr = &data;
+    MockGraphicsAllocation gfxAllocation(ptr, 128);
+
+    gfxAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+
+    mockKernel.mockKernel->initialize();
+    mockKernel.mockKernel->setUnifiedMemoryExecInfo(&gfxAllocation);
+
+    testing::internal::CaptureStdout();
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+
+    snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ALLOCATION_AUX_TRANSLATION],
+             mockKernel.mockKernel->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName.c_str(), ptr, 128);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(0u, output.size());
+    EXPECT_TRUE(containsHint(expectedHint, userData));
+}
+
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallFillWithKernelObjsForAuxTranslationOnAllocationInSvmAllocsManagerThenContextProvidesProperHint) {
+    if (context->getSVMAllocsManager() == nullptr) {
+        return;
+    }
+
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.PrintDriverDiagnostics.set(1);
+    DebugManager.flags.EnableStatelessCompression.set(1);
+
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    char data[128];
+    void *ptr = &data;
+    MockGraphicsAllocation gfxAllocation(ptr, 128);
+
+    gfxAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+
+    mockKernel.mockKernel->initialize();
+
+    SvmAllocationData allocData(0);
+    allocData.gpuAllocations.addAllocation(&gfxAllocation);
+    allocData.memoryType = InternalMemoryType::DEVICE_UNIFIED_MEMORY;
+    allocData.device = &pDevice->getDevice();
+    context->getSVMAllocsManager()->insertSVMAlloc(allocData);
+
+    testing::internal::CaptureStdout();
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+
+    snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ALLOCATION_AUX_TRANSLATION],
+             mockKernel.mockKernel->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName.c_str(), ptr, 128);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(0u, output.size());
+    EXPECT_TRUE(containsHint(expectedHint, userData));
+}
+
 TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenKernelObjectWithGraphicsAllocationAccessedStatefullyOnlyThenDontReportAnyHint) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.PrintDriverDiagnostics.set(1);
@@ -563,6 +628,29 @@ TEST_F(PerformanceHintTest, whenCallingFillWithKernelObjsForAuxTranslationOnNull
     EXPECT_EQ(0u, output.size());
 }
 
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeDisabledWhenCallFillWithKernelObjsForAuxTranslationOnUnifiedMemoryThenDontReportAnyHint) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableStatelessCompression.set(1);
+
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    char data[128];
+    void *ptr = &data;
+    MockGraphicsAllocation gfxAllocation(ptr, 128);
+
+    gfxAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+
+    mockKernel.mockKernel->initialize();
+    mockKernel.mockKernel->setUnifiedMemoryExecInfo(&gfxAllocation);
+
+    testing::internal::CaptureStdout();
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(0u, output.size());
+}
+
 TEST_F(PerformanceHintTest, given64bitCompressedBufferWhenItsCreatedThenProperPerformanceHintIsProvided) {
     cl_int retVal;
     HardwareInfo hwInfo = context->getDevice(0)->getHardwareInfo();
@@ -579,7 +667,7 @@ TEST_F(PerformanceHintTest, given64bitCompressedBufferWhenItsCreatedThenProperPe
         Buffer::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(0, 0, 0, &context->getDevice(0)->getDevice()),
                        0, 0, size, static_cast<void *>(NULL), retVal));
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[BUFFER_IS_COMPRESSED], buffer.get());
-    auto compressionSupported = HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size) &&
+    auto compressionSupported = HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size, hwInfo) &&
                                 HwHelper::renderCompressedBuffersSupported(hwInfo);
     if (compressionSupported) {
         EXPECT_TRUE(containsHint(expectedHint, userData));
@@ -608,7 +696,7 @@ TEST_F(PerformanceHintTest, givenUncompressedBufferWhenItsCreatedThenProperPerfo
         isCompressed = MemObjHelper::isSuitableForRenderCompression(
                            HwHelper::renderCompressedBuffersSupported(hwInfo),
                            memoryProperties, *context,
-                           HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size)) &&
+                           HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size, hwInfo)) &&
                        !is32bit && !context->isSharedContext &&
                        (!memoryProperties.flags.useHostPtr || context->getMemoryManager()->isLocalMemorySupported(device->getRootDeviceIndex())) &&
                        !memoryProperties.flags.forceHostMemory;

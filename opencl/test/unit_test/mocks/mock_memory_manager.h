@@ -31,16 +31,17 @@ class MemoryManagerCreate : public T {
 
 class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
   public:
-    using MemoryManager::allocateGraphicsMemoryForNonSvmHostPtr;
     using MemoryManager::allocateGraphicsMemoryInPreferredPool;
     using MemoryManager::allocateGraphicsMemoryWithAlignment;
     using MemoryManager::allocateGraphicsMemoryWithProperties;
     using MemoryManager::createGraphicsAllocation;
     using MemoryManager::createStorageInfoFromProperties;
     using MemoryManager::defaultEngineIndex;
+    using MemoryManager::externalLocalMemoryUsageBankSelector;
     using MemoryManager::getAllocationData;
     using MemoryManager::gfxPartitions;
-    using MemoryManager::localMemoryUsageBankSelector;
+    using MemoryManager::internalLocalMemoryUsageBankSelector;
+    using MemoryManager::isNonSvmBuffer;
     using MemoryManager::multiContextResourceDestructor;
     using MemoryManager::overrideAllocationData;
     using MemoryManager::pageFaultManager;
@@ -64,6 +65,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
 
     MockMemoryManager() : MockMemoryManager(*(new MockExecutionEnvironment(defaultHwInfo.get()))) {
         mockExecutionEnvironment.reset(static_cast<MockExecutionEnvironment *>(&executionEnvironment));
+        mockExecutionEnvironment->initGmm();
     };
     MockMemoryManager(bool enable64pages, bool enableLocalMemory) : MemoryManagerCreate(enable64pages, enableLocalMemory, *(new MockExecutionEnvironment(defaultHwInfo.get()))) {
         mockExecutionEnvironment.reset(static_cast<MockExecutionEnvironment *>(&executionEnvironment));
@@ -72,7 +74,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     void setDeferredDeleter(DeferredDeleter *deleter);
     void overrideAsyncDeleterFlag(bool newValue);
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override;
-    GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateMemoryByKMD(const AllocationData &allocationData) override;
     int redundancyRatio = 1;
 
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
@@ -133,6 +135,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
 
     GraphicsAllocation *allocate32BitGraphicsMemory(uint32_t rootDeviceIndex, size_t size, const void *ptr, GraphicsAllocation::AllocationType allocationType);
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) override;
+    GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
 
     bool isLimitedGPU(uint32_t rootDeviceIndex) override {
         return limitedGPU;
@@ -160,6 +163,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     bool preferRenderCompressedFlagPassed = false;
     bool allocateForImageCalled = false;
     bool allocate32BitGraphicsMemoryImplCalled = false;
+    bool allocateGraphicsMemoryForNonSvmHostPtrCalled = false;
     bool allocateForShareableCalled = false;
     bool failReserveAddress = false;
     bool failAllocateSystemMemory = false;
@@ -233,6 +237,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) override {
         return nullptr;
     }
+
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override {
         return nullptr;
     }
@@ -258,7 +263,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
         return nullptr;
     }
-    GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) override {
+    GraphicsAllocation *allocateMemoryByKMD(const AllocationData &allocationData) override {
         return nullptr;
     }
     int32_t failedAllocationsCount = 0;

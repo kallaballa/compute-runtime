@@ -26,6 +26,7 @@
 #include <array>
 #include <cerrno>
 #include <fcntl.h>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -163,6 +164,8 @@ class Drm : public DriverModel {
     bool isContextDebugSupported() { return contextDebugSupported; }
     MOCKABLE_VIRTUAL void setContextDebugFlag(uint32_t drmContextId);
 
+    void setUnrecoverableContext(uint32_t drmContextId);
+
     void setDirectSubmissionActive(bool value) { this->directSubmissionActive = value; }
     bool isDirectSubmissionActive() { return this->directSubmissionActive; }
 
@@ -222,13 +225,14 @@ class Drm : public DriverModel {
     };
     MOCKABLE_VIRTUAL int waitUserFence(uint32_t ctxId, uint64_t address, uint64_t value, ValueWidth dataWidth, int64_t timeout, uint16_t flags);
 
-    void setNewResourceBound(bool value) { this->newResourceBound = value; };
-    bool getNewResourceBound() { return this->newResourceBound; };
+    void setNewResourceBoundToVM(uint32_t vmHandleId);
 
     const std::vector<int> &getSliceMappings(uint32_t deviceIndex);
     const TopologyMap &getTopologyMap();
 
     static std::vector<std::unique_ptr<HwDeviceId>> discoverDevices(ExecutionEnvironment &executionEnvironment);
+
+    std::unique_lock<std::mutex> lockBindFenceMutex();
 
   protected:
     Drm(std::unique_ptr<HwDeviceIdDrm> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment);
@@ -273,8 +277,15 @@ class Drm : public DriverModel {
     ADAPTER_BDF adapterBDF{};
 
     TopologyMap topologyMap;
-    std::unordered_map<unsigned long, std::pair<long long, uint64_t>> ioctlStatistics;
+    struct IoctlStatisticsEntry {
+        long long totalTime = 0;
+        uint64_t count = 0;
+        long long minTime = std::numeric_limits<long long>::max();
+        long long maxTime = 0;
+    };
+    std::unordered_map<unsigned long, IoctlStatisticsEntry> ioctlStatistics;
 
+    std::mutex bindFenceMutex;
     std::array<uint64_t, EngineLimits::maxHandleCount> pagingFence;
     std::array<uint64_t, EngineLimits::maxHandleCount> fenceVal;
     StackVec<uint32_t, size_t(ResourceClass::MaxSize)> classHandles;
@@ -302,7 +313,6 @@ class Drm : public DriverModel {
     bool bindAvailable = false;
     bool directSubmissionActive = false;
     bool contextDebugSupported = false;
-    bool newResourceBound = false;
 
   private:
     int getParamIoctl(int param, int *dstValue);

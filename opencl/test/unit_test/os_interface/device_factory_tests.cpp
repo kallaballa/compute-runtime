@@ -107,10 +107,10 @@ TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetWhenCreateDevicesThenProperNumbe
     auto devices = DeviceFactory::createDevices(*executionEnvironment);
 
     EXPECT_EQ(devices.size(), 4u);
-    EXPECT_EQ(devices[0]->getNumAvailableDevices(), 4u);
-    EXPECT_EQ(devices[1]->getNumAvailableDevices(), 2u);
-    EXPECT_EQ(devices[2]->getNumAvailableDevices(), 3u);
-    EXPECT_EQ(devices[3]->getNumAvailableDevices(), 4u);
+    EXPECT_EQ(devices[0]->getNumSubDevices(), 4u);
+    EXPECT_EQ(devices[1]->getNumSubDevices(), 2u);
+    EXPECT_EQ(devices[2]->getNumSubDevices(), 3u);
+    EXPECT_EQ(devices[3]->getNumSubDevices(), 4u);
 }
 
 TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetToGreaterRootDeviceThanAvailableWhenCreateDevicesThenProperNumberOfDevicesIsReturned) {
@@ -124,8 +124,9 @@ TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetToGreaterRootDeviceThanAvailable
     auto devices = DeviceFactory::createDevices(*executionEnvironment);
 
     EXPECT_EQ(devices.size(), 2u);
-    EXPECT_EQ(devices[0]->getNumAvailableDevices(), 4u);
-    EXPECT_EQ(devices[1]->getNumAvailableDevices(), 1u);
+    EXPECT_EQ(devices[0]->getNumSubDevices(), 4u);
+    EXPECT_EQ(devices[1]->getNumGenericSubDevices(), 0u);
+    EXPECT_EQ(devices[1]->getNumSubDevices(), 0u);
 }
 
 TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetToGreaterSubDeviceThanAvailableWhenCreateDevicesThenProperNumberOfDevicesIsReturned) {
@@ -139,7 +140,7 @@ TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetToGreaterSubDeviceThanAvailableW
     auto devices = DeviceFactory::createDevices(*executionEnvironment);
 
     EXPECT_EQ(devices.size(), 1u);
-    EXPECT_EQ(devices[0]->getNumAvailableDevices(), 4u);
+    EXPECT_EQ(devices[0]->getNumSubDevices(), 4u);
 }
 
 TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetToRootDevicesOnlyWhenCreateDevicesThenProperNumberOfDevicesIsReturned) {
@@ -153,8 +154,8 @@ TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetToRootDevicesOnlyWhenCreateDevic
     auto devices = DeviceFactory::createDevices(*executionEnvironment);
 
     EXPECT_EQ(devices.size(), 2u);
-    EXPECT_EQ(devices[0]->getNumAvailableDevices(), 4u);
-    EXPECT_EQ(devices[1]->getNumAvailableDevices(), 4u);
+    EXPECT_EQ(devices[0]->getNumSubDevices(), 4u);
+    EXPECT_EQ(devices[1]->getNumSubDevices(), 4u);
 }
 
 TEST_F(DeviceFactoryTest, WhenOverridingEngineTypeThenDebugEngineIsReported) {
@@ -175,7 +176,11 @@ TEST_F(DeviceFactoryTest, givenPointerToHwInfoWhenGetDevicedCalledThenRequiedSur
     ASSERT_TRUE(success);
     auto hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo();
 
-    EXPECT_EQ(hwInfo->gtSystemInfo.CsrSizeInMb * MemoryConstants::megaByte, hwInfo->capabilityTable.requiredPreemptionSurfaceSize);
+    const auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
+    auto expextedSize = static_cast<size_t>(hwInfo->gtSystemInfo.CsrSizeInMb * MemoryConstants::megaByte);
+    hwHelper.adjustPreemptionSurfaceSize(expextedSize);
+
+    EXPECT_EQ(expextedSize, hwInfo->capabilityTable.requiredPreemptionSurfaceSize);
 }
 
 TEST_F(DeviceFactoryTest, givenCreateMultipleRootDevicesDebugFlagWhenPrepareDeviceEnvironmentsIsCalledThenNumberOfReturnedDevicesIsEqualToDebugVariable) {

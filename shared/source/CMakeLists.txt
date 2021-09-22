@@ -61,10 +61,14 @@ function(generate_shared_lib LIB_NAME MOCKABLE)
 
   # Enable SSE4/AVX2 options for files that need them
   if(MSVC)
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/helpers/local_id_gen_avx2.cpp PROPERTIES COMPILE_FLAGS /arch:AVX2)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/helpers/${NEO_TARGET_PROCESSOR}/local_id_gen_avx2.cpp PROPERTIES COMPILE_FLAGS /arch:AVX2)
   else()
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/helpers/local_id_gen_avx2.cpp PROPERTIES COMPILE_FLAGS -mavx2)
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/helpers/local_id_gen_sse4.cpp PROPERTIES COMPILE_FLAGS -msse4.2)
+    if(COMPILER_SUPPORTS_AVX2)
+      set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/helpers/${NEO_TARGET_PROCESSOR}/local_id_gen_avx2.cpp PROPERTIES COMPILE_FLAGS -mavx2)
+    endif()
+    if(COMPILER_SUPPORTS_SSE42)
+      set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/helpers/local_id_gen_sse4.cpp PROPERTIES COMPILE_FLAGS -msse4.2)
+    endif()
   endif()
 
 endfunction()
@@ -91,6 +95,7 @@ endmacro()
 apply_macro_for_each_gen("SUPPORTED")
 
 append_sources_from_properties(CORE_SOURCES
+                               NEO_CORE_AIL
                                NEO_CORE_AUB
                                NEO_CORE_AUB_MEM_DUMP
                                NEO_CORE_BUILT_INS
@@ -137,6 +142,8 @@ if(WIN32)
                                  NEO_CORE_SKU_INFO_WINDOWS
                                  NEO_CORE_SRCS_HELPERS_WINDOWS
                                  NEO_CORE_UTILITIES_WINDOWS
+                                 NEO_CORE_EXECUTION_ENVIRONMENT_WINDOWS
+                                 NEO_CORE_AIL_WINDOWS
   )
 else()
   append_sources_from_properties(CORE_SOURCES
@@ -144,6 +151,8 @@ else()
                                  NEO_CORE_OS_INTERFACE_LINUX
                                  NEO_CORE_PAGE_FAULT_MANAGER_LINUX
                                  NEO_CORE_UTILITIES_LINUX
+                                 NEO_CORE_EXECUTION_ENVIRONMENT_LINUX
+                                 NEO_CORE_AIL_LINUX
   )
   if(NOT DISABLE_WDDM_LINUX)
     append_sources_from_properties(CORE_SOURCES

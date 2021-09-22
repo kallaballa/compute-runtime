@@ -12,6 +12,7 @@
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/perf_counter.h"
@@ -26,6 +27,7 @@
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_mdi.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
+#include "opencl/test/unit_test/mocks/mock_ostime.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 #include "opencl/test/unit_test/os_interface/mock_performance_counters.h"
@@ -51,7 +53,7 @@ TEST(Event, GivenEventWhenCheckingTraitThenEventIsNotAssignable) {
 TEST(Event, WhenPeekIsCalledThenExecutionIsNotUpdated) {
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext ctx;
-    MockCommandQueue cmdQ(&ctx, mockDevice.get(), 0);
+    MockCommandQueue cmdQ(&ctx, mockDevice.get(), 0, false);
     Event event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, CompletionStamp::notReady, 0);
 
     EXPECT_FALSE(event.peekIsBlocked());
@@ -63,7 +65,7 @@ TEST(Event, WhenPeekIsCalledThenExecutionIsNotUpdated) {
 TEST(Event, givenEventThatStatusChangeWhenPeekIsCalledThenEventIsNotUpdated) {
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext ctx;
-    MockCommandQueue cmdQ(&ctx, mockDevice.get(), 0);
+    MockCommandQueue cmdQ(&ctx, mockDevice.get(), 0, false);
 
     struct mockEvent : public Event {
         using Event::Event;
@@ -115,7 +117,7 @@ TEST(Event, WhenGettingTaskCountThenCorrectValueIsReturned) {
 TEST(Event, WhenGettingEventInfoThenCqIsReturned) {
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     auto ctx = std::unique_ptr<Context>(new MockContext());
-    auto cmdQ = std::unique_ptr<MockCommandQueue>(new MockCommandQueue(ctx.get(), mockDevice.get(), 0));
+    auto cmdQ = std::unique_ptr<MockCommandQueue>(new MockCommandQueue(ctx.get(), mockDevice.get(), 0, false));
     Event *event = new Event(cmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 1, 5);
     cl_event clEvent = event;
     cl_command_queue cmdQResult = nullptr;
@@ -132,10 +134,28 @@ TEST(Event, WhenGettingEventInfoThenCqIsReturned) {
     delete event;
 }
 
+TEST(Event, givenBcsCsrSetInEventWhenPeekingBcsTaskCountThenReturnCorrectTaskCount) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+    REQUIRE_BLITTER_OR_SKIP(&hwInfo);
+
+    auto device = ReleaseableObjectPtr<MockClDevice>{
+        new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockAlignedMallocManagerDevice>(&hwInfo)}};
+    MockContext context{device.get()};
+    MockCommandQueue queue{context};
+    queue.updateBcsTaskCount(19);
+    Event event{&queue, CL_COMMAND_READ_BUFFER, 0, 0};
+
+    EXPECT_EQ(0u, event.peekBcsTaskCountFromCommandQueue());
+
+    event.setupBcs(queue.getBcsCommandStreamReceiver(aub_stream::EngineType::ENGINE_BCS)->getOsContext().getEngineType());
+    EXPECT_EQ(19u, event.peekBcsTaskCountFromCommandQueue());
+}
+
 TEST(Event, givenCommandQueueWhenEventIsCreatedWithCommandQueueThenCommandQueueInternalRefCountIsIncremented) {
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext ctx;
-    MockCommandQueue cmdQ(&ctx, mockDevice.get(), 0);
+    MockCommandQueue cmdQ(&ctx, mockDevice.get(), 0, false);
     auto intitialRefCount = cmdQ.getRefInternalCount();
 
     Event *event = new Event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, 4, 10);
@@ -150,7 +170,7 @@ TEST(Event, givenCommandQueueWhenEventIsCreatedWithCommandQueueThenCommandQueueI
 
 TEST(Event, givenCommandQueueWhenEventIsCreatedWithoutCommandQueueThenCommandQueueInternalRefCountIsNotModified) {
     MockContext ctx;
-    MockCommandQueue cmdQ(&ctx, nullptr, 0);
+    MockCommandQueue cmdQ(&ctx, nullptr, 0, false);
     auto intitialRefCount = cmdQ.getRefInternalCount();
 
     Event *event = new Event(nullptr, CL_COMMAND_NDRANGE_KERNEL, 4, 10);
@@ -168,7 +188,7 @@ TEST(Event, WhenWaitingForEventsThenAllQueuesAreFlushed) {
       public:
         MockCommandQueueWithFlushCheck() = delete;
         MockCommandQueueWithFlushCheck(MockCommandQueueWithFlushCheck &) = delete;
-        MockCommandQueueWithFlushCheck(Context &context, ClDevice *device) : MockCommandQueue(&context, device, nullptr) {
+        MockCommandQueueWithFlushCheck(Context &context, ClDevice *device) : MockCommandQueue(&context, device, nullptr, false) {
         }
         cl_int flush() override {
             flushCounter++;
@@ -199,7 +219,7 @@ TEST(Event, GivenNotReadyEventWhenWaitingForEventsThenQueueIsNotFlushed) {
       public:
         MockCommandQueueWithFlushCheck() = delete;
         MockCommandQueueWithFlushCheck(MockCommandQueueWithFlushCheck &) = delete;
-        MockCommandQueueWithFlushCheck(Context &context, ClDevice *device) : MockCommandQueue(&context, device, nullptr) {
+        MockCommandQueueWithFlushCheck(Context &context, ClDevice *device) : MockCommandQueue(&context, device, nullptr, false) {
         }
         cl_int flush() override {
             flushCounter++;
@@ -461,7 +481,7 @@ class SurfaceMock : public Surface {
 };
 
 TEST_F(InternalsEventTest, GivenSubmitCommandFalseWhenSubmittingCommandsThenRefApiCountAndRefInternalGetHandledCorrectly) {
-    MockCommandQueue cmdQ(mockContext, pClDevice, nullptr);
+    MockCommandQueue cmdQ(mockContext, pClDevice, nullptr, false);
     MockEvent<Event> event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({pDevice->getRootDeviceIndex(), true, 4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER, false, pDevice->getDeviceBitfield()}));
@@ -513,7 +533,7 @@ TEST_F(InternalsEventTest, GivenSubmitCommandFalseWhenSubmittingCommandsThenRefA
 }
 
 TEST_F(InternalsEventTest, GivenSubmitCommandTrueWhenSubmittingCommandsThenRefApiCountAndRefInternalGetHandledCorrectly) {
-    MockCommandQueue cmdQ(mockContext, pClDevice, nullptr);
+    MockCommandQueue cmdQ(mockContext, pClDevice, nullptr, false);
     MockEvent<Event> event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({pDevice->getRootDeviceIndex(), 4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER, pDevice->getDeviceBitfield()}));
@@ -546,7 +566,7 @@ TEST_F(InternalsEventTest, GivenSubmitCommandTrueWhenSubmittingCommandsThenRefAp
 }
 
 TEST_F(InternalsEventTest, givenBlockedKernelWithPrintfWhenSubmittedThenPrintOutput) {
-    MockCommandQueue mockCmdQueue(mockContext, pClDevice, nullptr);
+    MockCommandQueue mockCmdQueue(mockContext, pClDevice, nullptr, false);
 
     testing::internal::CaptureStdout();
     MockEvent<Event> event(&mockCmdQueue, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
@@ -596,7 +616,7 @@ TEST_F(InternalsEventTest, givenBlockedKernelWithPrintfWhenSubmittedThenPrintOut
 }
 
 TEST_F(InternalsEventTest, GivenMapOperationWhenSubmittingCommandsThenTaskLevelIsIncremented) {
-    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, nullptr);
+    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, nullptr, false);
     MockEvent<Event> event(pCmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
@@ -617,7 +637,7 @@ TEST_F(InternalsEventTest, GivenMapOperationWhenSubmittingCommandsThenTaskLevelI
 }
 
 TEST_F(InternalsEventTest, GivenMapOperationNonZeroCopyBufferWhenSubmittingCommandsThenTaskLevelIsIncremented) {
-    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, nullptr);
+    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, nullptr, false);
     MockEvent<Event> event(pCmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
@@ -682,7 +702,7 @@ class InternalsEventProfilingTest : public InternalsEventTest,
 
 TEST_P(InternalsEventProfilingTest, GivenProfilingWhenEventCreatedThenProfilingSet) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    std::unique_ptr<MockCommandQueue> pCmdQ(new MockCommandQueue(mockContext, pClDevice, props));
+    std::unique_ptr<MockCommandQueue> pCmdQ(new MockCommandQueue(mockContext, pClDevice, props, false));
 
     std::unique_ptr<MockEvent<Event>> event(new MockEvent<Event>(pCmdQ.get(), GetParam(), 0, 0));
     EXPECT_TRUE(event.get()->isProfilingEnabled());
@@ -694,15 +714,99 @@ INSTANTIATE_TEST_CASE_P(InternalsEventProfilingTest,
 
 TEST_F(InternalsEventTest, GivenProfilingWhenUserEventCreatedThenProfilingNotSet) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    std::unique_ptr<MockCommandQueue> pCmdQ(new MockCommandQueue(mockContext, pClDevice, props));
+    std::unique_ptr<MockCommandQueue> pCmdQ(new MockCommandQueue(mockContext, pClDevice, props, false));
 
     std::unique_ptr<MockEvent<Event>> event(new MockEvent<Event>(pCmdQ.get(), CL_COMMAND_USER, 0, 0));
     EXPECT_FALSE(event.get()->isProfilingEnabled());
 }
 
+TEST_F(InternalsEventTest, givenDeviceTimestampBaseNotEnabledWhenGetEventProfilingInfoThenCpuTimestampIsReturned) {
+    pClDevice->setOSTime(new MockOSTimeWithConstTimestamp());
+    const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
+    MockCommandQueue cmdQ(mockContext, pClDevice, props, false);
+    MockEvent<Event> event(&cmdQ, CL_COMMAND_MARKER, 0, 0);
+
+    event.setCommand(std::unique_ptr<Command>(new CommandWithoutKernel(cmdQ)));
+
+    event.submitCommand(false);
+    uint64_t submitTime = 0ULL;
+    event.getEventProfilingInfo(CL_PROFILING_COMMAND_SUBMIT, sizeof(uint64_t), &submitTime, 0);
+
+    EXPECT_EQ(submitTime, MockDeviceTimeWithConstTimestamp::CPU_TIME_IN_NS);
+}
+
+TEST_F(InternalsEventTest, givenDeviceTimestampBaseEnabledWhenGetEventProfilingInfoThenGpuTimestampIsReturned) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.EnableDeviceBasedTimestamps.set(true);
+
+    pClDevice->setOSTime(new MockOSTimeWithConstTimestamp());
+    const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
+    MockCommandQueue cmdQ(mockContext, pClDevice, props, false);
+    MockEvent<Event> event(&cmdQ, CL_COMMAND_MARKER, 0, 0);
+
+    event.setCommand(std::unique_ptr<Command>(new CommandWithoutKernel(cmdQ)));
+
+    event.submitCommand(false);
+    uint64_t submitTime = 0ULL;
+    event.getEventProfilingInfo(CL_PROFILING_COMMAND_SUBMIT, sizeof(uint64_t), &submitTime, 0);
+
+    auto resolution = pClDevice->getDevice().getDeviceInfo().profilingTimerResolution;
+    EXPECT_EQ(submitTime, static_cast<uint64_t>(MockDeviceTimeWithConstTimestamp::GPU_TIMESTAMP * resolution));
+}
+
+TEST_F(InternalsEventTest, givenDeviceTimestampBaseEnabledWhenCalculateStartTimestampThenCorrectTimeIsReturned) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.EnableDeviceBasedTimestamps.set(true);
+
+    const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
+    MockCommandQueue cmdQ(mockContext, pClDevice, props, false);
+    MockEvent<Event> event(&cmdQ, CL_COMPLETE, 0, 0);
+
+    HwTimeStamps timestamp{};
+    timestamp.GlobalStartTS = 2;
+    event.queueTimeStamp.GPUTimeStamp = 1;
+    TagNode<HwTimeStamps> timestampNode{};
+    timestampNode.tagForCpuAccess = &timestamp;
+    event.timeStampNode = &timestampNode;
+
+    uint64_t start;
+    event.getEventProfilingInfo(CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, nullptr);
+
+    auto resolution = pClDevice->getDevice().getDeviceInfo().profilingTimerResolution;
+    EXPECT_EQ(start, static_cast<uint64_t>(timestamp.GlobalStartTS * resolution));
+
+    event.timeStampNode = nullptr;
+}
+
+TEST_F(InternalsEventTest, givenDeviceTimestampBaseEnabledAndGlobalStartTSSmallerThanQueueTSWhenCalculateStartTimestampThenCorrectTimeIsReturned) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.EnableDeviceBasedTimestamps.set(true);
+
+    const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
+    MockCommandQueue cmdQ(mockContext, pClDevice, props, false);
+    MockEvent<Event> event(&cmdQ, CL_COMPLETE, 0, 0);
+
+    HwTimeStamps timestamp{};
+    timestamp.GlobalStartTS = 1;
+    event.queueTimeStamp.GPUTimeStamp = 2;
+    TagNode<HwTimeStamps> timestampNode{};
+    timestampNode.tagForCpuAccess = &timestamp;
+    event.timeStampNode = &timestampNode;
+
+    uint64_t start = 0u;
+    event.getEventProfilingInfo(CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, nullptr);
+
+    auto &hwHelper = HwHelper::get(pClDevice->getHardwareInfo().platform.eRenderCoreFamily);
+    auto resolution = pClDevice->getDevice().getDeviceInfo().profilingTimerResolution;
+    auto refStartTime = static_cast<uint64_t>(timestamp.GlobalStartTS * resolution + (1ULL << hwHelper.getGlobalTimeStampBits()) * resolution);
+    EXPECT_EQ(start, refStartTime);
+
+    event.timeStampNode = nullptr;
+}
+
 TEST_F(InternalsEventTest, GivenProfilingWHENMapOperationTHENTimesSet) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props);
+    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props, false);
 
     MockEvent<Event> *event = new MockEvent<Event>(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
@@ -729,7 +833,7 @@ TEST_F(InternalsEventTest, GivenProfilingWHENMapOperationTHENTimesSet) {
 
 TEST_F(InternalsEventTest, GivenUnMapOperationWhenSubmittingCommandsThenTaskLevelIsIncremented) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
-    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, props);
+    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, props, false);
     MockEvent<Event> event(pCmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
@@ -751,7 +855,7 @@ TEST_F(InternalsEventTest, GivenUnMapOperationWhenSubmittingCommandsThenTaskLeve
 
 TEST_F(InternalsEventTest, givenBlockedMapCommandWhenSubmitIsCalledThenItReleasesMemObjectReference) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
-    auto pCmdQ = std::make_unique<MockCommandQueue>(mockContext, pClDevice, props);
+    auto pCmdQ = std::make_unique<MockCommandQueue>(mockContext, pClDevice, props, false);
     MockEvent<Event> event(pCmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto buffer = new UnalignedBuffer;
@@ -770,7 +874,7 @@ TEST_F(InternalsEventTest, givenBlockedMapCommandWhenSubmitIsCalledThenItRelease
 }
 TEST_F(InternalsEventTest, GivenUnMapOperationNonZeroCopyBufferWhenSubmittingCommandsThenTaskLevelIsIncremented) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
-    auto pCmdQ = std::make_unique<MockCommandQueue>(mockContext, pClDevice, props);
+    auto pCmdQ = std::make_unique<MockCommandQueue>(mockContext, pClDevice, props, false);
     MockEvent<Event> event(pCmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
     auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
@@ -792,7 +896,7 @@ TEST_F(InternalsEventTest, GivenUnMapOperationNonZeroCopyBufferWhenSubmittingCom
 
 HWTEST_F(InternalsEventTest, givenCpuProfilingPathWhenEnqueuedMarkerThenDontUseTimeStampNode) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props);
+    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props, false);
     MockEvent<Event> *event = new MockEvent<Event>(pCmdQ, CL_COMMAND_MARKER, 0, 0);
     event->setCPUProfilingPath(true);
 
@@ -830,7 +934,7 @@ struct InternalsEventWithPerfCountersTest
 };
 HWTEST_F(InternalsEventWithPerfCountersTest, givenCpuProfilingPerfCountersPathWhenEnqueuedMarkerThenDontUseTimeStampNodePerfCounterNode) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props);
+    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props, false);
     bool ret = false;
     ret = pCmdQ->setPerfCountersEnabled();
     EXPECT_TRUE(ret);
@@ -856,7 +960,7 @@ HWTEST_F(InternalsEventWithPerfCountersTest, givenCpuProfilingPerfCountersPathWh
 
 HWTEST_F(InternalsEventWithPerfCountersTest, givenCpuProfilingPerfCountersPathWhenEnqueuedMarkerThenUseTimeStampNodePerfCounterNode) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props);
+    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props, false);
     pCmdQ->setPerfCountersEnabled();
     MockEvent<Event> *event = new MockEvent<Event>(pCmdQ, CL_COMMAND_MARKER, 0, 0);
     event->setCPUProfilingPath(true);
@@ -888,7 +992,7 @@ HWTEST_F(InternalsEventWithPerfCountersTest, givenCpuProfilingPerfCountersPathWh
 
 TEST_F(InternalsEventWithPerfCountersTest, GivenPerfCountersEnabledWhenEventIsCreatedThenProfilingEnabledAndPerfCountersEnabledAreTrue) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props);
+    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props, false);
     pCmdQ->setPerfCountersEnabled();
     Event *ev = new Event(pCmdQ, CL_COMMAND_COPY_BUFFER, 3, 0);
     EXPECT_TRUE(ev->isProfilingEnabled());
@@ -985,7 +1089,7 @@ HWTEST_F(InternalsEventTest, GivenBufferWithoutZeroCopyWhenMappingOrUnmappingThe
     pDevice->resetCommandStreamReceiver(csr);
 
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
-    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, props);
+    auto pCmdQ = make_releaseable<MockCommandQueue>(mockContext, pClDevice, props, false);
 
     MockNonZeroCopyBuff buffer(executionStamp);
 
@@ -1186,7 +1290,7 @@ TEST_F(EventTest, GivenProfilingDisabledWhenEventIsCreatedThenPerfCountersAreDis
 
 TEST_F(InternalsEventTest, GivenOnlyProfilingEnabledWhenEventIsCreatedThenPerfCountersAreDisabled) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props);
+    MockCommandQueue *pCmdQ = new MockCommandQueue(mockContext, pClDevice, props, false);
 
     Event *ev = new Event(pCmdQ, CL_COMMAND_COPY_BUFFER, 3, 0);
     EXPECT_TRUE(ev->isProfilingEnabled());
@@ -1262,7 +1366,7 @@ TEST_F(EventTest, givenOutEventWhenBlockingEnqueueHandledOnCpuThenUpdateTaskCoun
 
 TEST_F(EventTest, givenCmdQueueWithProfilingWhenIsCpuProfilingIsCalledThenTrueIsReturned) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0};
-    std::unique_ptr<MockCommandQueue> pCmdQ(new MockCommandQueue(&mockContext, pClDevice, props));
+    std::unique_ptr<MockCommandQueue> pCmdQ(new MockCommandQueue(&mockContext, pClDevice, props, false));
 
     MockEvent<Event> ev(pCmdQ.get(), CL_COMMAND_MAP_IMAGE, CompletionStamp::notReady, CompletionStamp::notReady);
     bool cpuProfiling = ev.isCPUProfilingPath() != 0;
@@ -1394,12 +1498,14 @@ TEST_F(EventTest, GivenCompletedEventWhenAddingChildThenNumEventsBlockingThisIsZ
     }
 }
 
+template <typename GfxFamily>
+struct TestEventCsr : public UltCommandStreamReceiver<GfxFamily> {
+    TestEventCsr(const ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
+        : UltCommandStreamReceiver<GfxFamily>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0, deviceBitfield) {}
+    MOCK_METHOD3(waitForCompletionWithTimeout, bool(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait));
+};
+
 HWTEST_F(EventTest, givenQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWaitingFunction) {
-    struct MyCsr : public UltCommandStreamReceiver<FamilyType> {
-        MyCsr(const ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
-            : UltCommandStreamReceiver<FamilyType>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0, deviceBitfield) {}
-        MOCK_METHOD3(waitForCompletionWithTimeout, bool(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait));
-    };
     HardwareInfo localHwInfo = pDevice->getHardwareInfo();
     localHwInfo.capabilityTable.kmdNotifyProperties.enableKmdNotify = true;
     localHwInfo.capabilityTable.kmdNotifyProperties.enableQuickKmdSleep = true;
@@ -1408,7 +1514,7 @@ HWTEST_F(EventTest, givenQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWa
 
     pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->setHwInfo(&localHwInfo);
 
-    auto csr = new ::testing::NiceMock<MyCsr>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
+    auto csr = new ::testing::NiceMock<TestEventCsr<FamilyType>>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     Event event(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
@@ -1423,11 +1529,6 @@ HWTEST_F(EventTest, givenQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWa
 }
 
 HWTEST_F(EventTest, givenNonQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWaitingFunction) {
-    struct MyCsr : public UltCommandStreamReceiver<FamilyType> {
-        MyCsr(const ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
-            : UltCommandStreamReceiver<FamilyType>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0, deviceBitfield) {}
-        MOCK_METHOD3(waitForCompletionWithTimeout, bool(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait));
-    };
     HardwareInfo localHwInfo = pDevice->getHardwareInfo();
     localHwInfo.capabilityTable.kmdNotifyProperties.enableKmdNotify = true;
     localHwInfo.capabilityTable.kmdNotifyProperties.enableQuickKmdSleep = true;
@@ -1437,7 +1538,7 @@ HWTEST_F(EventTest, givenNonQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestT
 
     pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->setHwInfo(&localHwInfo);
 
-    auto csr = new ::testing::NiceMock<MyCsr>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
+    auto csr = new ::testing::NiceMock<TestEventCsr<FamilyType>>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     Event event(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
@@ -1452,7 +1553,7 @@ HWTEST_F(EventTest, givenNonQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestT
 }
 
 HWTEST_F(InternalsEventTest, givenCommandWhenSubmitCalledThenUpdateFlushStamp) {
-    auto pCmdQ = std::unique_ptr<MockCommandQueue>(new MockCommandQueue(mockContext, pClDevice, 0));
+    auto pCmdQ = std::unique_ptr<MockCommandQueue>(new MockCommandQueue(mockContext, pClDevice, 0, false));
     MockEvent<Event> *event = new MockEvent<Event>(pCmdQ.get(), CL_COMMAND_MARKER, 0, 0);
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.flushStamp->setStamp(5);
@@ -1466,7 +1567,7 @@ HWTEST_F(InternalsEventTest, givenCommandWhenSubmitCalledThenUpdateFlushStamp) {
 }
 
 HWTEST_F(InternalsEventTest, givenAbortedCommandWhenSubmitCalledThenDontUpdateFlushStamp) {
-    auto pCmdQ = std::unique_ptr<MockCommandQueue>(new MockCommandQueue(mockContext, pClDevice, 0));
+    auto pCmdQ = std::unique_ptr<MockCommandQueue>(new MockCommandQueue(mockContext, pClDevice, 0, false));
     MockEvent<Event> *event = new MockEvent<Event>(pCmdQ.get(), CL_COMMAND_MARKER, 0, 0);
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.flushStamp->setStamp(5);
@@ -1576,7 +1677,7 @@ TEST(CommandQueue, givenTimestampPacketWritesDisabledAndQueueHasTimestampPacketC
     DebugManager.flags.EnableTimestampPacket.set(0);
 
     MockContext context{};
-    MockCommandQueue queue{&context, context.getDevice(0), nullptr};
+    MockCommandQueue queue{&context, context.getDevice(0), nullptr, false};
     ASSERT_FALSE(queue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled());
     ASSERT_EQ(nullptr, queue.timestampPacketContainer.get());
     queue.timestampPacketContainer = std::make_unique<TimestampPacketContainer>();

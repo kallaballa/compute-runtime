@@ -216,10 +216,6 @@ bool Device::createDeviceImpl() {
 
     for (auto &engine : engines) {
         auto commandStreamReceiver = engine.commandStreamReceiver;
-        auto osContext = engine.osContext;
-        if (!commandStreamReceiver->initDirectSubmission(*this, *osContext)) {
-            return false;
-        }
         commandStreamReceiver->postInitFlagsSetup();
     }
 
@@ -265,23 +261,17 @@ bool Device::createDeviceImpl() {
     return true;
 }
 
-bool Device::engineSupported(const EngineTypeUsage &engineTypeUsage) const {
+bool Device::createEngines() {
     if (engineInstanced) {
-        return (EngineHelpers::isBcs(engineTypeUsage.first) || (engineTypeUsage.first == this->engineInstancedType));
+        return createEngine(0, {engineInstancedType, EngineUsage::Regular});
     }
 
-    return true;
-}
-
-bool Device::createEngines() {
     auto &hwInfo = getHardwareInfo();
     auto gpgpuEngines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
 
-    this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
-
     uint32_t deviceCsrIndex = 0;
     for (auto &engine : gpgpuEngines) {
-        if (engineSupported(engine) && !createEngine(deviceCsrIndex++, engine)) {
+        if (!createEngine(deviceCsrIndex++, engine)) {
             return false;
         }
     }
@@ -291,7 +281,7 @@ bool Device::createEngines() {
 void Device::addEngineToEngineGroup(EngineControl &engine) {
     const HardwareInfo &hardwareInfo = this->getHardwareInfo();
     const HwHelper &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    const EngineGroupType engineGroupType = hwHelper.getEngineGroupType(engine.getEngineType(), hardwareInfo);
+    const EngineGroupType engineGroupType = hwHelper.getEngineGroupType(engine.getEngineType(), engine.getEngineUsage(), hardwareInfo);
 
     if (!hwHelper.isSubDeviceEngineSupported(hardwareInfo, getDeviceBitfield(), engine.getEngineType())) {
         return;
@@ -313,8 +303,9 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
     const auto &hwInfo = getHardwareInfo();
     const auto engineType = engineTypeUsage.first;
     const auto engineUsage = engineTypeUsage.second;
-    const auto defaultEngineType = getChosenEngineType(hwInfo);
+    const auto defaultEngineType = engineInstanced ? this->engineInstancedType : getChosenEngineType(hwInfo);
     const bool isDefaultEngine = defaultEngineType == engineType && engineUsage == EngineUsage::Regular;
+    const bool createAsEngineInstanced = engineInstanced && EngineHelpers::isCcs(engineType);
 
     std::unique_ptr<CommandStreamReceiver> commandStreamReceiver = createCommandStreamReceiver();
     if (!commandStreamReceiver) {
@@ -331,11 +322,10 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
     }
 
     bool lowPriority = (engineTypeUsage.second == EngineUsage::LowPriority);
-    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(),
-                                                                                     engineTypeUsage,
-                                                                                     getDeviceBitfield(),
-                                                                                     preemptionMode,
-                                                                                     false);
+
+    EngineDescriptor engineDescriptor(engineTypeUsage, getDeviceBitfield(), preemptionMode, false, createAsEngineInstanced);
+
+    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(), engineDescriptor);
     if (osContext->isImmediateContextInitializationEnabled(isDefaultEngine)) {
         osContext->ensureContextInitialized();
     }
@@ -414,7 +404,7 @@ bool Device::isDebuggerActive() const {
 
 const std::vector<EngineControl> *Device::getNonEmptyEngineGroup(size_t index) const {
     auto nonEmptyGroupIndex = 0u;
-    for (auto groupIndex = 0u; groupIndex < engineGroups.size(); groupIndex++) {
+    for (auto groupIndex = 0u; groupIndex < CommonConstants::engineGroupCount; groupIndex++) {
         const std::vector<EngineControl> *currentGroup = &engineGroups[groupIndex];
         if (currentGroup->empty()) {
             continue;
@@ -431,7 +421,7 @@ const std::vector<EngineControl> *Device::getNonEmptyEngineGroup(size_t index) c
 
 size_t Device::getIndexOfNonEmptyEngineGroup(EngineGroupType engineGroupType) const {
     const auto groupIndex = static_cast<size_t>(engineGroupType);
-    UNRECOVERABLE_IF(groupIndex >= engineGroups.size());
+    UNRECOVERABLE_IF(groupIndex >= CommonConstants::engineGroupCount);
     UNRECOVERABLE_IF(engineGroups[groupIndex].empty());
 
     size_t result = 0u;
@@ -446,12 +436,12 @@ size_t Device::getIndexOfNonEmptyEngineGroup(EngineGroupType engineGroupType) co
 
 EngineControl *Device::tryGetEngine(aub_stream::EngineType engineType, EngineUsage engineUsage) {
     for (auto &engine : engines) {
-        if (engine.osContext->getEngineType() == engineType &&
-            engine.osContext->isLowPriority() == (engineUsage == EngineUsage::LowPriority) &&
-            engine.osContext->isInternalEngine() == (engineUsage == EngineUsage::Internal)) {
+        if ((engine.getEngineType() == engineType) &&
+            (engine.getEngineUsage() == engineUsage)) {
             return &engine;
         }
     }
+
     if (DebugManager.flags.OverrideInvalidEngineWithDefault.get()) {
         return &engines[0];
     }
@@ -470,14 +460,18 @@ EngineControl &Device::getEngine(uint32_t index) {
 }
 
 bool Device::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const {
-    TimeStampData queueTimeStamp;
-    bool retVal = getOSTime()->getCpuGpuTime(&queueTimeStamp);
+    bool retVal = getOSTime()->getCpuTime(hostTimestamp);
     if (retVal) {
-        uint64_t resolution = (uint64_t)getOSTime()->getDynamicDeviceTimerResolution(getHardwareInfo());
-        *deviceTimestamp = queueTimeStamp.GPUTimeStamp * resolution;
+        TimeStampData timeStamp;
+        retVal = getOSTime()->getCpuGpuTime(&timeStamp);
+        if (retVal) {
+            if (DebugManager.flags.EnableDeviceBasedTimestamps.get()) {
+                auto resolution = getOSTime()->getDynamicDeviceTimerResolution(getHardwareInfo());
+                *deviceTimestamp = static_cast<uint64_t>(timeStamp.GPUTimeStamp * resolution);
+            } else
+                *deviceTimestamp = *hostTimestamp;
+        }
     }
-
-    retVal = getOSTime()->getCpuTime(hostTimestamp);
     return retVal;
 }
 
@@ -485,15 +479,27 @@ bool Device::getHostTimer(uint64_t *hostTimestamp) const {
     return getOSTime()->getCpuTime(hostTimestamp);
 }
 
-uint32_t Device::getNumAvailableDevices() const {
-    if (subdevices.empty()) {
-        return 1u;
-    }
-    return getNumSubDevices();
+uint32_t Device::getNumGenericSubDevices() const {
+    return (hasRootCsr() ? getNumSubDevices() : 0);
 }
 
-Device *Device::getDeviceById(uint32_t deviceId) const {
-    if (subdevices.empty()) {
+Device *Device::getSubDevice(uint32_t deviceId) const {
+    UNRECOVERABLE_IF(deviceId >= subdevices.size());
+    return subdevices[deviceId];
+}
+
+Device *Device::getNearestGenericSubDevice(uint32_t deviceId) {
+    /*
+    * EngineInstanced: Upper level
+    * Generic SubDevice: 'this'
+    * RootCsr Device: Next level SubDevice (generic)
+    */
+
+    if (engineInstanced) {
+        return getRootDevice()->getNearestGenericSubDevice(Math::log2(static_cast<uint32_t>(deviceBitfield.to_ulong())));
+    }
+
+    if (subdevices.empty() || !hasRootCsr()) {
         return const_cast<Device *>(this);
     }
     UNRECOVERABLE_IF(deviceId >= subdevices.size());
@@ -532,7 +538,7 @@ double Device::getPercentOfGlobalMemoryAvailable() const {
     if (DebugManager.flags.ClDeviceGlobalMemSizeAvailablePercent.get() != -1) {
         return 0.01 * static_cast<double>(DebugManager.flags.ClDeviceGlobalMemSizeAvailablePercent.get());
     }
-    return 0.8;
+    return getMemoryManager()->getPercentOfGlobalMemoryAvailable(this->getRootDeviceIndex());
 }
 
 NEO::SourceLevelDebugger *Device::getSourceLevelDebugger() {
@@ -545,6 +551,16 @@ NEO::SourceLevelDebugger *Device::getSourceLevelDebugger() {
 
 const std::vector<EngineControl> &Device::getEngines() const {
     return this->engines;
+}
+
+EngineControl &Device::getInternalEngine() {
+    if (this->engines[0].commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
+        return this->getDefaultEngine();
+    }
+
+    auto engineType = getChosenEngineType(getHardwareInfo());
+
+    return this->getNearestGenericSubDevice(0)->getEngine(engineType, EngineUsage::Internal);
 }
 
 void Device::initializeRayTracing() {

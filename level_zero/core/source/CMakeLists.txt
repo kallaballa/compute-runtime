@@ -7,7 +7,7 @@
 set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/get_extension_function_lookup_map.h
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/get_extension_function_lookup_map.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}get_extension_function_lookup_map.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/builtin_functions_lib.h
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/builtin_functions_lib_impl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/builtin_functions_lib_impl.h
@@ -20,19 +20,19 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_imp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_hw_immediate.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_hw_immediate.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_extended${BRANCH_DIR_SUFFIX}/cmdlist_extended.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_extended${BRANCH_DIR_SUFFIX}cmdlist_extended.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_hw.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_hw.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_hw_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_imp.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_extended${BRANCH_DIR_SUFFIX}/cmdqueue_extended.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_extended${BRANCH_DIR_SUFFIX}cmdqueue_extended.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/context/context_imp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/context/context_imp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/context/context.h
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/debug_manager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/device${BRANCH_DIR_SUFFIX}/device_imp_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/device${BRANCH_DIR_SUFFIX}device_imp_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device.h
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device_imp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device_imp.h
@@ -53,9 +53,8 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/helpers/implicit_scaling_l0.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/helpers/l0_populate_factory.h
     ${CMAKE_CURRENT_SOURCE_DIR}/helpers/properties_parser.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers${BRANCH_DIR_SUFFIX}/hw_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper_base.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper_skl_plus.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper_skl_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel/kernel.cpp
@@ -71,14 +70,13 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/image/image_hw.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/image/image_imp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image/image_imp.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/memory/memory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/memory/memory_operations_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/memory/cpu_page_fault_memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_manager/compression_selector_l0.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/module/module.h
     ${CMAKE_CURRENT_SOURCE_DIR}/module/module_build_log.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/module/module_build_log.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/module${BRANCH_DIR_SUFFIX}/module_extra_options.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/module${BRANCH_DIR_SUFFIX}module_extra_options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/module/module_imp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/module/module_imp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/printf_handler/printf_handler.cpp
@@ -90,10 +88,10 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sampler/sampler_imp.h
 )
 
-if(SUPPORT_XEHP_PLUS)
+if(SUPPORT_XEHP_AND_LATER)
   list(APPEND L0_RUNTIME_SOURCES
-       ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_hw_xehp_plus.inl
-       ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_xe_hp_core_plus.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_hw_xehp_and_later.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_xe_hp_core_and_later.inl
   )
 endif()
 

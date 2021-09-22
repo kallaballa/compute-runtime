@@ -25,7 +25,7 @@ struct MetricGroupDomains {
 
   public:
     MetricGroupDomains(MetricContext &metricContext);
-    ze_result_t activateDeferred(const uint32_t count, zet_metric_group_handle_t *phMetricGroups);
+    ze_result_t activateDeferred(const uint32_t subDeviceIndex, const uint32_t count, zet_metric_group_handle_t *phMetricGroups);
     ze_result_t activate();
     ze_result_t deactivate();
     bool isActivated(const zet_metric_group_handle_t hMetricGroup);
@@ -48,6 +48,8 @@ struct MetricContextImp : public MetricContext {
     ~MetricContextImp() override;
 
     bool loadDependencies() override;
+    void setMetricCollectionEnabled(bool enable) override;
+    bool getMetricCollectionEnabled() override;
     bool isInitialized() override;
     void setInitializationState(const ze_result_t state) override;
     Device &getDevice() override;
@@ -77,6 +79,7 @@ struct MetricContextImp : public MetricContext {
     MetricStreamer *pMetricStreamer = nullptr;
     uint32_t subDeviceIndex = 0;
     bool useCompute = false;
+    bool metricCollectionIsEnabled = true;
 };
 
 MetricContextImp::MetricContextImp(Device &deviceInput)
@@ -115,6 +118,14 @@ bool MetricContextImp::loadDependencies() {
                                : ZE_RESULT_ERROR_UNKNOWN);
 
     return result;
+}
+
+void MetricContextImp::setMetricCollectionEnabled(bool enable) {
+    metricCollectionIsEnabled = enable;
+}
+
+bool MetricContextImp::getMetricCollectionEnabled() {
+    return metricCollectionIsEnabled;
 }
 
 bool MetricContextImp::isInitialized() {
@@ -169,7 +180,7 @@ MetricContextImp::activateMetricGroupsDeferred(const uint32_t count,
 
     // Activation: postpone until zetMetricStreamerOpen or zeCommandQueueExecuteCommandLists
     // Deactivation: execute immediately.
-    return phMetricGroups ? metricGroupDomains.activateDeferred(count, phMetricGroups)
+    return phMetricGroups ? metricGroupDomains.activateDeferred(subDeviceIndex, count, phMetricGroups)
                           : metricGroupDomains.deactivate();
 }
 
@@ -187,14 +198,12 @@ ze_result_t MetricContext::enableMetricApi() {
 
     bool failed = false;
 
-    uint32_t rootDeviceCount = 0;
-    uint32_t subDeviceCount = 0;
-
     auto driverHandle = L0::DriverHandle::fromHandle(GlobalDriverHandle);
     auto rootDevices = std::vector<ze_device_handle_t>();
     auto subDevices = std::vector<ze_device_handle_t>();
 
     // Obtain root devices.
+    uint32_t rootDeviceCount = 0;
     driverHandle->getDevice(&rootDeviceCount, nullptr);
     rootDevices.resize(rootDeviceCount);
     driverHandle->getDevice(&rootDeviceCount, rootDevices.data());
@@ -203,10 +212,13 @@ ze_result_t MetricContext::enableMetricApi() {
 
         // Initialize root device.
         auto rootDevice = L0::Device::fromHandle(rootDeviceHandle);
-        failed |= !rootDevice->getMetricContext().loadDependencies();
+        auto &rootMetricContext = rootDevice->getMetricContext();
+        failed |= !rootMetricContext.loadDependencies();
+
+        rootMetricContext.setMetricCollectionEnabled(!rootDevice->isMultiDeviceCapable());
 
         // Sub devices count.
-        subDeviceCount = 0;
+        uint32_t subDeviceCount = 0;
         rootDevice->getSubDevices(&subDeviceCount, nullptr);
 
         // Sub device instances.
@@ -257,18 +269,24 @@ bool MetricContext::isMetricApiAvailable() {
 MetricGroupDomains::MetricGroupDomains(MetricContext &metricContext)
     : metricsLibrary(metricContext.getMetricsLibrary()) {}
 
-ze_result_t MetricGroupDomains::activateDeferred(const uint32_t count,
+ze_result_t MetricGroupDomains::activateDeferred(const uint32_t subDeviceIndex,
+                                                 const uint32_t count,
                                                  zet_metric_group_handle_t *phMetricGroups) {
     // For each metric group:
     for (uint32_t i = 0; i < count; ++i) {
         DEBUG_BREAK_IF(!phMetricGroups[i]);
 
+        zet_metric_group_handle_t handle = phMetricGroups[i];
+        auto pMetricGroupImp = static_cast<MetricGroupImp *>(MetricGroup::fromHandle(handle));
+        if (pMetricGroupImp->getMetricGroups().size() > 0) {
+            handle = pMetricGroupImp->getMetricGroups()[subDeviceIndex];
+        }
+
         // Try to associate it with a domain (oa, ...).
-        if (!activateMetricGroupDeferred(phMetricGroups[i])) {
+        if (!activateMetricGroupDeferred(handle)) {
             return ZE_RESULT_ERROR_UNKNOWN;
         }
     }
-
     return ZE_RESULT_SUCCESS;
 }
 

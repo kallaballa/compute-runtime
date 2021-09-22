@@ -47,6 +47,9 @@ class CreateImageTest : public ClDeviceFixture,
     CreateImageTest() {
     }
     Image *createImageWithFlags(cl_mem_flags flags) {
+        return createImageWithFlags(flags, context);
+    }
+    Image *createImageWithFlags(cl_mem_flags flags, Context *context) {
         auto surfaceFormat = Image::getSurfaceFormatFromTable(
             flags, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
         return Image::create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
@@ -690,8 +693,10 @@ TEST_P(CreateImageNoHostPtr, GivenMissingPitchWhenImageIsCreatedThenConstructorF
 }
 
 TEST_P(CreateImageNoHostPtr, whenImageIsCreatedThenItHasProperAccessAndCacheProperties) {
-    auto image = createImageWithFlags(flags);
-
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CreateMultipleSubDevices.set(2);
+    auto context = std::make_unique<MockContext>();
+    auto image = createImageWithFlags(flags, context.get());
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, image);
 
@@ -703,7 +708,6 @@ TEST_P(CreateImageNoHostPtr, whenImageIsCreatedThenItHasProperAccessAndCacheProp
 
     auto isReadOnly = isValueSet(flags, CL_MEM_READ_ONLY);
     EXPECT_NE(isReadOnly, allocation->isFlushL3Required());
-
     delete image;
 }
 
@@ -1626,35 +1630,67 @@ HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnif
     EXPECT_EQ(surfBsaseAddress + offset, surfaceState.getAuxiliarySurfaceBaseAddress());
 }
 
-using ImageMultiRootDeviceTests = MultiRootDeviceFixture;
+TEST(ImageTest, givenImageWhenFillRegionIsCalledThenProperRegionIsSet) {
+    MockContext context;
 
-TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedThenImageAllocationHostPtrForcedHasCorrectAlignment) {
-    std::unique_ptr<Image> image(ImageHelper<Image3dDefaults>::create(context.get()));
+    {
+        size_t region[3] = {};
+        std::unique_ptr<Image> image(Image1dHelper<>::create(&context));
 
-    auto hostPtrForced = image->getAllocatedMapPtr();
+        image->fillImageRegion(region);
 
-    ASSERT_NE(nullptr, hostPtrForced);
-    EXPECT_EQ(0u, (uintptr_t)hostPtrForced % MemoryConstants::pageSize);
-}
+        EXPECT_EQ(Image1dDefaults::imageDesc.image_width, region[0]);
+        EXPECT_EQ(1u, region[1]);
+        EXPECT_EQ(1u, region[2]);
+    }
+    {
+        size_t region[3] = {};
+        std::unique_ptr<Image> image(Image1dArrayHelper<>::create(&context));
 
-TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedThenImageAllocationHasCorrectRootDeviceIndex) {
-    std::unique_ptr<Image> image(ImageHelper<Image3dDefaults>::create(context.get()));
+        image->fillImageRegion(region);
 
-    auto graphicsAllocation = image->getGraphicsAllocation(expectedRootDeviceIndex);
-    ASSERT_NE(nullptr, graphicsAllocation);
-    EXPECT_EQ(expectedRootDeviceIndex, graphicsAllocation->getRootDeviceIndex());
-}
+        EXPECT_EQ(Image1dArrayDefaults::imageDesc.image_width, region[0]);
+        EXPECT_EQ(Image1dArrayDefaults::imageDesc.image_array_size, region[1]);
+        EXPECT_EQ(1u, region[2]);
+    }
+    {
+        size_t region[3] = {};
+        std::unique_ptr<Image> image(Image1dBufferHelper<>::create(&context));
 
-TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedWithoutHostPtrThenImageMultiGraphicsAllocationIsCreatedInSystemMemoryPool) {
-    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+        image->fillImageRegion(region);
 
-    std::unique_ptr<Image> image(ImageHelper<Image1dDefaults>::create(context.get()));
+        EXPECT_EQ(Image1dBufferDefaults::imageDesc.image_width, region[0]);
+        EXPECT_EQ(1u, region[1]);
+        EXPECT_EQ(1u, region[2]);
+    }
+    {
+        size_t region[3] = {};
+        std::unique_ptr<Image> image(Image2dHelper<>::create(&context));
 
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(image->getMultiGraphicsAllocation().getGraphicsAllocation(1u)->getMemoryPool()));
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(image->getMultiGraphicsAllocation().getGraphicsAllocation(2u)->getMemoryPool()));
+        image->fillImageRegion(region);
 
-    auto graphicsAllocation1 = image->getMultiGraphicsAllocation().getGraphicsAllocation(1u);
-    auto graphicsAllocation2 = image->getMultiGraphicsAllocation().getGraphicsAllocation(2u);
+        EXPECT_EQ(Image2dDefaults::imageDesc.image_width, region[0]);
+        EXPECT_EQ(Image2dDefaults::imageDesc.image_height, region[1]);
+        EXPECT_EQ(1u, region[2]);
+    }
+    {
+        size_t region[3] = {};
+        std::unique_ptr<Image> image(Image2dArrayHelper<>::create(&context));
 
-    EXPECT_EQ(graphicsAllocation2->getUnderlyingBuffer(), graphicsAllocation1->getUnderlyingBuffer());
+        image->fillImageRegion(region);
+
+        EXPECT_EQ(Image2dArrayDefaults::imageDesc.image_width, region[0]);
+        EXPECT_EQ(Image2dArrayDefaults::imageDesc.image_height, region[1]);
+        EXPECT_EQ(Image2dArrayDefaults::imageDesc.image_array_size, region[2]);
+    }
+    {
+        size_t region[3] = {};
+        std::unique_ptr<Image> image(Image3dHelper<>::create(&context));
+
+        image->fillImageRegion(region);
+
+        EXPECT_EQ(Image3dDefaults::imageDesc.image_width, region[0]);
+        EXPECT_EQ(Image3dDefaults::imageDesc.image_height, region[1]);
+        EXPECT_EQ(Image3dDefaults::imageDesc.image_depth, region[2]);
+    }
 }

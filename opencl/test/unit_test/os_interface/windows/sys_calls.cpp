@@ -13,6 +13,10 @@ namespace NEO {
 
 namespace SysCalls {
 
+unsigned int getProcessId() {
+    return 0xABCEDF;
+}
+
 BOOL systemPowerStatusRetVal = 1;
 BYTE systemPowerStatusACLineStatusOverride = 1;
 const wchar_t *currentLibraryPath = L"";
@@ -44,9 +48,6 @@ BOOL getModuleHandle(DWORD dwFlags, LPCWSTR lpModuleName, HMODULE *phModule) {
     return TRUE;
 }
 DWORD getModuleFileName(HMODULE hModule, LPWSTR lpFilename, DWORD nSize) {
-    if (hModule != handleValue) {
-        return FALSE;
-    }
     lstrcpyW(lpFilename, currentLibraryPath);
     return TRUE;
 }

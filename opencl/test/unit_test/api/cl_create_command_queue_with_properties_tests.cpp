@@ -522,10 +522,9 @@ TEST_F(clCreateCommandQueueWithPropertiesApi, givenValidFamilyAndIndexSelectedWh
 }
 
 TEST_F(clCreateCommandQueueWithPropertiesApi, givenInvalidQueueFamilySelectedWhenCreatingQueueThenFail) {
-    const auto &families = castToObject<ClDevice>(testedClDevice)->getDevice().getEngineGroups();
     cl_queue_properties queueProperties[] = {
         CL_QUEUE_FAMILY_INTEL,
-        families.size(),
+        CommonConstants::engineGroupCount,
         CL_QUEUE_INDEX_INTEL,
         0,
         0,
@@ -557,12 +556,12 @@ HWTEST_F(LowPriorityCommandQueueTest, GivenDeviceWithSubdevicesWhenCreatingLowPr
     DebugManager.flags.CreateMultipleSubDevices.set(2);
     MockContext context;
     cl_queue_properties properties[] = {CL_QUEUE_PRIORITY_KHR, CL_QUEUE_PRIORITY_LOW_KHR, 0};
-    EXPECT_EQ(2u, context.getDevice(0)->getNumAvailableDevices());
+    EXPECT_EQ(2u, context.getDevice(0)->getNumGenericSubDevices());
     auto cmdQ = clCreateCommandQueueWithProperties(&context, context.getDevice(0), properties, nullptr);
 
     auto commandQueueObj = castToObject<CommandQueue>(cmdQ);
-    auto subDevice = context.getDevice(0)->getDeviceById(0);
-    auto engine = subDevice->getEngine(getChosenEngineType(subDevice->getHardwareInfo()), EngineUsage::LowPriority);
+    auto subDevice = context.getDevice(0)->getSubDevice(0);
+    auto &engine = subDevice->getEngine(getChosenEngineType(subDevice->getHardwareInfo()), EngineUsage::LowPriority);
 
     EXPECT_EQ(engine.commandStreamReceiver, &commandQueueObj->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(engine.osContext, &commandQueueObj->getGpgpuCommandStreamReceiver().getOsContext());

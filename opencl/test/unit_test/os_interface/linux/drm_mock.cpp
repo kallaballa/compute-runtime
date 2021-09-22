@@ -104,6 +104,10 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
         if (receivedContextParamRequest.param == I915_CONTEXT_PARAM_VM) {
             return this->storedRetVal;
         }
+        if (receivedContextParamRequest.param == I915_CONTEXT_PARAM_RECOVERABLE) {
+            receivedRecoverableContextValue = receivedContextParamRequest.value;
+            return this->storedRetVal;
+        }
     }
 
     if ((request == DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM) && (arg != nullptr)) {
@@ -327,6 +331,8 @@ std::map<unsigned long, const char *> ioctlCodeStringMap = {
     {DRM_IOCTL_I915_PERF_REMOVE_CONFIG, "DRM_IOCTL_I915_PERF_REMOVE_CONFIG"},
     {DRM_IOCTL_I915_QUERY, "DRM_IOCTL_I915_QUERY"},
     {DRM_IOCTL_I915_GEM_MMAP, "DRM_IOCTL_I915_GEM_MMAP"},
+    {DRM_IOCTL_PRIME_FD_TO_HANDLE, "DRM_IOCTL_PRIME_FD_TO_HANDLE"},
+    {DRM_IOCTL_PRIME_HANDLE_TO_FD, "DRM_IOCTL_PRIME_HANDLE_TO_FD"},
     {static_cast<unsigned long>(101010101), "101010101"}};
 
 std::map<int, const char *> ioctlParamCodeStringMap = {

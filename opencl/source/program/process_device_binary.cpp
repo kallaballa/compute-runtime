@@ -109,7 +109,8 @@ cl_int Program::linkBinary(Device *pDevice, const void *constantsInitData, const
         updateBuildLog(pDevice->getRootDeviceIndex(), error.c_str(), error.size());
         return CL_INVALID_BINARY;
     } else if (linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
-        for (const auto &kernelInfo : kernelInfoArray) {
+        for (auto kernelId = 0u; kernelId < kernelInfoArray.size(); kernelId++) {
+            const auto &kernelInfo = kernelInfoArray[kernelId];
             if (nullptr == kernelInfo->getGraphicsAllocation()) {
                 continue;
             }
@@ -120,6 +121,7 @@ cl_int Program::linkBinary(Device *pDevice, const void *constantsInitData, const
             MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *kernelInfo->getGraphicsAllocation()),
                                                              *pDevice, kernelInfo->getGraphicsAllocation(), 0, isaSegmentsForPatching[segmentId].hostPointer,
                                                              static_cast<size_t>(kernHeapInfo.KernelHeapSize));
+            kernelInfo->kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs = linkerInput->areImplicitArgsRequired(kernelId);
         }
     }
     DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->getSymbols(pDevice->getRootDeviceIndex())));
@@ -146,12 +148,26 @@ cl_int Program::processGenBinary(const ClDevice &clDevice) {
     auto blob = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(buildInfo.unpackedDeviceBinary.get()), buildInfo.unpackedDeviceBinarySize);
     SingleDeviceBinary binary = {};
     binary.deviceBinary = blob;
+    binary.targetDevice.grfSize = clDevice.getDevice().getHardwareInfo().capabilityTable.grfSize;
     std::string decodeErrors;
     std::string decodeWarnings;
 
     DecodeError decodeError;
     DeviceBinaryFormat singleDeviceBinaryFormat;
     std::tie(decodeError, singleDeviceBinaryFormat) = NEO::decodeSingleDeviceBinary(programInfo, binary, decodeErrors, decodeWarnings);
+
+    if (isDeviceBinaryFormat<DeviceBinaryFormat::Zebin>(binary.deviceBinary)) {
+        NEO::LinkerInput::SectionNameToSegmentIdMap nameToKernelId;
+
+        uint32_t id = 0;
+        for (auto &kernelInfo : programInfo.kernelInfos) {
+            nameToKernelId[kernelInfo->kernelDescriptor.kernelMetadata.kernelName] = id;
+            id++;
+        }
+        programInfo.prepareLinkerInputStorage();
+        programInfo.linkerInput->decodeElfSymbolTableAndRelocations(programInfo.decodedElf, nameToKernelId);
+    }
+
     if (decodeWarnings.empty() == false) {
         PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
     }

@@ -33,6 +33,11 @@ void *MockMemoryManager::allocateSystemMemory(size_t size, size_t alignment) {
     if (failAllocateSystemMemory) {
         return nullptr;
     }
+
+    if (fakeBigAllocations && size > bigAllocation) {
+        size = MemoryConstants::pageSize64k;
+    }
+
     return OsAgnosticMemoryManager::allocateSystemMemory(redundancyRatio * size, alignment);
 }
 
@@ -74,9 +79,9 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForImage(const Allo
     return allocation;
 }
 
-GraphicsAllocation *MockMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
+GraphicsAllocation *MockMemoryManager::allocateMemoryByKMD(const AllocationData &allocationData) {
     allocateForShareableCalled = true;
-    return OsAgnosticMemoryManager::allocateShareableMemory(allocationData);
+    return OsAgnosticMemoryManager::allocateMemoryByKMD(allocationData);
 }
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(const AllocationData &allocationData) {
@@ -131,6 +136,11 @@ GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemory(uint32_t root
     getAllocationData(allocationData, properties, ptr, createStorageInfoFromProperties(properties));
     bool useLocalMemory = !allocationData.flags.useSystemMemory && this->localMemorySupported[rootDeviceIndex];
     return allocate32BitGraphicsMemoryImpl(allocationData, useLocalMemory);
+}
+
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) {
+    allocateGraphicsMemoryForNonSvmHostPtrCalled = true;
+    return OsAgnosticMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
 }
 
 GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) {

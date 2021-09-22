@@ -27,6 +27,7 @@ class MockCommandQueue : public CommandQueue {
     using CommandQueue::gpgpuEngine;
     using CommandQueue::isCopyOnly;
     using CommandQueue::obtainNewTimestampPacketNodes;
+    using CommandQueue::overrideEngine;
     using CommandQueue::queueCapabilities;
     using CommandQueue::queueFamilyIndex;
     using CommandQueue::queueFamilySelected;
@@ -41,10 +42,10 @@ class MockCommandQueue : public CommandQueue {
     void setOoqEnabled() {
         commandQueueProperties |= CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
     }
-    MockCommandQueue() : CommandQueue(nullptr, nullptr, 0) {}
-    MockCommandQueue(Context &context) : MockCommandQueue(&context, context.getDevice(0), nullptr) {}
-    MockCommandQueue(Context *context, ClDevice *device, const cl_queue_properties *props)
-        : CommandQueue(context, device, props) {
+    MockCommandQueue() : CommandQueue(nullptr, nullptr, 0, false) {}
+    MockCommandQueue(Context &context) : MockCommandQueue(&context, context.getDevice(0), nullptr, false) {}
+    MockCommandQueue(Context *context, ClDevice *device, const cl_queue_properties *props, bool internalUsage)
+        : CommandQueue(context, device, props, internalUsage) {
     }
 
     LinearStream &getCS(size_t minRequiredSize) override {
@@ -311,7 +312,7 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
         return BaseClass::isCacheFlushForBcsRequired();
     }
 
-    bool blitEnqueueImageAllowed(const size_t *origin, const size_t *region, const Image &image) override {
+    bool blitEnqueueImageAllowed(const size_t *origin, const size_t *region, const Image &image) const override {
         isBlitEnqueueImageAllowed = BaseClass::blitEnqueueImageAllowed(origin, region, image);
         return isBlitEnqueueImageAllowed;
     }
@@ -329,7 +330,7 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
     bool notifyEnqueueSVMMemcpyCalled = false;
     bool cpuDataTransferHandlerCalled = false;
     bool useBcsCsrOnNotifyEnabled = false;
-    bool isBlitEnqueueImageAllowed = false;
+    mutable bool isBlitEnqueueImageAllowed = false;
     struct OverrideReturnValue {
         bool enabled = false;
         bool returnValue = false;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -20,16 +20,16 @@ using ImageEnqueueCall = std::function<void(MockCommandQueue *, Image *, size_t 
 struct ValidateRegionAndOriginTests : public ::testing::TestWithParam<ImageEnqueueCall> {
     void SetUp() override {
         context.reset(new MockContext());
-        cmdQ.reset(new MockCommandQueue(context.get(), context->getDevice(0), 0));
+        cmdQ.reset(new MockCommandQueue(context.get(), context->getDevice(0), nullptr, false));
     }
 
     static void readImage(MockCommandQueue *cmdQ, Image *image, size_t *origin, size_t *region, int32_t &retVal) {
-        uint32_t tempPtr;
+        uint32_t tempPtr = 0;
         retVal = clEnqueueReadImage(cmdQ, image, CL_TRUE, origin, region, 0, 0, &tempPtr, 0, nullptr, nullptr);
     }
 
     static void writeImage(MockCommandQueue *cmdQ, Image *image, size_t *origin, size_t *region, int32_t &retVal) {
-        uint32_t tempPtr;
+        uint32_t tempPtr = 0;
         retVal = clEnqueueWriteImage(cmdQ, image, CL_TRUE, origin, region, 0, 0, &tempPtr, 0, nullptr, nullptr);
     }
 

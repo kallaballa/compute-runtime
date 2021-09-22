@@ -58,6 +58,77 @@ HWTEST_F(DirectSubmissionTest, whenDebugCacheFlushDisabledNotSetThenExpectCpuCac
     EXPECT_EQ(expectedPtrVal, CpuIntrinsicsTests::lastClFlushedPtr);
 }
 
+HWTEST_F(DirectSubmissionTest, givenDirectSubmissionWhenStopThenRingIsNotStarted) {
+    MockDirectSubmissionHw<FamilyType, RenderDispatcher<FamilyType>> directSubmission(*pDevice,
+                                                                                      *osContext.get());
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.directSubmission.reset(&directSubmission);
+
+    bool ret = directSubmission.initialize(true);
+    EXPECT_TRUE(ret);
+    EXPECT_TRUE(directSubmission.ringStart);
+
+    csr.stopDirectSubmission();
+    EXPECT_FALSE(directSubmission.ringStart);
+
+    csr.directSubmission.release();
+}
+
+HWTEST_F(DirectSubmissionTest, givenBlitterDirectSubmissionWhenStopThenRingIsNotStarted) {
+    MockDirectSubmissionHw<FamilyType, BlitterDispatcher<FamilyType>> directSubmission(*pDevice,
+                                                                                       *osContext.get());
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    std::unique_ptr<OsContext> osContext(OsContext::create(pDevice->getExecutionEnvironment()->rootDeviceEnvironments[0]->osInterface.get(), 0,
+                                                           EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_BCS, EngineUsage::Regular},
+                                                                                                        PreemptionMode::ThreadGroup, pDevice->getDeviceBitfield())));
+    csr.blitterDirectSubmission.reset(&directSubmission);
+    csr.setupContext(*osContext.get());
+
+    bool ret = directSubmission.initialize(true);
+    EXPECT_TRUE(ret);
+    EXPECT_TRUE(directSubmission.ringStart);
+
+    csr.stopDirectSubmission();
+    EXPECT_FALSE(directSubmission.ringStart);
+
+    csr.blitterDirectSubmission.release();
+}
+
+HWTEST_F(DirectSubmissionTest, givenDirectSubmissionWhenMakingResourcesResidentThenCorrectContextIsUsed) {
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto mockMemoryOperations = std::make_unique<MockMemoryOperations>();
+
+    pDevice->getRootDeviceEnvironmentRef().memoryOperationsInterface.reset(mockMemoryOperations.get());
+
+    std::unique_ptr<OsContext> osContext2(OsContext::create(pDevice->getExecutionEnvironment()->rootDeviceEnvironments[0]->osInterface.get(), 2,
+                                                            EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_RCS, EngineUsage::Regular},
+                                                                                                         PreemptionMode::ThreadGroup, pDevice->getDeviceBitfield())));
+
+    MockDirectSubmissionHw<FamilyType, RenderDispatcher<FamilyType>> directSubmission(*pDevice, *osContext2.get());
+
+    csr.directSubmission.reset(&directSubmission);
+    csr.setupContext(*osContext2.get());
+
+    bool ret = directSubmission.initialize(true);
+    EXPECT_TRUE(ret);
+    EXPECT_NE(0x0u, directSubmission.ringCommandStream.getUsed());
+    GraphicsAllocation *alloc = directSubmission.ringCommandStream.getGraphicsAllocation();
+
+    directSubmission.callBaseResident = true;
+
+    DirectSubmissionAllocations allocs;
+    allocs.push_back(alloc);
+
+    directSubmission.makeResourcesResident(allocs);
+
+    EXPECT_EQ(2u, mockMemoryOperations->makeResidentContextId);
+
+    pDevice->getRootDeviceEnvironmentRef().memoryOperationsInterface.release();
+    csr.directSubmission.release();
+}
+
 HWTEST_F(DirectSubmissionTest, givenDirectSubmissionInitializedWhenRingIsStartedThenExpectAllocationsCreatedAndCommandsDispatched) {
     MockDirectSubmissionHw<FamilyType, RenderDispatcher<FamilyType>> directSubmission(*pDevice,
                                                                                       *osContext.get());
@@ -221,7 +292,8 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionStopWhenStopRingIsCalledThen
     directSubmission.stopRingBuffer();
 
     size_t expectedDispatchSize = alreadyDispatchedSize + directSubmission.getSizeEnd();
-    EXPECT_EQ(expectedDispatchSize, directSubmission.ringCommandStream.getUsed());
+    EXPECT_LE(directSubmission.ringCommandStream.getUsed(), expectedDispatchSize);
+    EXPECT_GE(directSubmission.ringCommandStream.getUsed() + MemoryConstants::cacheLineSize, expectedDispatchSize);
     EXPECT_EQ(oldQueueCount + 1, directSubmission.semaphoreData->QueueWorkCount);
 }
 
@@ -240,6 +312,7 @@ HWTEST_F(DirectSubmissionTest,
 
     bool ret = directSubmission.allocateResources();
     directSubmission.disableMonitorFence = true;
+    directSubmission.ringStart = true;
 
     EXPECT_TRUE(ret);
 
@@ -252,7 +325,8 @@ HWTEST_F(DirectSubmissionTest,
     directSubmission.tagAddressSetValue = 0xBEEF00000ull;
     directSubmission.stopRingBuffer();
     size_t expectedDispatchSize = disabledSizeEnd;
-    EXPECT_EQ(expectedDispatchSize, directSubmission.ringCommandStream.getUsed());
+    EXPECT_LE(directSubmission.ringCommandStream.getUsed(), expectedDispatchSize);
+    EXPECT_GE(directSubmission.ringCommandStream.getUsed() + MemoryConstants::cacheLineSize, expectedDispatchSize);
 
     HardwareParse hwParse;
     hwParse.parsePipeControl = true;
@@ -371,7 +445,7 @@ HWTEST_F(DirectSubmissionDispatchBufferTest,
     LinearStream parseDispatch;
     uint8_t buffer[256];
     parseDispatch.replaceBuffer(buffer, 256);
-    RenderDispatcher<FamilyType>::dispatchCacheFlush(parseDispatch, *directSubmission.hwInfo);
+    RenderDispatcher<FamilyType>::dispatchCacheFlush(parseDispatch, *directSubmission.hwInfo, 0ull);
     auto expectedPipeControl = static_cast<PIPE_CONTROL *>(parseDispatch.getCpuBase());
     for (auto it = hwParse.pipeControlList.begin(); it != hwParse.pipeControlList.end(); it++) {
         auto pipeControl = genCmdCast<PIPE_CONTROL *>(*it);
@@ -510,7 +584,7 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionWhenDispatchFlushSectionThen
     bool ret = directSubmission.initialize(false);
     EXPECT_TRUE(ret);
 
-    Dispatcher::dispatchCacheFlush(directSubmission.ringCommandStream, *directSubmission.hwInfo);
+    Dispatcher::dispatchCacheFlush(directSubmission.ringCommandStream, *directSubmission.hwInfo, 0ull);
     EXPECT_EQ(Dispatcher::getSizeCacheFlush(*directSubmission.hwInfo), directSubmission.ringCommandStream.getUsed());
 }
 
@@ -623,7 +697,9 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionWhenGetEndSizeThenExpectCorr
                                                                     *osContext.get());
 
     size_t expectedSize = Dispatcher::getSizeStopCommandBuffer() +
-                          Dispatcher::getSizeCacheFlush(*directSubmission.hwInfo);
+                          Dispatcher::getSizeCacheFlush(*directSubmission.hwInfo) +
+                          (Dispatcher::getSizeStartCommandBuffer() - Dispatcher::getSizeStopCommandBuffer()) +
+                          MemoryConstants::cacheLineSize;
     size_t actualSize = directSubmission.getSizeEnd();
     EXPECT_EQ(expectedSize, actualSize);
 }
@@ -741,15 +817,15 @@ HWTEST_F(DirectSubmissionDispatchBufferTest,
     ret = directSubmission.dispatchCommandBuffer(batchBuffer, flushStamp);
     EXPECT_TRUE(ret);
     EXPECT_EQ(oldRingAllocation, directSubmission.ringCommandStream.getGraphicsAllocation());
-    EXPECT_EQ(1u, directSubmission.semaphoreData->QueueWorkCount);
-    EXPECT_EQ(2u, directSubmission.currentQueueWorkCount);
+    EXPECT_EQ(2u, directSubmission.semaphoreData->QueueWorkCount);
+    EXPECT_EQ(3u, directSubmission.currentQueueWorkCount);
     EXPECT_EQ(1u, directSubmission.submitCount);
-    size_t submitSize = directSubmission.getSizeDispatch();
+    size_t submitSize = directSubmission.getSizeSemaphoreSection();
     EXPECT_EQ(submitSize, directSubmission.submitSize);
     EXPECT_EQ(oldRingAllocation->getGpuAddress(), directSubmission.submitGpuAddress);
-    EXPECT_EQ(1u, directSubmission.handleResidencyCount);
+    EXPECT_EQ(2u, directSubmission.handleResidencyCount);
 
-    EXPECT_EQ(directSubmission.getSizeDispatch(), directSubmission.ringCommandStream.getUsed());
+    EXPECT_EQ(directSubmission.getSizeDispatch() + directSubmission.getSizeSemaphoreSection(), directSubmission.ringCommandStream.getUsed());
     EXPECT_TRUE(directSubmission.ringStart);
 }
 
@@ -806,20 +882,18 @@ HWTEST_F(DirectSubmissionDispatchBufferTest,
     GraphicsAllocation *oldRingAllocation = directSubmission.ringCommandStream.getGraphicsAllocation();
     directSubmission.ringCommandStream.getSpace(directSubmission.ringCommandStream.getAvailableSpace() -
                                                 directSubmission.getSizeSwitchRingBufferSection());
-    uint64_t submitGpuVa = oldRingAllocation->getGpuAddress() + directSubmission.ringCommandStream.getUsed();
 
     ret = directSubmission.dispatchCommandBuffer(batchBuffer, flushStamp);
     EXPECT_TRUE(ret);
     EXPECT_NE(oldRingAllocation, directSubmission.ringCommandStream.getGraphicsAllocation());
-    EXPECT_EQ(1u, directSubmission.semaphoreData->QueueWorkCount);
-    EXPECT_EQ(2u, directSubmission.currentQueueWorkCount);
+    EXPECT_EQ(2u, directSubmission.semaphoreData->QueueWorkCount);
+    EXPECT_EQ(3u, directSubmission.currentQueueWorkCount);
     EXPECT_EQ(1u, directSubmission.submitCount);
-    size_t submitSize = directSubmission.getSizeSwitchRingBufferSection();
+    size_t submitSize = directSubmission.getSizeSemaphoreSection();
     EXPECT_EQ(submitSize, directSubmission.submitSize);
-    EXPECT_EQ(submitGpuVa, directSubmission.submitGpuAddress);
-    EXPECT_EQ(1u, directSubmission.handleResidencyCount);
+    EXPECT_EQ(2u, directSubmission.handleResidencyCount);
 
-    EXPECT_EQ(directSubmission.getSizeDispatch(), directSubmission.ringCommandStream.getUsed());
+    EXPECT_EQ(directSubmission.getSizeDispatch() + directSubmission.getSizeSemaphoreSection(), directSubmission.ringCommandStream.getUsed());
     EXPECT_TRUE(directSubmission.ringStart);
 }
 
@@ -875,13 +949,6 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionAvailableWhenProgrammingEndi
                           mockCsr->getCmdSizeForEpilogueCommands(dispatchFlags);
     expectedSize = alignUp(expectedSize, MemoryConstants::cacheLineSize);
     EXPECT_EQ(expectedSize, mockCsr->getCmdSizeForEpilogue(dispatchFlags));
-}
-
-HWTEST_F(DirectSubmissionTest, whenInitDirectSubmissionFailThenEngineIsNotCreated) {
-    VariableBackup<UltHwConfig> backup(&ultHwConfig);
-    ultHwConfig.csrFailInitDirectSubmission = true;
-    auto device = MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hardwareInfo);
-    EXPECT_EQ(nullptr, device);
 }
 
 HWTEST_F(DirectSubmissionTest,

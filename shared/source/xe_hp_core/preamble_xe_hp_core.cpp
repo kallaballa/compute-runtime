@@ -13,17 +13,15 @@ using Family = XeHpFamily;
 } // namespace NEO
 
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/source/helpers/preamble_xehp_plus.inl"
+#include "shared/source/helpers/preamble_xehp_and_later.inl"
 namespace NEO {
 
 template <>
-void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, const StreamProperties &streamProperties, uint32_t additionalKernelExecInfo, void *cmd) {
+void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, const StreamProperties &streamProperties, void *cmd) {
     auto command = static_cast<typename Family::CFE_STATE *>(cmd);
-    auto &helper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
-    if (helper.getSteppingFromHwRevId(hwInfo) >= REVISION_B) {
-        command->setComputeOverdispatchDisable(true);
-    }
+    command->setComputeOverdispatchDisable(streamProperties.frontEndState.disableOverdispatch.value == 1);
+    command->setSingleSliceDispatchCcsMode(streamProperties.frontEndState.singleSliceDispatchCcsMode.value == 1);
 
     if (DebugManager.flags.CFEComputeOverdispatchDisable.get() != -1) {
         command->setComputeOverdispatchDisable(DebugManager.flags.CFEComputeOverdispatchDisable.get());

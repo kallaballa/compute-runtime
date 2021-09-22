@@ -37,7 +37,7 @@ struct CommandQueueImp : public CommandQueue {
 
         ze_result_t initialize(Device *device, size_t sizeRequested);
         void destroy(NEO::MemoryManager *memoryManager);
-        void switchBuffers(NEO::CommandStreamReceiver *csr);
+        void switchBuffers(NEO::CommandStreamReceiver *csr, uint32_t partitionCount, uint32_t offsetSize);
 
         NEO::GraphicsAllocation *getCurrentBufferAllocation() {
             return buffers[bufferUse];
@@ -45,6 +45,9 @@ struct CommandQueueImp : public CommandQueue {
 
         void setCurrentFlushStamp(uint32_t taskCount, NEO::FlushStamp flushStamp) {
             flushId[bufferUse] = std::make_pair(taskCount, flushStamp);
+        }
+        std::pair<uint32_t, NEO::FlushStamp> &getCurrentFlushStamp() {
+            return flushId[bufferUse];
         }
 
       private:
@@ -58,6 +61,9 @@ struct CommandQueueImp : public CommandQueue {
         defaultQueueCmdBufferSize +
         MemoryConstants::cacheLineSize +
         NEO::CSRequirements::csOverfetchSize;
+
+    static constexpr uint32_t addressOffsetDwords = 2u;
+    static constexpr uint32_t addressOffset = sizeof(uint32_t) * addressOffsetDwords;
 
     CommandQueueImp() = delete;
     CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc);
@@ -80,21 +86,28 @@ struct CommandQueueImp : public CommandQueue {
     virtual bool getPreemptionCmdProgramming() = 0;
 
   protected:
-    MOCKABLE_VIRTUAL void submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr);
+    MOCKABLE_VIRTUAL void submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr,
+                                            bool isCooperative);
 
     ze_result_t synchronizeByPollingForTaskCount(uint64_t timeout);
 
     void printFunctionsPrintfOutput();
 
-    Device *device = nullptr;
-    NEO::CommandStreamReceiver *csr = nullptr;
-    ze_command_queue_desc_t desc;
-    NEO::LinearStream *commandStream = nullptr;
-    std::atomic<uint32_t> taskCount{0};
-    std::vector<Kernel *> printfFunctionContainer;
-    bool gpgpuEnabled = false;
+    void postSyncOperations();
+
     CommandBufferManager buffers;
     NEO::HeapContainer heapContainer;
+    ze_command_queue_desc_t desc;
+    std::vector<Kernel *> printfFunctionContainer;
+
+    Device *device = nullptr;
+    NEO::CommandStreamReceiver *csr = nullptr;
+    NEO::LinearStream *commandStream = nullptr;
+
+    std::atomic<uint32_t> taskCount{0};
+
+    bool gpgpuEnabled = false;
+    bool useKmdWaitFunction = false;
 };
 
 } // namespace L0

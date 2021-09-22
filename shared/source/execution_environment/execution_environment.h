@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace NEO {
+class DirectSubmissionController;
 class MemoryManager;
 struct OsEnvironment;
 struct RootDeviceEnvironment;
@@ -25,16 +26,20 @@ class ExecutionEnvironment : public ReferenceTrackedObject<ExecutionEnvironment>
     void calculateMaxOsContextCount();
     void prepareRootDeviceEnvironments(uint32_t numRootDevices);
     void parseAffinityMask();
+    void sortNeoDevices();
     void setDebuggingEnabled() {
         debuggingEnabled = true;
     }
     bool isDebuggingEnabled() { return debuggingEnabled; }
+    DirectSubmissionController *getDirectSubmissionController();
 
     std::unique_ptr<MemoryManager> memoryManager;
     std::unique_ptr<OsEnvironment> osEnvironment;
     std::vector<std::unique_ptr<RootDeviceEnvironment>> rootDeviceEnvironments;
 
   protected:
+    std::unique_ptr<DirectSubmissionController> directSubmissionController;
+
     bool debuggingEnabled = false;
 };
 } // namespace NEO

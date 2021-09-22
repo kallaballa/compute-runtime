@@ -39,7 +39,8 @@ Commands:
   disasm                Disassembles Intel Compute GPU device binary.
   asm                   Assembles Intel Compute GPU device binary.
   multi                 Compiles multiple files using a config file.
-  validate              Validates Intel Compute GPU device binary
+  validate              Validates Intel Compute GPU device binary.
+  query                 Extracts versioning info.
 
 Default command (when none provided) is 'compile'.
 
@@ -55,6 +56,9 @@ Examples:
 
   Validate Intel Compute GPU device binary
     ocloc validate -file source_file_Gen9core.bin
+
+  Extract driver version
+    ocloc query OCL_DRIVER_VERSION
 )===";
 
 extern "C" {
@@ -85,6 +89,12 @@ int oclocInvoke(unsigned int numArgs, const char *argv[],
         } else if (numArgs > 1 && ConstStringRef("disasm") == allArgs[1]) {
             BinaryDecoder disasm(helper.get());
             int retVal = disasm.validateInput(allArgs);
+
+            if (disasm.showHelp) {
+                disasm.printHelp();
+                return retVal;
+            }
+
             if (retVal == 0) {
                 return disasm.decode();
             } else {
@@ -93,6 +103,12 @@ int oclocInvoke(unsigned int numArgs, const char *argv[],
         } else if (numArgs > 1 && ConstStringRef("asm") == allArgs[1]) {
             BinaryEncoder assembler(helper.get());
             int retVal = assembler.validateInput(allArgs);
+
+            if (assembler.showHelp) {
+                assembler.printHelp();
+                return retVal;
+            }
+
             if (retVal == 0) {
                 return assembler.encode();
             } else {

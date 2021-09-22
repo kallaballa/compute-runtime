@@ -333,6 +333,23 @@ TEST_F(KernelArgBufferTest, givenBufferWhenHasDirectStatelessAccessToHostMemoryI
     }
 }
 
+TEST_F(KernelArgBufferTest, givenSharedBufferWhenHasDirectStatelessAccessToSharedBufferIsCalledThenReturnCorrectValue) {
+    MockBuffer buffer;
+    buffer.getGraphicsAllocation(mockRootDeviceIndex)->setAllocationType(GraphicsAllocation::AllocationType::SHARED_BUFFER);
+
+    auto val = (cl_mem)&buffer;
+    auto pVal = &val;
+
+    for (auto pureStatefulBufferAccess : {false, true}) {
+        pKernelInfo->setBufferStateful(0, pureStatefulBufferAccess);
+
+        auto retVal = pKernel->setArg(0, sizeof(cl_mem *), pVal);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+
+        EXPECT_EQ(!pureStatefulBufferAccess, pKernel->hasDirectStatelessAccessToSharedBuffer());
+    }
+}
+
 TEST_F(KernelArgBufferTest, givenBufferInHostMemoryWhenHasDirectStatelessAccessToHostMemoryIsCalledThenReturnCorrectValue) {
     MockBuffer buffer;
     buffer.getGraphicsAllocation(mockRootDeviceIndex)->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -397,7 +414,7 @@ TEST_F(KernelArgBufferTest, givenInvalidKernelObjWhenHasDirectStatelessAccessToH
     EXPECT_FALSE(pKernel->hasDirectStatelessAccessToHostMemory());
 }
 
-TEST_F(KernelArgBufferTest, givenKernelWithIndirectStatelessAccessWhenHasIndirectStatelessAccessToHostMemoryIsCalledThenReturnTrueForHostMemoryAllocations) {
+TEST_F(KernelArgBufferTest, givenKernelWithIndirectStatelessAccessAndKernelExecInfoWithUsmPtrsWhenHasIndirectStatelessAccessToHostMemoryIsCalledThenReturnTrueForHostMemoryAllocations) {
     KernelInfo kernelInfo;
     EXPECT_FALSE(kernelInfo.hasIndirectStatelessAccess);
 
@@ -426,7 +443,7 @@ TEST_F(KernelArgBufferTest, givenKernelWithIndirectStatelessAccessWhenHasIndirec
     }
 }
 
-TEST_F(KernelArgBufferTest, givenKernelExecInfoWithIndirectStatelessAccessWhenHasIndirectStatelessAccessToHostMemoryIsCalledThenReturnTrueForHostMemoryAllocations) {
+TEST_F(KernelArgBufferTest, givenKernelWithIndirectStatelessAccessAndUsmAllocationsInSVMAllocsManagerWhenHasIndirectStatelessAccessToHostMemoryIsCalledThenReturnTrueForHostMemoryAllocations) {
     KernelInfo kernelInfo;
     kernelInfo.hasIndirectStatelessAccess = true;
 
@@ -439,10 +456,8 @@ TEST_F(KernelArgBufferTest, givenKernelExecInfoWithIndirectStatelessAccessWhenHa
         return;
     }
 
-    mockKernel.unifiedMemoryControls.indirectHostAllocationsAllowed = true;
-    EXPECT_FALSE(mockKernel.hasIndirectStatelessAccessToHostMemory());
-
     auto deviceProperties = SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY, mockKernel.getContext().getRootDeviceIndices(), mockKernel.getContext().getDeviceBitfields());
+    deviceProperties.device = &pClDevice->getDevice();
     auto unifiedDeviceMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, deviceProperties);
     EXPECT_FALSE(mockKernel.hasIndirectStatelessAccessToHostMemory());
 
@@ -454,11 +469,44 @@ TEST_F(KernelArgBufferTest, givenKernelExecInfoWithIndirectStatelessAccessWhenHa
     svmAllocationsManager->freeSVMAlloc(unifiedHostMemoryAllocation);
 }
 
+TEST_F(KernelArgBufferTest, givenKernelExecInfoWithIndirectHostAllocationsAllowedWhenHasIndirectStatelessAccessToHostMemoryIsCalledThenReturnTrue) {
+    KernelInfo kernelInfo;
+
+    MockKernel mockKernel(pProgram, kernelInfo, *pClDevice);
+    EXPECT_FALSE(mockKernel.unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_FALSE(mockKernel.hasIndirectStatelessAccessToHostMemory());
+
+    mockKernel.unifiedMemoryControls.indirectHostAllocationsAllowed = true;
+    EXPECT_TRUE(mockKernel.hasIndirectStatelessAccessToHostMemory());
+}
+
 TEST_F(KernelArgBufferTest, whenSettingAuxTranslationRequiredThenIsAuxTranslationRequiredReturnsCorrectValue) {
     for (auto auxTranslationRequired : {false, true}) {
         pKernel->setAuxTranslationRequired(auxTranslationRequired);
         EXPECT_EQ(auxTranslationRequired, pKernel->isAuxTranslationRequired());
     }
+}
+
+TEST_F(KernelArgBufferTest, givenSetArgBufferOnKernelWithDirectStatelessAccessToSharedBufferWhenUpdateAuxTranslationRequiredIsCalledThenIsAuxTranslationRequiredShouldReturnTrue) {
+    DebugManagerStateRestore debugRestorer;
+    DebugManager.flags.EnableStatelessCompression.set(1);
+
+    MockBuffer buffer;
+    buffer.getGraphicsAllocation(mockRootDeviceIndex)->setAllocationType(GraphicsAllocation::AllocationType::SHARED_BUFFER);
+
+    auto val = (cl_mem)&buffer;
+    auto pVal = &val;
+
+    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), pVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_TRUE(pKernel->hasDirectStatelessAccessToSharedBuffer());
+
+    EXPECT_FALSE(pKernel->isAuxTranslationRequired());
+
+    pKernel->updateAuxTranslationRequired();
+
+    EXPECT_TRUE(pKernel->isAuxTranslationRequired());
 }
 
 TEST_F(KernelArgBufferTest, givenSetArgBufferOnKernelWithDirectStatelessAccessToHostMemoryWhenUpdateAuxTranslationRequiredIsCalledThenIsAuxTranslationRequiredShouldReturnTrue) {
@@ -602,6 +650,84 @@ TEST_F(KernelArgBufferTest, givenSetUnifiedMemoryExecInfoOnKernelWithIndirectSta
 
         pKernel->clearUnifiedMemoryExecInfo();
         pKernel->setAuxTranslationRequired(false);
+    }
+}
+
+TEST_F(KernelArgBufferTest, givenSetUnifiedMemoryExecInfoOnKernelWithIndirectStatelessAccessWhenFillWithKernelObjsForAuxTranslationIsCalledThenSetKernelObjectsForAuxTranslation) {
+    DebugManagerStateRestore debugRestorer;
+    DebugManager.flags.EnableStatelessCompression.set(1);
+
+    pKernelInfo->hasIndirectStatelessAccess = true;
+
+    const auto allocationTypes = {GraphicsAllocation::AllocationType::BUFFER,
+                                  GraphicsAllocation::AllocationType::BUFFER_COMPRESSED,
+                                  GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY,
+                                  GraphicsAllocation::AllocationType::SVM_GPU};
+
+    MockGraphicsAllocation gfxAllocation;
+
+    for (const auto type : allocationTypes) {
+        gfxAllocation.setAllocationType(type);
+
+        pKernel->setUnifiedMemoryExecInfo(&gfxAllocation);
+
+        KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
+        pKernel->fillWithKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
+
+        if ((type == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) ||
+            (type == GraphicsAllocation::AllocationType::SVM_GPU)) {
+            EXPECT_EQ(1u, kernelObjsForAuxTranslation.size());
+            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::GFX_ALLOC, &gfxAllocation});
+            EXPECT_NE(nullptr, kernelObj.object);
+            EXPECT_EQ(KernelObjForAuxTranslation::Type::GFX_ALLOC, kernelObj.type);
+            kernelObjsForAuxTranslation.erase(kernelObj);
+        } else {
+            EXPECT_EQ(0u, kernelObjsForAuxTranslation.size());
+        }
+
+        pKernel->clearUnifiedMemoryExecInfo();
+        pKernel->setAuxTranslationRequired(false);
+    }
+}
+
+TEST_F(KernelArgBufferTest, givenSVMAllocsManagerWithCompressedSVMAllocationsWhenFillWithKernelObjsForAuxTranslationIsCalledThenSetKernelObjectsForAuxTranslation) {
+    if (pContext->getSVMAllocsManager() == nullptr) {
+        return;
+    }
+
+    DebugManagerStateRestore debugRestorer;
+    DebugManager.flags.EnableStatelessCompression.set(1);
+
+    const auto allocationTypes = {GraphicsAllocation::AllocationType::BUFFER,
+                                  GraphicsAllocation::AllocationType::BUFFER_COMPRESSED,
+                                  GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY,
+                                  GraphicsAllocation::AllocationType::SVM_GPU};
+
+    MockGraphicsAllocation gfxAllocation;
+    SvmAllocationData allocData(0);
+    allocData.gpuAllocations.addAllocation(&gfxAllocation);
+    allocData.device = &pClDevice->getDevice();
+
+    for (const auto type : allocationTypes) {
+        gfxAllocation.setAllocationType(type);
+
+        pContext->getSVMAllocsManager()->insertSVMAlloc(allocData);
+
+        KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
+        pKernel->fillWithKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
+
+        if ((gfxAllocation.getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) ||
+            (gfxAllocation.getAllocationType() == GraphicsAllocation::AllocationType::SVM_GPU)) {
+            EXPECT_EQ(1u, kernelObjsForAuxTranslation.size());
+            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::GFX_ALLOC, &gfxAllocation});
+            EXPECT_NE(nullptr, kernelObj.object);
+            EXPECT_EQ(KernelObjForAuxTranslation::Type::GFX_ALLOC, kernelObj.type);
+            kernelObjsForAuxTranslation.erase(kernelObj);
+        } else {
+            EXPECT_EQ(0u, kernelObjsForAuxTranslation.size());
+        }
+
+        pContext->getSVMAllocsManager()->removeSVMAlloc(allocData);
     }
 }
 

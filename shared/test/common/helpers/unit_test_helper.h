@@ -49,6 +49,8 @@ struct UnitTestHelper {
 
     static bool requiresTimestampPacketsInSystemMemory();
 
+    static void setExtraMidThreadPreemptionFlag(HardwareInfo &hwInfo, bool value);
+
     static const bool tiledImagesSupported;
 
     static const uint32_t smallestTestableSimdSize;

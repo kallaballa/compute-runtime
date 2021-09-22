@@ -44,7 +44,8 @@ struct EncodeDispatchKernel {
                        bool &requiresUncachedMocs,
                        bool useGlobalAtomics,
                        uint32_t &partitionCount,
-                       bool isInternal);
+                       bool isInternal,
+                       bool isCooperative);
 
     static void encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd);
 
@@ -52,7 +53,8 @@ struct EncodeDispatchKernel {
 
     static void *getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset);
 
-    static size_t estimateEncodeDispatchKernelCmdsSize(Device *device, Vec3<size_t> groupStart, Vec3<size_t> groupCount, bool isInternal);
+    static size_t estimateEncodeDispatchKernelCmdsSize(Device *device, const Vec3<size_t> &groupStart, const Vec3<size_t> &groupCount,
+                                                       bool isInternal, bool isCooperative);
 
     static bool isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
                                                     size_t *lws,
@@ -100,10 +102,8 @@ struct EncodeStates {
                                      uint32_t samplerCount,
                                      uint32_t borderColorOffset,
                                      const void *fnDynamicStateHeap,
-                                     BindlessHeapsHelper *bindlessHeapHelper);
-
-    static void adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr,
-                                       bool requiresCoherency, uint32_t threadArbitrationPolicy);
+                                     BindlessHeapsHelper *bindlessHeapHelper,
+                                     const HardwareInfo &hwInfo);
 
     static size_t getAdjustStateComputeModeSize();
 };
@@ -192,10 +192,12 @@ struct EncodeSetMMIO {
     static const size_t sizeREG = sizeof(MI_LOAD_REGISTER_REG);
 
     static void encodeIMM(CommandContainer &container, uint32_t offset, uint32_t data, bool remap);
-
     static void encodeMEM(CommandContainer &container, uint32_t offset, uint64_t address);
-
     static void encodeREG(CommandContainer &container, uint32_t dstOffset, uint32_t srcOffset);
+
+    static void encodeIMM(LinearStream &cmdStream, uint32_t offset, uint32_t data, bool remap);
+    static void encodeMEM(LinearStream &cmdStream, uint32_t offset, uint64_t address);
+    static void encodeREG(LinearStream &cmdStream, uint32_t dstOffset, uint32_t srcOffset);
 
     static bool isRemapApplicable(uint32_t offset);
     static void remapOffset(MI_LOAD_REGISTER_MEM *pMiLoadReg);
@@ -219,7 +221,7 @@ struct EncodeStateBaseAddress {
     using STATE_BASE_ADDRESS = typename GfxFamily::STATE_BASE_ADDRESS;
     static void encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd);
     static void encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, uint32_t statelessMocsIndex, bool useGlobalAtomics);
-    static void addStateBaseAddressIfRequired(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, const HardwareInfo &hwInfo);
+    static size_t getRequiredSizeForStateBaseAddress(Device &device, CommandContainer &container);
 };
 
 template <typename GfxFamily>
@@ -277,7 +279,7 @@ struct EncodeSurfaceState {
 
 template <typename GfxFamily>
 struct EncodeComputeMode {
-    static void adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties);
+    static void adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo);
 
     static void adjustPipelineSelect(CommandContainer &container, const NEO::KernelDescriptor &kernelDescriptor);
 };

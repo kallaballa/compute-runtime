@@ -92,46 +92,17 @@ TEST_F(DrmMemoryManagerTest, givenDebugVariableWhenCreatingDrmMemoryManagerThenS
 
 TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenCheckForKmdMigrationThenCorrectValueIsReturned) {
     DebugManagerStateRestore restorer;
-    auto drm = static_cast<DrmMockCustom *>(executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->getDriverModel()->as<Drm>());
-
-    {
-        DebugManager.flags.UseKmdMigration.set(-1);
-
-        drm->bindAvailable = false;
-        auto retVal = memoryManager->isKmdMigrationAvailable(rootDeviceIndex);
-
-        EXPECT_FALSE(retVal);
-
-        drm->bindAvailable = true;
-        retVal = memoryManager->isKmdMigrationAvailable(rootDeviceIndex);
-
-        auto hwInfo = executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-        auto &hwHelper = NEO::HwHelper::get(hwInfo->platform.eRenderCoreFamily);
-        EXPECT_EQ(hwHelper.isKmdMigrationSupported(*hwInfo), retVal);
-    }
     {
         DebugManager.flags.UseKmdMigration.set(1);
 
-        drm->bindAvailable = false;
         auto retVal = memoryManager->isKmdMigrationAvailable(rootDeviceIndex);
-
-        EXPECT_TRUE(retVal);
-
-        drm->bindAvailable = true;
-        retVal = memoryManager->isKmdMigrationAvailable(rootDeviceIndex);
 
         EXPECT_TRUE(retVal);
     }
     {
         DebugManager.flags.UseKmdMigration.set(0);
 
-        drm->bindAvailable = false;
         auto retVal = memoryManager->isKmdMigrationAvailable(rootDeviceIndex);
-
-        EXPECT_FALSE(retVal);
-
-        drm->bindAvailable = true;
-        retVal = memoryManager->isKmdMigrationAvailable(rootDeviceIndex);
 
         EXPECT_FALSE(retVal);
     }
@@ -876,10 +847,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
 
     DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
     ioctlResExt.no.push_back(2);
+    ioctlResExt.no.push_back(3);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = EFAULT;
     mock->ioctl_expected.gemUserptr = 1;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
 
     MemoryManager::AllocationStatus result = memoryManager->populateOsHandles(storage, rootDeviceIndex);
 
@@ -911,10 +883,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
 
     DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
     ioctlResExt.no.push_back(2);
+    ioctlResExt.no.push_back(3);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = EFAULT;
     mock->ioctl_expected.gemUserptr = 1;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
     mock->ioctl_expected.gemClose = 1;
 
     AllocationData allocationData;
@@ -955,10 +928,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
 
     DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
     ioctlResExt.no.push_back(2);
+    ioctlResExt.no.push_back(3);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = 0;
     mock->ioctl_expected.gemUserptr = 1;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
 
     AllocationData allocationData;
     allocationData.size = 13u;
@@ -990,10 +964,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
 
     DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
     ioctlResExt.no.push_back(2);
+    ioctlResExt.no.push_back(3);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = 0;
     mock->ioctl_expected.gemUserptr = 1;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
 
     AllocationData allocationData;
     allocationData.size = 13u;
@@ -1028,10 +1003,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
 
     DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
     ioctlResExt.no.push_back(2);
+    ioctlResExt.no.push_back(3);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = ENOMEM;
     mock->ioctl_expected.gemUserptr = 1;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
 
     MemoryManager::AllocationStatus result = memoryManager->populateOsHandles(storage, rootDeviceIndex);
 
@@ -1120,7 +1096,7 @@ TEST_F(DrmMemoryManagerTest, GivenShareableEnabledWhenAskedToCreateGraphicsAlloc
 
     allocationData.size = MemoryConstants::pageSize;
     allocationData.flags.shareable = true;
-    auto allocation = memoryManager->allocateShareableMemory(allocationData);
+    auto allocation = memoryManager->allocateMemoryByKMD(allocationData);
     EXPECT_NE(nullptr, allocation);
     EXPECT_NE(0u, allocation->getGpuAddress());
 
@@ -3552,10 +3528,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
 
     DrmMockCustom::IoctlResExt ioctlResExt = {2, -1};
     ioctlResExt.no.push_back(3);
+    ioctlResExt.no.push_back(4);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = EFAULT;
     mock->ioctl_expected.gemUserptr = 2;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
 
     OsHandleStorage handleStorage;
     OsHandleLinux handle1;
@@ -3603,10 +3580,11 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
 
     DrmMockCustom::IoctlResExt ioctlResExt = {2, -1};
     ioctlResExt.no.push_back(3);
+    ioctlResExt.no.push_back(4);
     mock->ioctl_res_ext = &ioctlResExt;
     mock->errnoValue = EFAULT;
     mock->ioctl_expected.gemUserptr = 2;
-    mock->ioctl_expected.execbuffer2 = 2;
+    mock->ioctl_expected.execbuffer2 = 3;
 
     OsHandleStorage handleStorage;
     OsHandleLinux handle1;
@@ -4461,6 +4439,16 @@ TEST_F(DrmMemoryManagerTest, whenWddmMemoryManagerIsCreatedThenAlignmentSelector
     EXPECT_EQ(expectedAlignments, memoryManager.alignmentSelector.peekCandidateAlignments());
 }
 
+TEST_F(DrmMemoryManagerTest, whenDebugFlagToNotFreeResourcesIsSpecifiedThenFreeIsNotDoingAnything) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.DoNotFreeResources.set(true);
+    TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+    size_t sizeIn = 1024llu;
+    uint64_t gpuAddress = 0x1337llu;
+    DrmAllocation stackDrmAllocation(0u, GraphicsAllocation::AllocationType::BUFFER, nullptr, nullptr, gpuAddress, sizeIn, MemoryPool::System64KBPages);
+    memoryManager.freeGraphicsMemoryImpl(&stackDrmAllocation);
+}
+
 TEST_F(DrmMemoryManagerTest, given2MbPagesDisabledWhenWddmMemoryManagerIsCreatedThenAlignmentSelectorHasExpectedAlignments) {
     DebugManagerStateRestore restore{};
     DebugManager.flags.AlignLocalMemoryVaTo2MB.set(0);
@@ -4497,6 +4485,96 @@ TEST_F(DrmMemoryManagerTest, givenCustomAlignmentWhenWddmMemoryManagerIsCreatedT
         TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
         EXPECT_EQ(expectedAlignments, memoryManager.alignmentSelector.peekCandidateAlignments());
     }
+}
+
+TEST_F(DrmMemoryManagerTest, givenDrmManagerWithLocalMemoryWhenGettingGlobalMemoryPercentThenCorrectValueIsReturned) {
+    TestedDrmMemoryManager memoryManager(true, false, false, *executionEnvironment);
+    uint32_t rootDeviceIndex = 0u;
+    EXPECT_EQ(memoryManager.getPercentOfGlobalMemoryAvailable(rootDeviceIndex), 0.95);
+}
+
+TEST_F(DrmMemoryManagerTest, givenDrmManagerWithoutLocalMemoryWhenGettingGlobalMemoryPercentThenCorrectValueIsReturned) {
+    TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+    uint32_t rootDeviceIndex = 0u;
+    EXPECT_EQ(memoryManager.getPercentOfGlobalMemoryAvailable(rootDeviceIndex), 0.8);
+}
+
+struct DrmMemoryManagerToTestLockInLocalMemory : public TestedDrmMemoryManager {
+    using TestedDrmMemoryManager::lockResourceInLocalMemoryImpl;
+    DrmMemoryManagerToTestLockInLocalMemory(ExecutionEnvironment &executionEnvironment)
+        : TestedDrmMemoryManager(true, false, false, executionEnvironment) {}
+
+    void *lockResourceInLocalMemoryImpl(BufferObject *bo) override {
+        lockedLocalMemory.reset(new uint8_t[bo->peekSize()]);
+        return lockedLocalMemory.get();
+    }
+    std::unique_ptr<uint8_t[]> lockedLocalMemory;
+};
+
+TEST_F(DrmMemoryManagerTest, givenDrmManagerWithLocalMemoryWhenLockResourceIsCalledOnWriteCombinedAllocationThenReturnPtrAlignedTo64Kb) {
+    DrmMemoryManagerToTestLockInLocalMemory memoryManager(*executionEnvironment);
+    BufferObject bo(mock, 1, 1024, 0);
+
+    DrmAllocation drmAllocation(0, GraphicsAllocation::AllocationType::WRITE_COMBINED, &bo, nullptr, 0u, 0u, MemoryPool::LocalMemory);
+    EXPECT_EQ(&bo, drmAllocation.getBO());
+
+    auto ptr = memoryManager.lockResourceInLocalMemoryImpl(drmAllocation);
+    EXPECT_NE(nullptr, ptr);
+    EXPECT_EQ(ptr, bo.peekLockedAddress());
+    EXPECT_TRUE(isAligned<MemoryConstants::pageSize64k>(ptr));
+
+    memoryManager.unlockResourceInLocalMemoryImpl(&bo);
+    EXPECT_EQ(nullptr, bo.peekLockedAddress());
+}
+
+TEST_F(DrmMemoryManagerTest, givenDrmManagerWithoutLocalMemoryWhenLockResourceIsCalledOnWriteCombinedAllocationThenReturnNullptr) {
+    TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+    BufferObject bo(mock, 1, 1024, 0);
+
+    DrmAllocation drmAllocation(0, GraphicsAllocation::AllocationType::WRITE_COMBINED, &bo, nullptr, 0u, 0u, MemoryPool::LocalMemory);
+    EXPECT_EQ(&bo, drmAllocation.getBO());
+
+    auto ptr = memoryManager.lockResourceInLocalMemoryImpl(drmAllocation);
+    EXPECT_EQ(nullptr, ptr);
+
+    memoryManager.unlockResourceInLocalMemoryImpl(&bo);
+    EXPECT_EQ(nullptr, bo.peekLockedAddress());
+}
+
+TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWithoutLocalMemoryWhenCopyMemoryToAllocationThenAllocationIsFilledWithCorrectData) {
+    TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+    mock->ioctl_expected.gemUserptr = 1;
+    mock->ioctl_expected.gemWait = 1;
+    mock->ioctl_expected.gemClose = 1;
+
+    std::vector<uint8_t> dataToCopy(MemoryConstants::pageSize, 1u);
+
+    auto allocation = memoryManager.allocateGraphicsMemoryWithProperties({rootDeviceIndex, dataToCopy.size(), GraphicsAllocation::AllocationType::BUFFER, device->getDeviceBitfield()});
+    ASSERT_NE(nullptr, allocation);
+
+    auto ret = memoryManager.copyMemoryToAllocation(allocation, 0, dataToCopy.data(), dataToCopy.size());
+    EXPECT_TRUE(ret);
+
+    EXPECT_EQ(0, memcmp(allocation->getUnderlyingBuffer(), dataToCopy.data(), dataToCopy.size()));
+
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWithoutLocalMemoryAndCpuPtrWhenCopyMemoryToAllocationThenReturnFalse) {
+    TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+    mock->ioctl_expected.gemUserptr = 1;
+    mock->ioctl_expected.gemWait = 1;
+    mock->ioctl_expected.gemClose = 1;
+
+    std::vector<uint8_t> dataToCopy(MemoryConstants::pageSize, 1u);
+
+    auto allocation = memoryManager.allocateGraphicsMemoryWithProperties({rootDeviceIndex, dataToCopy.size(), GraphicsAllocation::AllocationType::BUFFER, device->getDeviceBitfield()});
+    ASSERT_NE(nullptr, allocation);
+    allocation->setCpuPtrAndGpuAddress(nullptr, 0u);
+    auto ret = memoryManager.copyMemoryToAllocation(allocation, 0, dataToCopy.data(), dataToCopy.size());
+    EXPECT_FALSE(ret);
+
+    memoryManager.freeGraphicsMemory(allocation);
 }
 
 } // namespace NEO

@@ -13,11 +13,13 @@
 #include "shared/source/command_stream/stream_properties.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
+#include "shared/source/direct_submission/direct_submission_controller.h"
 #include "shared/source/direct_submission/direct_submission_hw.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/helpers/blit_commands_helper.h"
 #include "shared/source/helpers/cache_policy.h"
+#include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.h"
 #include "shared/source/helpers/flush_stamp.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -29,6 +31,7 @@
 #include "shared/source/indirect_heap/indirect_heap.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/tag_allocator.h"
 
@@ -37,7 +40,12 @@
 namespace NEO {
 
 template <typename GfxFamily>
-CommandStreamReceiverHw<GfxFamily>::~CommandStreamReceiverHw() = default;
+CommandStreamReceiverHw<GfxFamily>::~CommandStreamReceiverHw() {
+    auto directSubmissionController = executionEnvironment.getDirectSubmissionController();
+    if (directSubmissionController) {
+        directSubmissionController->unregisterDirectSubmission(this);
+    }
+}
 
 template <typename GfxFamily>
 CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment,
@@ -221,6 +229,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (updateTag) {
             PipeControlArgs args(dispatchFlags.dcFlush);
             args.notifyEnable = isUsedNotifyEnableForPostSync();
+            args.tlbInvalidation |= dispatchFlags.memoryMigrationRequired;
             MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
                 commandStreamTask,
                 PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
@@ -329,7 +338,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     }
 
     programHardwareContext(commandStreamCSR);
-    programComputeMode(commandStreamCSR, dispatchFlags);
+    programComputeMode(commandStreamCSR, dispatchFlags, device.getHardwareInfo());
     programPipelineSelect(commandStreamCSR, dispatchFlags.pipelineSelectArgs);
     programL3(commandStreamCSR, dispatchFlags, newL3Config);
     programPreamble(commandStreamCSR, device, dispatchFlags, newL3Config);
@@ -575,10 +584,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     if (submitCSR | submitTask) {
         if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
+            flushHandler(batchBuffer, this->getResidencyAllocations());
             if (updateTag) {
                 this->latestFlushedTaskCount = this->taskCount + 1;
             }
-            flushHandler(batchBuffer, this->getResidencyAllocations());
         } else {
             auto commandBuffer = new CommandBuffer(device);
             commandBuffer->batchBuffer = batchBuffer;
@@ -702,7 +711,9 @@ inline bool CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
             if (DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
                 flatBatchBufferHelper->registerCommandChunk(primaryCmdBuffer.get()->batchBuffer, sizeof(MI_BATCH_BUFFER_START));
             }
+
             while (nextCommandBuffer && nextCommandBuffer->inspectionId == primaryCmdBuffer->inspectionId) {
+
                 //noop pipe control
                 if (currentPipeControlForNooping) {
                     if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
@@ -718,7 +729,16 @@ inline bool CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
                 flushStampUpdateHelper.insert(nextCommandBuffer->flushStamp->getStampReference());
                 auto nextCommandBufferAddress = nextCommandBuffer->batchBuffer.commandBufferAllocation->getGpuAddress();
                 auto offsetedCommandBuffer = (uint64_t)ptrOffset(nextCommandBufferAddress, nextCommandBuffer->batchBuffer.startOffset);
-                addBatchBufferStart((MI_BATCH_BUFFER_START *)currentBBendLocation, offsetedCommandBuffer, false);
+                auto cpuAddressForCommandBufferDestination = ptrOffset(nextCommandBuffer->batchBuffer.commandBufferAllocation->getUnderlyingBuffer(), nextCommandBuffer->batchBuffer.startOffset);
+                auto cpuAddressForCurrentCommandBufferEndingSection = alignUp(ptrOffset(currentBBendLocation, sizeof(MI_BATCH_BUFFER_START)), MemoryConstants::cacheLineSize);
+
+                //if we point to exact same command buffer, then batch buffer start is not needed at all
+                if (cpuAddressForCurrentCommandBufferEndingSection == cpuAddressForCommandBufferDestination) {
+                    memset(currentBBendLocation, 0u, ptrDiff(cpuAddressForCurrentCommandBufferEndingSection, currentBBendLocation));
+                } else {
+                    addBatchBufferStart((MI_BATCH_BUFFER_START *)currentBBendLocation, offsetedCommandBuffer, false);
+                }
+
                 if (DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
                     flatBatchBufferHelper->registerCommandChunk(nextCommandBuffer->batchBuffer, sizeof(MI_BATCH_BUFFER_START));
                 }
@@ -726,6 +746,7 @@ inline bool CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
                 currentBBendLocation = nextCommandBuffer->batchBufferEndLocation;
                 lastTaskCount = nextCommandBuffer->taskCount;
                 nextCommandBuffer = nextCommandBuffer->next;
+
                 commandBufferList.removeFrontOne();
             }
             surfacesForSubmit.reserve(resourcePackage.size() + 1);
@@ -774,7 +795,7 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSizeAligned(const
 template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags, Device &device) {
     size_t size = getRequiredCmdSizeForPreamble(device);
-    size += getRequiredStateBaseAddressSize();
+    size += getRequiredStateBaseAddressSize(device);
     if (!this->isStateSipSent || device.isDebuggerActive()) {
         size += PreemptionHelper::getRequiredStateSipCmdSize<GfxFamily>(device);
     }
@@ -844,7 +865,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::emitNoop(LinearStream &commandSt
 }
 
 template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
+inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode, uint32_t partitionCount, uint32_t offsetSize) {
     updateTagFromWait();
 
     int64_t waitTimeout = 0;
@@ -856,11 +877,20 @@ inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFal
                        "\nWaiting for task count %u at location %p. Current value: %u\n",
                        taskCountToWait, getTagAddress(), *getTagAddress());
 
-    auto status = waitForCompletionWithTimeout(enableTimeout, waitTimeout, taskCountToWait);
+    bool status;
+    if (partitionCount > 1) {
+        status = waitForCompletionWithTimeout(getTagAddress(), enableTimeout, waitTimeout, taskCountToWait, partitionCount, offsetSize);
+    } else {
+        status = waitForCompletionWithTimeout(enableTimeout, waitTimeout, taskCountToWait);
+    }
     if (!status) {
-        waitForFlushStamp(flushStampToWait);
+        waitForFlushStamp(flushStampToWait, partitionCount, offsetSize);
         //now call blocking wait, this is to ensure that task count is reached
-        waitForCompletionWithTimeout(false, 0, taskCountToWait);
+        if (partitionCount > 1) {
+            status = waitForCompletionWithTimeout(getTagAddress(), false, 0, taskCountToWait, partitionCount, offsetSize);
+        } else {
+            status = waitForCompletionWithTimeout(false, 0, taskCountToWait);
+        }
     }
     UNRECOVERABLE_IF(*getTagAddress() < taskCountToWait);
 
@@ -917,15 +947,16 @@ inline void CommandStreamReceiverHw<GfxFamily>::programVFEState(LinearStream &cs
         }
         auto &hwInfo = peekHwInfo();
         auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-        auto engineGroupType = hwHelper.getEngineGroupType(getOsContext().getEngineType(), hwInfo);
+        const auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
+        auto engineGroupType = hwHelper.getEngineGroupType(getOsContext().getEngineType(), getOsContext().getEngineUsage(), hwInfo);
         auto pVfeState = PreambleHelper<GfxFamily>::getSpaceForVfeState(&csr, hwInfo, engineGroupType);
-        StreamProperties streamProperties{};
+        auto disableOverdispatch = hwInfoConfig.isDisableOverdispatchAvailable(hwInfo) &&
+                                   (dispatchFlags.additionalKernelExecInfo != AdditionalKernelExecInfo::NotSet);
         streamProperties.frontEndState.setProperties(lastKernelExecutionType == KernelExecutionType::Concurrent,
-                                                     dispatchFlags.additionalKernelExecInfo == AdditionalKernelExecInfo::DisableOverdispatch,
-                                                     hwInfo);
+                                                     disableOverdispatch, osContext->isEngineInstanced(), hwInfo);
         PreambleHelper<GfxFamily>::programVfeState(
             pVfeState, hwInfo, requiredScratchSize, getScratchPatchAddress(),
-            maxFrontEndThreads, lastAdditionalKernelExecInfo, streamProperties);
+            maxFrontEndThreads, streamProperties);
         auto commandOffset = PreambleHelper<GfxFamily>::getScratchSpaceAddressOffsetForVfeState(&csr, pVfeState);
 
         if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
@@ -990,7 +1021,7 @@ bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(cons
 }
 
 template <typename GfxFamily>
-uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) {
+uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled, Device &device) {
     using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
     using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
 
@@ -1003,6 +1034,7 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
     latestSentTaskCount = newTaskCount;
 
     getOsContext().ensureContextInitialized();
+    this->initDirectSubmission(device, getOsContext());
 
     if (PauseOnGpuProperties::pauseModeAllowed(DebugManager.flags.PauseOnBlitCopy.get(), taskCount, PauseOnGpuProperties::PauseMode::BeforeWorkload)) {
         BlitCommandsHelper<GfxFamily>::dispatchDebugPauseCommands(commandStream, getDebugPauseStateGPUAddress(), DebugPauseState::waitingForUserStartConfirmation, DebugPauseState::hasUserStartConfirmation);
@@ -1093,7 +1125,7 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
 
     lock.unlock();
     if (blocking) {
-        waitForTaskCountWithKmdNotifyFallback(newTaskCount, flushStampToWait, false, false);
+        waitForTaskCountWithKmdNotifyFallback(newTaskCount, flushStampToWait, false, false, 1, 0);
         internalAllocationStorage->cleanAllocationList(newTaskCount, TEMPORARY_ALLOCATION);
     }
 
@@ -1325,12 +1357,7 @@ inline bool CommandStreamReceiverHw<GfxFamily>::isComputeModeNeeded() const {
 }
 
 template <typename GfxFamily>
-inline bool CommandStreamReceiverHw<GfxFamily>::isAdditionalPipeControlNeeded() const {
-    return false;
-}
-
-template <typename GfxFamily>
-inline MemoryCompressionState CommandStreamReceiverHw<GfxFamily>::getMemoryCompressionState(bool auxTranslationRequired) const {
+inline MemoryCompressionState CommandStreamReceiverHw<GfxFamily>::getMemoryCompressionState(bool auxTranslationRequired, const HardwareInfo &hwInfo) const {
     return MemoryCompressionState::NotApplicable;
 }
 
@@ -1375,6 +1402,15 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPrologue() const 
 }
 
 template <typename GfxFamily>
+inline void CommandStreamReceiverHw<GfxFamily>::stopDirectSubmission() {
+    if (EngineHelpers::isBcs(this->osContext->getEngineType())) {
+        this->blitterDirectSubmission->stopRingBuffer();
+    } else {
+        this->directSubmission->stopRingBuffer();
+    }
+}
+
+template <typename GfxFamily>
 inline bool CommandStreamReceiverHw<GfxFamily>::initDirectSubmission(Device &device, OsContext &osContext) {
     bool ret = true;
 
@@ -1382,13 +1418,20 @@ inline bool CommandStreamReceiverHw<GfxFamily>::initDirectSubmission(Device &dev
     auto startDirect = osContext.isDirectSubmissionAvailable(device.getHardwareInfo(), submitOnInit);
 
     if (startDirect) {
-        if (osContext.getEngineType() == aub_stream::ENGINE_BCS) {
-            blitterDirectSubmission = DirectSubmissionHw<GfxFamily, BlitterDispatcher<GfxFamily>>::create(device, osContext);
-            ret = blitterDirectSubmission->initialize(submitOnInit);
-        } else {
-            directSubmission = DirectSubmissionHw<GfxFamily, RenderDispatcher<GfxFamily>>::create(device, osContext);
-            ret = directSubmission->initialize(submitOnInit);
-            this->dispatchMode = DispatchMode::ImmediateDispatch;
+        auto lock = this->obtainUniqueOwnership();
+        if (!this->isBlitterDirectSubmissionEnabled() && !this->isDirectSubmissionEnabled()) {
+            if (EngineHelpers::isBcs(osContext.getEngineType())) {
+                blitterDirectSubmission = DirectSubmissionHw<GfxFamily, BlitterDispatcher<GfxFamily>>::create(device, osContext);
+                ret = blitterDirectSubmission->initialize(submitOnInit);
+
+            } else {
+                directSubmission = DirectSubmissionHw<GfxFamily, RenderDispatcher<GfxFamily>>::create(device, osContext);
+                ret = directSubmission->initialize(submitOnInit);
+            }
+            auto directSubmissionController = executionEnvironment.getDirectSubmissionController();
+            if (directSubmissionController) {
+                directSubmissionController->registerDirectSubmission(this);
+            }
         }
         osContext.setDirectSubmissionActive();
     }

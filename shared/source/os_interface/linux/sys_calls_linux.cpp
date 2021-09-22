@@ -18,7 +18,13 @@
 #include <unistd.h>
 
 namespace NEO {
+
 namespace SysCalls {
+
+unsigned int getProcessId() {
+    return getpid();
+}
+
 int close(int fileDescriptor) {
     return ::close(fileDescriptor);
 }
@@ -63,6 +69,10 @@ int fstat(int fd, struct stat *buf) {
 
 ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
     return ::pread(fd, buf, count, offset);
+}
+
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
+    return ::pwrite(fd, buf, count, offset);
 }
 
 void *mmap(void *addr, size_t size, int prot, int flags, int fd, off_t off) {

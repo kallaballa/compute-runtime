@@ -8,7 +8,7 @@ link_libraries(${ASAN_LIBS} ${TSAN_LIBS})
 
 set(TARGET_NAME ${TARGET_NAME_L0}_tools_tests)
 
-append_sources_from_properties(L0_CORE_ENABLERS NEO_CORE_SRCS_LINK)
+include(${NEO_SOURCE_DIR}/cmake/setup_ult_global_flags.cmake)
 
 function(ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION)
   set(L0_TESTED_PRODUCT_FAMILIES ${ALL_TESTED_PRODUCT_FAMILY})
@@ -22,7 +22,6 @@ add_executable(${TARGET_NAME}
                ${NEO_SOURCE_DIR}/level_zero/core/source/dll/disallow_deferred_deleter.cpp
                ${NEO_SOURCE_DIR}/shared/test/common/mocks/ult_device_factory.cpp
                ${NEO_SOURCE_DIR}/shared/test/common/mocks/ult_device_factory.h
-               ${L0_CORE_ENABLERS}
 )
 
 target_sources(${TARGET_NAME} PRIVATE
@@ -38,10 +37,9 @@ target_sources(${TARGET_NAME} PRIVATE
 )
 
 target_sources(${TARGET_NAME} PRIVATE
-               ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}/kernel_binary_helper_hash_value.cpp
+               ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}kernel_binary_helper_hash_value.cpp
                ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/libult/create_command_stream.cpp
                ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/libult/io_functions.cpp
-               ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
                $<TARGET_OBJECTS:${L0_MOCKABLE_LIB_NAME}>
                $<TARGET_OBJECTS:igdrcl_libult_common>
 )
@@ -82,6 +80,7 @@ target_include_directories(${TARGET_NAME}
                            PRIVATE
                            $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/tools
                            ${NEO_SHARED_TEST_DIRECTORY}/common/test_macros/header${BRANCH_DIR_SUFFIX}
+                           ${IGC_COMMON_PARENT_DIR}
 )
 
 if(UNIX)
@@ -116,10 +115,14 @@ target_sources(${TARGET_NAME} PRIVATE
                $<TARGET_OBJECTS:mock_gmm>
                $<TARGET_OBJECTS:${TARGET_NAME_L0}_fixtures>
                $<TARGET_OBJECTS:${TARGET_NAME_L0}_mocks>
-               $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDLESS_LIB_NAME}>
 )
+if(TARGET ${BUILTINS_SPIRV_LIB_NAME})
+  target_sources(${TARGET_NAME} PRIVATE
+                 $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
+  )
+endif()
 
 option(L0_ULT_VERBOSE "Use the default/verbose test output" OFF)
 if(NOT L0_ULT_VERBOSE)

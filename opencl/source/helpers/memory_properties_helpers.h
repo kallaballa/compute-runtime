@@ -25,8 +25,7 @@ class MemoryPropertiesHelper {
         IMAGE,
     };
 
-    static void addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel,
-                                         const Device *pDevice);
+    static void addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel);
 
     static MemoryProperties createMemoryProperties(cl_mem_flags flags, cl_mem_flags_intel flagsIntel,
                                                    cl_mem_alloc_flags_intel allocflags, const Device *pDevice);
@@ -38,12 +37,12 @@ class MemoryPropertiesHelper {
     static AllocationProperties getAllocationProperties(
         uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
         GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo,
-        DeviceBitfield subDevicesBitfieldParam);
+        DeviceBitfield subDevicesBitfieldParam, bool deviceOnlyVisibilty);
 
     static DeviceBitfield adjustDeviceBitfield(uint32_t rootDeviceIndex, const MemoryProperties &memoryProperties,
                                                DeviceBitfield subDevicesBitfieldParam);
 
-    static void fillPoliciesInProperties(AllocationProperties &allocationProperties, const MemoryProperties &memoryProperties, const HardwareInfo &hwInfo);
+    static void fillPoliciesInProperties(AllocationProperties &allocationProperties, const MemoryProperties &memoryProperties, const HardwareInfo &hwInfo, bool deviceOnlyVisibilty);
 
     static void fillCachePolicyInProperties(AllocationProperties &allocationProperties, bool uncached, bool readOnly,
                                             bool deviceOnlyVisibilty, uint32_t cacheRegion);

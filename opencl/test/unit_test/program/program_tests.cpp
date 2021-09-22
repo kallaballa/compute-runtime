@@ -23,6 +23,7 @@
 #include "shared/source/memory_manager/surface.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/libult/global_environment.h"
 #include "shared/test/common/mocks/mock_compiler_interface.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
@@ -35,7 +36,6 @@
 #include "opencl/source/program/create.inl"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
-#include "opencl/test/unit_test/global_environment.h"
 #include "opencl/test/unit_test/helpers/kernel_binary_helper.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
@@ -77,6 +77,10 @@ class NoCompilerInterfaceRootDeviceEnvironment : public RootDeviceEnvironment {
 
     CompilerInterface *getCompilerInterface() override {
         return nullptr;
+    }
+
+    bool initAilConfiguration() override {
+        return true;
     }
 };
 
@@ -1923,6 +1927,39 @@ TEST_F(ProgramTests, GivenNullContextWhenCreatingProgramFromGenBinaryThenSuccess
     delete pProgram;
 }
 
+TEST_F(ProgramTests, givenValidZebinPrepareLinkerInput) {
+    ZebinTestData::ValidEmptyProgram zebin;
+    const std::string validZeInfo = std::string("version :\'") + toString(zeInfoDecoderVersion) + R"===('
+kernels:
+    - name : some_kernel
+      execution_env :
+        simd_size : 8
+)===";
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr, mockRootDeviceIndex));
+    {
+        auto program = std::make_unique<MockProgram>(nullptr, false, toClDeviceVector(*pClDevice));
+        program->buildInfos[rootDeviceIndex].unpackedDeviceBinary = makeCopy(zebin.storage.data(), zebin.storage.size());
+        program->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = zebin.storage.size();
+
+        auto retVal = program->processGenBinary(*pClDevice);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_NE(nullptr, program->buildInfos[rootDeviceIndex].linkerInput.get());
+    }
+    {
+        zebin.removeSection(NEO::Elf::SHT_ZEBIN::SHT_ZEBIN_ZEINFO, NEO::Elf::SectionsNamesZebin::zeInfo);
+        zebin.appendSection(NEO::Elf::SHT_ZEBIN::SHT_ZEBIN_ZEINFO, NEO::Elf::SectionsNamesZebin::zeInfo, ArrayRef<const uint8_t>::fromAny(validZeInfo.data(), validZeInfo.size()));
+        zebin.appendSection(NEO::Elf::SHT_PROGBITS, NEO::Elf::SectionsNamesZebin::textPrefix.str() + "some_kernel", {});
+
+        auto program = std::make_unique<MockProgram>(nullptr, false, toClDeviceVector(*pClDevice));
+        program->buildInfos[rootDeviceIndex].unpackedDeviceBinary = makeCopy(zebin.storage.data(), zebin.storage.size());
+        program->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = zebin.storage.size();
+
+        auto retVal = program->processGenBinary(*pClDevice);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_NE(nullptr, program->buildInfos[rootDeviceIndex].linkerInput.get());
+    }
+}
+
 TEST_F(ProgramTests, givenProgramFromGenBinaryWhenSLMSizeIsBiggerThenDeviceLimitThenReturnError) {
     PatchTokensTestData::ValidProgramWithKernelUsingSlm patchtokensProgram;
     patchtokensProgram.slmMutable->TotalInlineLocalMemorySize = static_cast<uint32_t>(pDevice->getDeviceInfo().localMemSize * 2);
@@ -2733,6 +2770,10 @@ struct SpecializationConstantRootDeviceEnvironemnt : public RootDeviceEnvironmen
     }
     CompilerInterface *getCompilerInterface() override {
         return compilerInterface.get();
+    }
+
+    bool initAilConfiguration() override {
+        return true;
     }
 };
 

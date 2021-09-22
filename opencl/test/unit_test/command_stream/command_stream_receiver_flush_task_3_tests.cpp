@@ -9,6 +9,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_device.h"
 
@@ -1707,7 +1708,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelWhenItIsUnblocke
     pDevice->resetCommandStreamReceiver(csr);
     uint32_t numGrfRequired = 666u;
 
-    auto pCmdQ = std::make_unique<MockCommandQueue>(&mockContext, pClDevice, nullptr);
+    auto pCmdQ = std::make_unique<MockCommandQueue>(&mockContext, pClDevice, nullptr, false);
     auto mockProgram = std::make_unique<MockProgram>(&mockContext, false, toClDeviceVector(*pClDevice));
 
     auto pKernel = MockKernel::create(*pDevice, mockProgram.get(), numGrfRequired);
@@ -1829,7 +1830,7 @@ class MockCsrWithFailingFlush : public CommandStreamReceiverHw<GfxFamily> {
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenWaitForCompletionWithTimeoutIsCalledWhenFlushBatchedSubmissionsReturnsFailureThenItIsPropagated) {
     MockCsrWithFailingFlush<FamilyType> mockCsr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
-    MockOsContext osContext(0, 8, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, EngineDescriptorHelper::getDefaultDescriptor(8));
     mockCsr.setupContext(osContext);
     mockCsr.latestSentTaskCount = 1;
     auto cmdBuffer = std::make_unique<CommandBuffer>(*pDevice);

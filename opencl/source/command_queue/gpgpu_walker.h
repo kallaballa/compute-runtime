@@ -68,22 +68,22 @@ Vec3<size_t> generateWorkgroupSize(
     const DispatchInfo &dispatchInfo);
 
 Vec3<size_t> computeWorkgroupsNumber(
-    const Vec3<size_t> gws,
-    const Vec3<size_t> lws);
+    const Vec3<size_t> &gws,
+    const Vec3<size_t> &lws);
 
 Vec3<size_t> generateWorkgroupsNumber(
-    const Vec3<size_t> gws,
-    const Vec3<size_t> lws);
+    const Vec3<size_t> &gws,
+    const Vec3<size_t> &lws);
 
 Vec3<size_t> generateWorkgroupsNumber(
     const DispatchInfo &dispatchInfo);
 
-inline uint32_t calculateDispatchDim(Vec3<size_t> dispatchSize, Vec3<size_t> dispatchOffset) {
+inline uint32_t calculateDispatchDim(const Vec3<size_t> &dispatchSize, const Vec3<size_t> &dispatchOffset) {
     return std::max(1U, std::max(dispatchSize.getSimplifiedDim(), dispatchOffset.getSimplifiedDim()));
 }
 
 Vec3<size_t> canonizeWorkgroup(
-    Vec3<size_t> workgroup);
+    const Vec3<size_t> &workgroup);
 
 void provideLocalWorkGroupSizeHints(Context *context, DispatchInfo dispatchInfo);
 
@@ -167,7 +167,7 @@ class GpgpuWalkerHelper {
 template <typename GfxFamily>
 struct EnqueueOperation {
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
-    static size_t getTotalSizeRequiredCS(uint32_t eventType, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounters, bool blitEnqueue, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo, bool isMarkerWithProfiling);
+    static size_t getTotalSizeRequiredCS(uint32_t eventType, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounters, bool blitEnqueue, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo, bool isMarkerWithProfiling, bool eventsInWaitList);
     static size_t getSizeRequiredCS(uint32_t cmdType, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel, const DispatchInfo &dispatchInfo);
     static size_t getSizeRequiredForTimestampPacketWrite();
     static size_t getSizeForCacheFlushAfterWalkerCommands(const Kernel &kernel, const CommandQueue &commandQueue);
@@ -180,8 +180,8 @@ struct EnqueueOperation {
 template <typename GfxFamily, uint32_t eventType>
 LinearStream &getCommandStream(CommandQueue &commandQueue, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace,
                                bool reservePerfCounterCmdsSpace, bool blitEnqueue, const MultiDispatchInfo &multiDispatchInfo,
-                               Surface **surfaces, size_t numSurfaces, bool isMarkerWithProfiling) {
-    size_t expectedSizeCS = EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(eventType, csrDeps, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, blitEnqueue, commandQueue, multiDispatchInfo, isMarkerWithProfiling);
+                               Surface **surfaces, size_t numSurfaces, bool isMarkerWithProfiling, bool eventsInWaitList) {
+    size_t expectedSizeCS = EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(eventType, csrDeps, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, blitEnqueue, commandQueue, multiDispatchInfo, isMarkerWithProfiling, eventsInWaitList);
     return commandQueue.getCS(expectedSizeCS);
 }
 

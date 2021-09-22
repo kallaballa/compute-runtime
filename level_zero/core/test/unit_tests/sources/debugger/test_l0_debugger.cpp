@@ -29,6 +29,12 @@ namespace ult {
 
 using L0DebuggerTest = Test<L0DebuggerHwFixture>;
 
+struct Deleter {
+    void operator()(CommandQueueImp *cmdQ) {
+        cmdQ->destroy();
+    }
+};
+
 TEST_F(L0DebuggerTest, givenL0DebuggerWhenCallingIsLegacyThenFalseIsReturned) {
     EXPECT_FALSE(neoDevice->getDebugger()->isLegacy());
 }
@@ -47,7 +53,11 @@ TEST_F(L0DebuggerTest, givenL0DebuggerWhenGettingSipAllocationThenValidSipTypeIs
     ASSERT_NE(nullptr, systemRoutine);
 
     auto sipType = SipKernel::getSipKernelType(*neoDevice);
-    auto expectedSipAllocation = neoDevice->getBuiltIns()->getSipKernel(sipType, *neoDevice).getSipAllocation();
+    auto isHexadecimalArrayPreferred = HwHelper::get(hwInfo.platform.eRenderCoreFamily).isSipKernelAsHexadecimalArrayPreferred();
+
+    auto expectedSipAllocation = isHexadecimalArrayPreferred
+                                     ? NEO::MockSipData::mockSipKernel->getSipAllocation()
+                                     : neoDevice->getBuiltIns()->getSipKernel(sipType, *neoDevice).getSipAllocation();
 
     EXPECT_EQ(expectedSipAllocation, systemRoutine);
 }
@@ -63,9 +73,13 @@ TEST_F(L0DebuggerTest, givenL0DebuggerWhenGettingStateSaveAreaHeaderThenValidSip
 
 TEST(Debugger, givenL0DebuggerOFFWhenGettingStateSaveAreaHeaderThenValidSipTypeIsReturned) {
     auto executionEnvironment = new NEO::ExecutionEnvironment();
-    auto mockBuiltIns = new MockBuiltins();
     executionEnvironment->prepareRootDeviceEnvironments(1);
-    executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
+
+    auto isHexadecimalArrayPreferred = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).isSipKernelAsHexadecimalArrayPreferred();
+    if (!isHexadecimalArrayPreferred) {
+        auto mockBuiltIns = new MockBuiltins();
+        executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
+    }
     auto hwInfo = *NEO::defaultHwInfo.get();
     hwInfo.featureTable.ftrLocalMemory = true;
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
@@ -78,13 +92,44 @@ TEST(Debugger, givenL0DebuggerOFFWhenGettingStateSaveAreaHeaderThenValidSipTypeI
     driverHandle->enableProgramDebugging = false;
 
     driverHandle->initialize(std::move(devices));
+    auto sipType = SipKernel::getSipKernelType(*neoDevice);
 
+    if (isHexadecimalArrayPreferred) {
+        SipKernel::initSipKernel(sipType, *neoDevice);
+    }
     auto &stateSaveAreaHeader = SipKernel::getSipKernel(*neoDevice).getStateSaveAreaHeader();
 
-    auto sipType = SipKernel::getSipKernelType(*neoDevice);
-    auto &expectedStateSaveAreaHeader = neoDevice->getBuiltIns()->getSipKernel(sipType, *neoDevice).getStateSaveAreaHeader();
+    if (isHexadecimalArrayPreferred) {
+        auto &expectedStateSaveAreaHeader = neoDevice->getRootDeviceEnvironment().sipKernels[static_cast<uint32_t>(sipType)]->getStateSaveAreaHeader();
+        EXPECT_EQ(expectedStateSaveAreaHeader, stateSaveAreaHeader);
+    } else {
+        auto &expectedStateSaveAreaHeader = neoDevice->getBuiltIns()->getSipKernel(sipType, *neoDevice).getStateSaveAreaHeader();
+        EXPECT_EQ(expectedStateSaveAreaHeader, stateSaveAreaHeader);
+    }
+}
 
-    EXPECT_EQ(expectedStateSaveAreaHeader, stateSaveAreaHeader);
+TEST(Debugger, givenDebuggingEnabledInExecEnvWhenAllocatingIsaThenSingleBankIsUsed) {
+    auto executionEnvironment = new NEO::ExecutionEnvironment();
+    executionEnvironment->prepareRootDeviceEnvironments(1);
+    executionEnvironment->setDebuggingEnabled();
+
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    hwInfo.featureTable.ftrLocalMemory = true;
+    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+    executionEnvironment->initializeMemoryManager();
+
+    std::unique_ptr<NEO::MockDevice> neoDevice(NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u));
+
+    auto allocation = neoDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(
+        {neoDevice->getRootDeviceIndex(), 4096, NEO::GraphicsAllocation::AllocationType::KERNEL_ISA, neoDevice->getDeviceBitfield()});
+
+    if (allocation->getMemoryPool() == MemoryPool::LocalMemory) {
+        EXPECT_EQ(1u, allocation->storageInfo.getMemoryBanks());
+    } else {
+        EXPECT_EQ(0u, allocation->storageInfo.getMemoryBanks());
+    }
+
+    neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
 }
 
 HWTEST_F(L0DebuggerTest, givenL0DebuggerWhenCreatedThenPerContextSbaTrackingBuffersAreAllocated) {
@@ -189,7 +234,7 @@ HWTEST_F(L0DebuggerTest, givenDebuggingEnabledWhenCommandListIsExecutedThenValid
 
         auto systemRoutine = SipKernel::getSipKernel(*neoDevice).getSipAllocation();
         ASSERT_NE(nullptr, systemRoutine);
-        EXPECT_EQ(systemRoutine->getGpuAddress(), stateSip->getSystemInstructionPointer());
+        EXPECT_EQ(systemRoutine->getGpuAddressToPatch(), stateSip->getSystemInstructionPointer());
     }
 
     for (auto i = 0u; i < numCommandLists; i++) {
@@ -415,15 +460,30 @@ HWTEST_F(L0DebuggerTest, givenDebuggerWhenAppendingKernelToCommandListThenBindle
     EXPECT_EQ(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT, debugSurfaceState->getCoherencyType());
 }
 
+HWTEST_F(L0DebuggerTest, givenDebuggerWhenAppendingKernelToCommandListThenDebugSurfaceiIsProgrammedWithL3DisabledMOCS) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    Mock<::L0::Kernel> kernel;
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue));
+    ze_group_count_t groupCount{1, 1, 1};
+    auto result = commandList->appendLaunchKernel(kernel.toHandle(), &groupCount, nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->close();
+
+    auto *ssh = commandList->commandContainer.getIndirectHeap(NEO::HeapType::SURFACE_STATE);
+    auto debugSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ssh->getCpuBase());
+
+    const auto mocsNoCache = device->getNEODevice()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+    const auto actualMocs = debugSurfaceState->getMemoryObjectControlState();
+
+    EXPECT_EQ(actualMocs, mocsNoCache);
+}
+
 using IsSklOrAbove = IsAtLeastProduct<IGFX_SKYLAKE>;
 HWTEST2_F(L0DebuggerTest, givenDebuggingEnabledWhenCommandListIsExecutedThenSbaBufferIsPushedToResidencyContainer, IsSklOrAbove) {
     ze_command_queue_desc_t queueDesc = {};
-
-    struct Deleter {
-        void operator()(CommandQueueImp *cmdQ) {
-            cmdQ->destroy();
-        }
-    };
 
     std::unique_ptr<MockCommandQueueHw<gfxCoreFamily>, Deleter> commandQueue(new MockCommandQueueHw<gfxCoreFamily>(device, neoDevice->getDefaultEngine().commandStreamReceiver, &queueDesc));
     commandQueue->initialize(false, false);
@@ -800,12 +860,6 @@ HWTEST2_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledCom
 HWTEST2_F(L0DebuggerInternalUsageTest, givenDebuggingEnabledWhenInternalCmdQIsUsedThenDebuggerPathsAreNotExecuted, IsSklOrAbove) {
     ze_command_queue_desc_t queueDesc = {};
 
-    struct Deleter {
-        void operator()(CommandQueueImp *cmdQ) {
-            cmdQ->destroy();
-        }
-    };
-
     std::unique_ptr<MockCommandQueueHw<gfxCoreFamily>, Deleter> commandQueue(new MockCommandQueueHw<gfxCoreFamily>(device, neoDevice->getDefaultEngine().commandStreamReceiver, &queueDesc));
     commandQueue->initialize(false, true);
     EXPECT_TRUE(commandQueue->internalUsage);
@@ -1065,6 +1119,52 @@ HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionDisabledForRegularC
     commandQueue->destroy();
 }
 
+HWTEST2_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionEnabledCommandListAndAppendPageFaultCopyThenSuccessIsReturned, IsSklOrAbove) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    size_t size = (sizeof(uint32_t) * 4);
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+    ASSERT_NE(nullptr, commandList);
+
+    NEO::GraphicsAllocation srcPtr(0, NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                   reinterpret_cast<void *>(0x1234), size, 0, sizeof(uint32_t),
+                                   MemoryPool::System4KBPages);
+    NEO::GraphicsAllocation dstPtr(0, NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                   reinterpret_cast<void *>(0x2345), size, 0, sizeof(uint32_t),
+                                   MemoryPool::System4KBPages);
+
+    auto result = commandList->appendPageFaultCopy(&dstPtr, &srcPtr, 0x100, false);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST2_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionDisabledCommandListAndAppendPageFaultCopyThenSuccessIsReturned, IsSklOrAbove) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    size_t size = (sizeof(uint32_t) * 4);
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+    ASSERT_NE(nullptr, commandList);
+
+    NEO::GraphicsAllocation srcPtr(0, NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                   reinterpret_cast<void *>(0x1234), size, 0, sizeof(uint32_t),
+                                   MemoryPool::System4KBPages);
+    NEO::GraphicsAllocation dstPtr(0, NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                   reinterpret_cast<void *>(0x2345), size, 0, sizeof(uint32_t),
+                                   MemoryPool::System4KBPages);
+
+    auto result = commandList->appendPageFaultCopy(&dstPtr, &srcPtr, 0x100, false);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
 HWTEST_F(L0DebuggerSimpleTest, givenNonZeroGpuVasWhenProgrammingSbaTrackingThenCorrectCmdsAreAddedToStream) {
     using MI_STORE_DATA_IMM = typename FamilyType::MI_STORE_DATA_IMM;
     auto debugger = std::make_unique<MockDebuggerL0Hw<FamilyType>>(neoDevice);
@@ -1276,6 +1376,46 @@ HWTEST_F(L0DebuggerTest, givenDebuggerWhenCreatedThenModuleHeapDebugAreaIsCreate
     neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
 }
 
+HWTEST_F(L0DebuggerTest, givenBindlessSipWhenModuleHeapDebugAreaIsCreatedThenReservedFieldIsSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.UseBindlessDebugSip.set(1);
+
+    auto mockBlitMemoryToAllocation = [](const NEO::Device &device, NEO::GraphicsAllocation *memory, size_t offset, const void *hostPtr,
+                                         Vec3<size_t> size) -> NEO::BlitOperationResult {
+        memcpy(memory->getUnderlyingBuffer(), hostPtr, size.x);
+        return BlitOperationResult::Success;
+    };
+    VariableBackup<NEO::BlitHelperFunctions::BlitMemoryToAllocationFunc> blitMemoryToAllocationFuncBackup(
+        &NEO::BlitHelperFunctions::blitMemoryToAllocation, mockBlitMemoryToAllocation);
+
+    memoryOperationsHandler->makeResidentCalledCount = 0;
+    auto debugger = std::make_unique<MockDebuggerL0Hw<FamilyType>>(neoDevice);
+    auto debugArea = debugger->getModuleDebugArea();
+
+    DebugAreaHeader *header = reinterpret_cast<DebugAreaHeader *>(debugArea->getUnderlyingBuffer());
+    EXPECT_EQ(1u, header->reserved1);
+}
+
+HWTEST_F(L0DebuggerTest, givenBindfulSipWhenModuleHeapDebugAreaIsCreatedThenReservedFieldIsNotSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.UseBindlessDebugSip.set(0);
+
+    auto mockBlitMemoryToAllocation = [](const NEO::Device &device, NEO::GraphicsAllocation *memory, size_t offset, const void *hostPtr,
+                                         Vec3<size_t> size) -> NEO::BlitOperationResult {
+        memcpy(memory->getUnderlyingBuffer(), hostPtr, size.x);
+        return BlitOperationResult::Success;
+    };
+    VariableBackup<NEO::BlitHelperFunctions::BlitMemoryToAllocationFunc> blitMemoryToAllocationFuncBackup(
+        &NEO::BlitHelperFunctions::blitMemoryToAllocation, mockBlitMemoryToAllocation);
+
+    memoryOperationsHandler->makeResidentCalledCount = 0;
+    auto debugger = std::make_unique<MockDebuggerL0Hw<FamilyType>>(neoDevice);
+    auto debugArea = debugger->getModuleDebugArea();
+
+    DebugAreaHeader *header = reinterpret_cast<DebugAreaHeader *>(debugArea->getUnderlyingBuffer());
+    EXPECT_EQ(0u, header->reserved1);
+}
+
 TEST(Debugger, givenNonLegacyDebuggerWhenInitializingDeviceCapsThenUnrecoverableIsCalled) {
     class MockDebugger : public NEO::Debugger {
       public:
@@ -1296,325 +1436,6 @@ TEST(Debugger, givenNonLegacyDebuggerWhenInitializingDeviceCapsThenUnrecoverable
     executionEnvironment->initializeMemoryManager();
 
     EXPECT_THROW(NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u), std::exception);
-}
-
-static void printAttentionBitmask(uint8_t *expected, uint8_t *actual, uint32_t maxSlices, uint32_t maxSubSlicesPerSlice, uint32_t maxEuPerSubslice, uint32_t threadsPerEu, bool printBitmask = false) {
-    auto bytesPerThread = threadsPerEu > 8 ? 2u : 1u;
-
-    auto bytesPerSlice = maxSubSlicesPerSlice * maxEuPerSubslice * bytesPerThread;
-    auto bytesPerSubSlice = maxEuPerSubslice * bytesPerThread;
-
-    for (uint32_t slice = 0; slice < maxSlices; slice++) {
-        for (uint32_t subslice = 0; subslice < maxSubSlicesPerSlice; subslice++) {
-            for (uint32_t eu = 0; eu < maxEuPerSubslice; eu++) {
-                for (uint32_t byte = 0; byte < bytesPerThread; byte++) {
-                    if (printBitmask) {
-                        std::bitset<8> bits(actual[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]);
-                        std::cout << " slice = " << slice << " subslice = " << subslice << " eu = " << eu << " threads bitmask = " << bits << "\n";
-                    }
-
-                    if (expected[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte] !=
-                        actual[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]) {
-                        std::bitset<8> bits(actual[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]);
-                        std::bitset<8> bitsExpected(expected[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]);
-                        ASSERT_FALSE(true) << " got: slice = " << slice << " subslice = " << subslice << " eu = " << eu << " threads bitmask = " << bits << "\n"
-                                           << " expected: slice = " << slice << " subslice = " << subslice << " eu = " << eu << " threads bitmask = " << bitsExpected << "\n";
-                        ;
-                    }
-                }
-            }
-        }
-    }
-
-    if (printBitmask) {
-        std::cout << "\n\n";
-    }
-}
-TEST(DebuggerL0, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenCorrectBitmaskIsReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    std::unique_ptr<uint8_t[]> bitmask;
-    size_t size = 0;
-
-    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
-    uint32_t subslice = subslicesPerSlice > 1 ? subslicesPerSlice - 1 : 0;
-
-    const auto threadsPerEu = (hwInfo.gtSystemInfo.ThreadCount / hwInfo.gtSystemInfo.EUCount);
-    const auto bytesPerEu = threadsPerEu <= 8 ? 1 : 2;
-
-    const auto threadsSizePerSubSlice = hwInfo.gtSystemInfo.MaxEuPerSubSlice * bytesPerEu;
-    const auto threadsSizePerSlice = threadsSizePerSubSlice * subslicesPerSlice;
-
-    DebuggerL0::getAttentionBitmaskForThread(0, 0, 0, 6, hwInfo, bitmask, size);
-
-    auto expectedBitmask = std::make_unique<uint8_t[]>(size);
-    uint8_t *data = nullptr;
-    memset(expectedBitmask.get(), 0, size);
-
-    auto returnedBitmask = bitmask.get();
-    EXPECT_EQ(uint8_t(1u << 6), returnedBitmask[0]);
-
-    DebuggerL0::getAttentionBitmaskForThread(0, 0, 1, 3, hwInfo, bitmask, size);
-    returnedBitmask = bitmask.get();
-    returnedBitmask += bytesPerEu;
-    EXPECT_EQ(uint8_t(1u << 3), returnedBitmask[0]);
-
-    DebuggerL0::getAttentionBitmaskForThread(0, subslice, 3, 6, hwInfo, bitmask, size);
-
-    data = expectedBitmask.get();
-    memset(expectedBitmask.get(), 0, size);
-
-    data = ptrOffset(data, subslice * threadsSizePerSubSlice);
-    data = ptrOffset(data, 3 * bytesPerEu);
-    data[0] = 1 << 6;
-
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, 3, 6, hwInfo, bitmask, size);
-    data = expectedBitmask.get();
-    memset(expectedBitmask.get(), 0, size);
-
-    data = ptrOffset(data, (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
-    data = ptrOffset(data, subslice * threadsSizePerSubSlice);
-    data = ptrOffset(data, 3 * bytesPerEu);
-    data[0] = 1 << 6;
-
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, 5, 0, hwInfo, bitmask, size);
-    data = expectedBitmask.get();
-    memset(expectedBitmask.get(), 0, size);
-
-    data = ptrOffset(data, (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
-    data = ptrOffset(data, subslice * threadsSizePerSubSlice);
-    data = ptrOffset(data, 5 * bytesPerEu);
-    data[0] = 1;
-
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-}
-
-TEST(DebuggerL0, givenAllSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenCorrectBitmaskIsReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    std::unique_ptr<uint8_t[]> bitmask;
-    size_t size = 0;
-
-    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
-    uint32_t subsliceID = subslicesPerSlice > 2 ? subslicesPerSlice - 2 : 0;
-
-    const auto threadsPerEu = (hwInfo.gtSystemInfo.ThreadCount / hwInfo.gtSystemInfo.EUCount);
-    const auto bytesPerEu = threadsPerEu <= 8 ? 1u : 2u;
-
-    const auto threadsSizePerSubSlice = hwInfo.gtSystemInfo.MaxEuPerSubSlice * bytesPerEu;
-    const auto threadsSizePerSlice = threadsSizePerSubSlice * subslicesPerSlice;
-
-    const auto threadID = threadsPerEu - 1;
-
-    // ALL slices
-    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, subsliceID, 0, threadID, hwInfo, bitmask, size);
-    auto expectedBitmask = std::make_unique<uint8_t[]>(size);
-    uint8_t *data = nullptr;
-
-    memset(expectedBitmask.get(), 0, size);
-
-    for (uint32_t i = 0; i < hwInfo.gtSystemInfo.MaxSlicesSupported; i++) {
-        data = ptrOffset(expectedBitmask.get(), i * threadsSizePerSlice);
-        data = ptrOffset(data, subsliceID * threadsSizePerSubSlice);
-        data[0] = 1 << threadID;
-    }
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    // ALL Subslices
-    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, UINT32_MAX, 0, threadID, hwInfo, bitmask, size);
-    memset(expectedBitmask.get(), 0, size);
-
-    data = ptrOffset(expectedBitmask.get(), (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
-
-    for (uint32_t i = 0; i < subslicesPerSlice; i++) {
-        data[i * threadsSizePerSubSlice] = 1 << threadID;
-    }
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    // ALL EUs
-    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subsliceID, UINT32_MAX, threadID, hwInfo, bitmask, size);
-    memset(expectedBitmask.get(), 0, size);
-
-    data = ptrOffset(expectedBitmask.get(), (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
-    data = ptrOffset(data, subsliceID * threadsSizePerSubSlice);
-
-    for (uint32_t i = 0; i < hwInfo.gtSystemInfo.MaxEuPerSubSlice; i++) {
-        data[i * bytesPerEu] = 1 << threadID;
-    }
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    // ALL threads
-    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subsliceID, 1, UINT32_MAX, hwInfo, bitmask, size);
-    memset(expectedBitmask.get(), 0, size);
-
-    data = ptrOffset(expectedBitmask.get(), (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
-    data = ptrOffset(data, subsliceID * threadsSizePerSubSlice);
-    data = ptrOffset(data, 1 * bytesPerEu);
-
-    for (uint32_t byte = 0; byte < bytesPerEu; byte++) {
-        for (uint32_t i = 0; i < std::min(threadsPerEu, 8u); i++) {
-            data[byte] |= 1 << i;
-        }
-    }
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    // ALL slices, All subslices, ALL EUs, ALL threads
-    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, hwInfo, bitmask, size);
-
-    auto expectedThreads = threadsPerEu == 7 ? 0x7f : 0xff;
-    memset(expectedBitmask.get(), expectedThreads, size);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    // ALL slices, All subslices
-    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, UINT32_MAX, 0, 0, hwInfo, bitmask, size);
-    memset(expectedBitmask.get(), 0, size);
-    data = expectedBitmask.get();
-
-    for (uint32_t slice = 0; slice < hwInfo.gtSystemInfo.MaxSlicesSupported; slice++) {
-        for (uint32_t subslice = 0; subslice < subslicesPerSlice; subslice++) {
-            data[slice * threadsSizePerSlice + subslice * threadsSizePerSubSlice] = 1;
-        }
-    }
-
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-
-    // ALL slices, All subslices, ALL EUs
-    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, UINT32_MAX, UINT32_MAX, 0, hwInfo, bitmask, size);
-    memset(expectedBitmask.get(), 0, size);
-    data = expectedBitmask.get();
-
-    for (uint32_t slice = 0; slice < hwInfo.gtSystemInfo.MaxSlicesSupported; slice++) {
-        for (uint32_t subslice = 0; subslice < subslicesPerSlice; subslice++) {
-            for (uint32_t eu = 0; eu < hwInfo.gtSystemInfo.MaxEuPerSubSlice; eu++) {
-                data[slice * threadsSizePerSlice + subslice * threadsSizePerSubSlice + eu * bytesPerEu] = 1;
-            }
-        }
-    }
-
-    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
-    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
-}
-
-TEST(DebuggerL0, givenBitmaskWithAttentionBitsForSingleThreadWhenGettingThreadsThenSingleCorrectThreadReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    std::unique_ptr<uint8_t[]> bitmask;
-    size_t size = 0;
-
-    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
-    uint32_t subsliceID = subslicesPerSlice > 2 ? subslicesPerSlice - 2 : 0;
-
-    uint32_t threadID = 3;
-    DebuggerL0::getAttentionBitmaskForThread(0, subsliceID, 0, threadID, hwInfo, bitmask, size);
-
-    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
-
-    ASSERT_EQ(1u, threads.size());
-
-    EXPECT_EQ(0u, threads[0].slice);
-    EXPECT_EQ(subsliceID, threads[0].subslice);
-    EXPECT_EQ(0u, threads[0].eu);
-    EXPECT_EQ(threadID, threads[0].thread);
-}
-
-TEST(DebuggerL0, givenBitmaskWithAttentionBitsForAllSubslicesWhenGettingThreadsThenCorrectThreadsAreReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    std::unique_ptr<uint8_t[]> bitmask;
-    size_t size = 0;
-
-    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
-    uint32_t threadID = 3;
-    DebuggerL0::getAttentionBitmaskForThread(0, UINT32_MAX, 0, threadID, hwInfo, bitmask, size);
-
-    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
-
-    ASSERT_EQ(subslicesPerSlice, threads.size());
-
-    for (uint32_t i = 0; i < subslicesPerSlice; i++) {
-        EXPECT_EQ(0u, threads[i].slice);
-        EXPECT_EQ(i, threads[i].subslice);
-        EXPECT_EQ(0u, threads[i].eu);
-        EXPECT_EQ(threadID, threads[i].thread);
-    }
-}
-
-TEST(DebuggerL0, givenBitmaskWithAttentionBitsForAllEUsWhenGettingThreadsThenCorrectThreadsAreReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    std::unique_ptr<uint8_t[]> bitmask;
-    size_t size = 0;
-
-    uint32_t maxEUs = hwInfo.gtSystemInfo.MaxEuPerSubSlice;
-    uint32_t threadID = 3;
-    DebuggerL0::getAttentionBitmaskForThread(0, 0, UINT32_MAX, threadID, hwInfo, bitmask, size);
-
-    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
-
-    ASSERT_EQ(maxEUs, threads.size());
-
-    for (uint32_t i = 0; i < maxEUs; i++) {
-        EXPECT_EQ(0u, threads[i].slice);
-        EXPECT_EQ(0u, threads[i].subslice);
-        EXPECT_EQ(i, threads[i].eu);
-        EXPECT_EQ(threadID, threads[i].thread);
-    }
-}
-
-TEST(DebuggerL0, givenEu0To1Threads0To3BitmaskWhenGettingThreadsThenCorrectThreadsAreReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    uint8_t data[2] = {0x0f, 0x0f};
-    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, data, sizeof(data));
-
-    ASSERT_EQ(8u, threads.size());
-
-    ze_device_thread_t expectedThreads[] = {
-        {0, 0, 0, 0},
-        {0, 0, 0, 1},
-        {0, 0, 0, 2},
-        {0, 0, 0, 3},
-        {0, 0, 1, 0},
-        {0, 0, 1, 1},
-        {0, 0, 1, 2},
-        {0, 0, 1, 3}};
-
-    for (uint32_t i = 0; i < 8u; i++) {
-        EXPECT_EQ(expectedThreads[i].slice, threads[i].slice);
-        EXPECT_EQ(expectedThreads[i].subslice, threads[i].subslice);
-        EXPECT_EQ(expectedThreads[i].eu, threads[i].eu);
-        EXPECT_EQ(expectedThreads[i].thread, threads[i].thread);
-    }
-}
-
-TEST(DebuggerL0, givenBitmaskWithAttentionBitsForHalfOfThreadsWhenGettingThreadsThenCorrectThreadsAreReturned) {
-    auto hwInfo = *NEO::defaultHwInfo.get();
-    std::unique_ptr<uint8_t[]> bitmask;
-    size_t size = 0;
-
-    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
-    uint32_t threadID = 3;
-    DebuggerL0::getAttentionBitmaskForThread(0, UINT32_MAX, 0, threadID, hwInfo, bitmask, size);
-
-    auto bitmaskSizePerSingleSubslice = size / hwInfo.gtSystemInfo.MaxSlicesSupported / subslicesPerSlice;
-    auto numOfActiveSubslices = ((subslicesPerSlice + 1) / 2);
-
-    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), bitmaskSizePerSingleSubslice * numOfActiveSubslices);
-
-    ASSERT_EQ(numOfActiveSubslices, threads.size());
-
-    for (uint32_t i = 0; i < numOfActiveSubslices; i++) {
-        EXPECT_EQ(0u, threads[i].slice);
-        EXPECT_EQ(i, threads[i].subslice);
-        EXPECT_EQ(0u, threads[i].eu);
-        EXPECT_EQ(threadID, threads[i].thread);
-    }
 }
 
 } // namespace ult

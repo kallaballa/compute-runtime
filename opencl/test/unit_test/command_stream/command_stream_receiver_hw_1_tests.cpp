@@ -5,8 +5,15 @@
  *
  */
 
+#include "shared/source/command_stream/scratch_space_controller.h"
 #include "shared/source/command_stream/scratch_space_controller_base.h"
+#include "shared/source/helpers/constants.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
+#include "shared/test/common/mocks/mock_command_stream_receiver.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/event/user_event.h"
@@ -427,6 +434,24 @@ HWTEST_F(UltCommandStreamReceiverTest, givenComputeOverrideDisableWhenComputeSup
     EXPECT_FALSE(startInContext);
 }
 
+HWTEST_F(UltCommandStreamReceiverTest, givenSinglePartitionWhenCallingWaitKmdNotifyThenExpectImplicitBusyLoopWaitCalled) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.callBaseWaitForCompletionWithTimeout = false;
+    commandStreamReceiver.returnWaitForCompletionWithTimeout = false;
+
+    commandStreamReceiver.waitForTaskCountWithKmdNotifyFallback(0, 0, false, false, 1, 0);
+    EXPECT_EQ(2u, commandStreamReceiver.waitForCompletionWithTimeoutTaskCountCalled);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenMultiplePartitionsWhenCallingWaitKmdNotifyThenExpectExplicitBusyLoopWaitCalled) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.callBaseWaitForCompletionWithTimeout = false;
+    commandStreamReceiver.returnWaitForCompletionWithTimeout = false;
+
+    commandStreamReceiver.waitForTaskCountWithKmdNotifyFallback(0, 0, false, false, 2, 8);
+    EXPECT_EQ(2u, commandStreamReceiver.waitForCompletionWithTimeoutTaskCountExplicitCalled);
+}
+
 typedef UltCommandStreamReceiverTest CommandStreamReceiverFlushTests;
 
 HWTEST_F(CommandStreamReceiverFlushTests, WhenAddingBatchBufferEndThenBatchBufferEndIsAppendedCorrectly) {
@@ -561,6 +586,46 @@ HWTEST_F(CommandStreamReceiverHwTest, WhenForceEnableGpuIdleImplicitFlushThenExp
     commandStreamReceiver->setupContext(*osContext);
     commandStreamReceiver->postInitFlagsSetup();
     EXPECT_TRUE(commandStreamReceiver->useGpuIdleImplicitFlush);
+}
+
+HWTEST2_F(CommandStreamReceiverHwTest, whenProgramVFEStateIsCalledThenCorrectComputeOverdispatchDisableValueIsProgrammed, IsAtLeastXeHpCore) {
+    using CFE_STATE = typename FamilyType::CFE_STATE;
+
+    UltDeviceFactory deviceFactory{1, 0};
+    auto pDevice = deviceFactory.rootDevices[0];
+    auto pHwInfo = pDevice->getRootDeviceEnvironment().getMutableHardwareInfo();
+    const auto &hwInfoConfig = *HwInfoConfig::get(pHwInfo->platform.eProductFamily);
+
+    uint8_t memory[1 * KB];
+    auto mockCsr = std::make_unique<MockCsrHw2<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(),
+                                                            pDevice->getDeviceBitfield());
+    MockOsContext osContext{0, EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_CCS, EngineUsage::Regular}, DeviceBitfield(0))};
+    mockCsr->setupContext(osContext);
+
+    uint32_t revisions[] = {REVISION_A0, REVISION_B};
+    for (auto revision : revisions) {
+        pHwInfo->platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(revision, *pHwInfo);
+
+        {
+            auto flags = DispatchFlagsHelper::createDefaultDispatchFlags();
+            LinearStream commandStream{&memory, sizeof(memory)};
+            mockCsr->mediaVfeStateDirty = true;
+            mockCsr->programVFEState(commandStream, flags, 10);
+            auto pCommand = reinterpret_cast<CFE_STATE *>(&memory);
+
+            auto expectedDisableOverdispatch = hwInfoConfig.isDisableOverdispatchAvailable(*pHwInfo);
+            EXPECT_EQ(expectedDisableOverdispatch, pCommand->getComputeOverdispatchDisable());
+        }
+        {
+            auto flags = DispatchFlagsHelper::createDefaultDispatchFlags();
+            flags.additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+            LinearStream commandStream{&memory, sizeof(memory)};
+            mockCsr->mediaVfeStateDirty = true;
+            mockCsr->programVFEState(commandStream, flags, 10);
+            auto pCommand = reinterpret_cast<CFE_STATE *>(&memory);
+            EXPECT_FALSE(pCommand->getComputeOverdispatchDisable());
+        }
+    }
 }
 
 HWTEST_F(BcsTests, WhenGetNumberOfBlitsForCopyPerRowIsCalledThenCorrectValuesAreReturned) {
@@ -870,7 +935,7 @@ HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredC
     }
 
     EXPECT_EQ(expectedResursiveLockCount, csr.recursiveLockCounter.load());
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
     EXPECT_EQ(newTaskCount, csr.taskCount);
     EXPECT_EQ(newTaskCount, csr.latestFlushedTaskCount);
     EXPECT_EQ(newTaskCount, csr.latestSentTaskCount);
@@ -962,29 +1027,25 @@ HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredC
 }
 HWTEST_F(BcsTests, givenCommandTypeWhenObtainBlitDirectionIsCalledThenReturnCorrectBlitDirection) {
 
-    std::array<std::pair<uint32_t, BlitterConstants::BlitDirection>, 9> testParams{
-        std::make_pair(CL_COMMAND_WRITE_BUFFER, BlitterConstants::BlitDirection::HostPtrToBuffer),
-        std::make_pair(CL_COMMAND_WRITE_BUFFER_RECT, BlitterConstants::BlitDirection::HostPtrToBuffer),
-        std::make_pair(CL_COMMAND_READ_BUFFER, BlitterConstants::BlitDirection::BufferToHostPtr),
-        std::make_pair(CL_COMMAND_READ_BUFFER_RECT, BlitterConstants::BlitDirection::BufferToHostPtr),
-        std::make_pair(CL_COMMAND_COPY_BUFFER_RECT, BlitterConstants::BlitDirection::BufferToBuffer),
-        std::make_pair(CL_COMMAND_SVM_MEMCPY, BlitterConstants::BlitDirection::BufferToBuffer),
-        std::make_pair(CL_COMMAND_WRITE_IMAGE, BlitterConstants::BlitDirection::HostPtrToImage),
-        std::make_pair(CL_COMMAND_READ_IMAGE, BlitterConstants::BlitDirection::ImageToHostPtr),
-        std::make_pair(CL_COMMAND_COPY_BUFFER, BlitterConstants::BlitDirection::BufferToBuffer)};
+    std::array<std::pair<uint32_t, BlitterConstants::BlitDirection>, 10> testParams = {{{CL_COMMAND_WRITE_BUFFER, BlitterConstants::BlitDirection::HostPtrToBuffer},
+                                                                                        {CL_COMMAND_WRITE_BUFFER_RECT, BlitterConstants::BlitDirection::HostPtrToBuffer},
+                                                                                        {CL_COMMAND_READ_BUFFER, BlitterConstants::BlitDirection::BufferToHostPtr},
+                                                                                        {CL_COMMAND_READ_BUFFER_RECT, BlitterConstants::BlitDirection::BufferToHostPtr},
+                                                                                        {CL_COMMAND_COPY_BUFFER_RECT, BlitterConstants::BlitDirection::BufferToBuffer},
+                                                                                        {CL_COMMAND_SVM_MEMCPY, BlitterConstants::BlitDirection::BufferToBuffer},
+                                                                                        {CL_COMMAND_WRITE_IMAGE, BlitterConstants::BlitDirection::HostPtrToImage},
+                                                                                        {CL_COMMAND_READ_IMAGE, BlitterConstants::BlitDirection::ImageToHostPtr},
+                                                                                        {CL_COMMAND_COPY_BUFFER, BlitterConstants::BlitDirection::BufferToBuffer},
+                                                                                        {CL_COMMAND_COPY_IMAGE, BlitterConstants::BlitDirection::ImageToImage}}};
 
-    for (const auto &params : testParams) {
-        uint32_t commandType;
-        BlitterConstants::BlitDirection expectedBlitDirection;
-        std::tie(commandType, expectedBlitDirection) = params;
-
+    for (const auto &[commandType, expectedBlitDirection] : testParams) {
         auto blitDirection = ClBlitProperties::obtainBlitDirection(commandType);
         EXPECT_EQ(expectedBlitDirection, blitDirection);
     }
 }
 
 HWTEST_F(BcsTests, givenWrongCommandTypeWhenObtainBlitDirectionIsCalledThenExpectThrow) {
-    uint32_t wrongCommandType = CL_COMMAND_COPY_IMAGE;
+    uint32_t wrongCommandType = CL_COMMAND_NDRANGE_KERNEL;
     EXPECT_THROW(ClBlitProperties::obtainBlitDirection(wrongCommandType), std::exception);
 }
 
@@ -1089,7 +1150,7 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
     );
 
     memoryManager->returnFakeAllocation = false;
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);
@@ -1191,7 +1252,7 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
     );
 
     memoryManager->returnFakeAllocation = false;
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);
@@ -1268,18 +1329,18 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
     size_t buffer2SlicePitch = std::get<0>(GetParam()).srcSlicePitch;
     auto allocation = buffer1->getGraphicsAllocation(pDevice->getRootDeviceIndex());
 
-    auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(allocation,                   //dstAllocation
-                                                                           allocation,                   //srcAllocation
-                                                                           buffer1Offset,                //dstOffset
-                                                                           buffer2Offset,                //srcOffset
-                                                                           bltSize,                      //copySize
-                                                                           buffer1RowPitch,              //srcRowPitch
-                                                                           buffer1SlicePitch,            //srcSlicePitch
-                                                                           buffer2RowPitch,              //dstRowPitch
-                                                                           buffer2SlicePitch,            //dstSlicePitch
-                                                                           csr.getClearColorAllocation() //clearColorAllocation
+    auto blitProperties = BlitProperties::constructPropertiesForCopy(allocation,                   //dstAllocation
+                                                                     allocation,                   //srcAllocation
+                                                                     buffer1Offset,                //dstOffset
+                                                                     buffer2Offset,                //srcOffset
+                                                                     bltSize,                      //copySize
+                                                                     buffer1RowPitch,              //srcRowPitch
+                                                                     buffer1SlicePitch,            //srcSlicePitch
+                                                                     buffer2RowPitch,              //dstRowPitch
+                                                                     buffer2SlicePitch,            //dstSlicePitch
+                                                                     csr.getClearColorAllocation() //clearColorAllocation
     );
-    blitBuffer(&csr, blitProperties, true);
+    blitBuffer(&csr, blitProperties, true, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);

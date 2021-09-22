@@ -40,6 +40,8 @@ struct WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>
     using BaseClass::commandListPerThreadScratchSize;
     using BaseClass::commandListPreemptionMode;
     using BaseClass::commandsToPatch;
+    using BaseClass::containsAnyKernel;
+    using BaseClass::containsCooperativeKernelsFlag;
     using BaseClass::engineGroupType;
     using BaseClass::finalStreamState;
     using BaseClass::flags;
@@ -49,6 +51,7 @@ struct WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>
     using BaseClass::hostPtrMap;
     using BaseClass::indirectAllocationsAllowed;
     using BaseClass::initialize;
+    using BaseClass::patternAllocations;
     using BaseClass::requiredStreamState;
     using BaseClass::unifiedMemoryControls;
     using BaseClass::updateStreamProperties;

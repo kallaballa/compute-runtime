@@ -8,6 +8,7 @@
 #pragma once
 
 #include "shared/source/device_binary_format/elf/elf.h"
+#include "shared/source/device_binary_format/elf/elf_decoder.h"
 #include "shared/source/utilities/const_stringref.h"
 
 #include <inttypes.h>
@@ -29,6 +30,14 @@ enum SHT_ZEBIN : uint32_t {
     SHT_ZEBIN_GTPIN_INFO = 0xff000012 // .gtpin_info section
 };
 
+enum RELOC_TYPE_ZEBIN : uint32_t {
+    R_ZE_NONE,
+    R_ZE_SYM_ADDR,
+    R_ZE_SYM_ADDR_32,
+    R_ZE_SYM_ADDR_32_HI,
+    R_PER_THREAD_PAYLOAD_OFFSET
+};
+
 namespace SectionsNamesZebin {
 static constexpr ConstStringRef textPrefix = ".text.";
 static constexpr ConstStringRef dataConst = ".data.const";
@@ -37,10 +46,25 @@ static constexpr ConstStringRef dataGlobal = ".data.global";
 static constexpr ConstStringRef symtab = ".symtab";
 static constexpr ConstStringRef relTablePrefix = ".rel.";
 static constexpr ConstStringRef spv = ".spv";
+static constexpr ConstStringRef debugPrefix = ".debug_";
 static constexpr ConstStringRef debugInfo = ".debug_info";
+static constexpr ConstStringRef debugAbbrev = ".debug_abbrev";
 static constexpr ConstStringRef zeInfo = ".ze_info";
 static constexpr ConstStringRef gtpinInfo = ".gtpin_info";
+static constexpr ConstStringRef noteIntelGT = ".note.intelgt.compat";
 } // namespace SectionsNamesZebin
+
+static constexpr ConstStringRef IntelGtNoteOwnerName = "IntelGT";
+struct IntelGTNote : ElfNoteSection {
+    char ownerName[8];
+    uint32_t desc;
+};
+static_assert(sizeof(IntelGTNote) == 0x18, "");
+enum IntelGTSectionType : uint32_t {
+    ProductFamily = 1,
+    GfxCore = 2,
+    TargetMetadata = 3
+};
 
 struct ZebinTargetFlags {
     union {
@@ -75,12 +99,56 @@ struct ZebinTargetFlags {
             uint8_t generatorId : 3;
 
             // bit[31:24]: MBZ, reserved for future use
-            uint8_t reserved : 8;
         };
         uint32_t packed = 0U;
     };
 };
 static_assert(sizeof(ZebinTargetFlags) == sizeof(uint32_t), "");
+
+struct ZebinTargetMetadata {
+    // bit[7:0]: dedicated for specific generator (meaning based on generatorId)
+    enum GeneratorSpecificFlags : uint8_t {
+        NONE = 0
+    };
+    // bit[22:20]: generator of this device binary
+    enum GeneratorId : uint8_t {
+        UNREGISTERED = 0,
+        IGC = 1
+    };
+
+    union {
+        struct {
+            // bit[7:0]: dedicated for specific generator (meaning based on generatorId)
+            uint8_t generatorSpecificFlags : 8;
+
+            // bit[12:8]: values [0-31], min compatbile device revision Id (stepping)
+            uint8_t minHwRevisionId : 5;
+
+            // bit[13:13]:
+            // 0 - full validation during decoding (safer decoding)
+            // 1 - no validation (faster decoding - recommended for known generators)
+            bool validateRevisionId : 1;
+
+            // bit[14:14]:
+            // 0 - ignore minHwRevisionId and maxHwRevisionId
+            // 1 - underlying device must match specified revisionId info
+            bool disableExtendedValidation : 1;
+
+            // bit[19:15]:  max compatbile device revision Id (stepping)
+            uint8_t maxHwRevisionId : 5;
+
+            // bit[22:20]: generator of this device binary
+            // 0 - Unregistered
+            // 1 - IGC
+            uint8_t generatorId : 3;
+
+            // bit[31:23]: MBZ, reserved for future use
+            uint8_t reserved : 8;
+        };
+        uint32_t packed = 0U;
+    };
+};
+static_assert(sizeof(ZebinTargetMetadata) == sizeof(uint32_t), "");
 
 namespace ZebinKernelMetadata {
 namespace Tags {
@@ -89,6 +157,7 @@ static constexpr ConstStringRef version("version");
 namespace Kernel {
 static constexpr ConstStringRef name("name");
 static constexpr ConstStringRef executionEnv("execution_env");
+static constexpr ConstStringRef debugEnv("debug_env");
 static constexpr ConstStringRef payloadArguments("payload_arguments");
 static constexpr ConstStringRef bindingTableIndices("binding_table_indices");
 static constexpr ConstStringRef perThreadPayloadArguments("per_thread_payload_arguments");
@@ -117,6 +186,10 @@ static constexpr ConstStringRef subgroupIndependentForwardProgress("subgroup_ind
 static constexpr ConstStringRef workGroupWalkOrderDimensions("work_group_walk_order_dimensions");
 } // namespace ExecutionEnv
 
+namespace DebugEnv {
+static constexpr ConstStringRef debugSurfaceBTI("sip_surface_bti");
+} // namespace DebugEnv
+
 namespace PayloadArgument {
 static constexpr ConstStringRef argType("arg_type");
 static constexpr ConstStringRef argIndex("arg_index");
@@ -137,6 +210,7 @@ static constexpr ConstStringRef argByvalue("arg_byvalue");
 static constexpr ConstStringRef argBypointer("arg_bypointer");
 static constexpr ConstStringRef bufferOffset("buffer_offset");
 static constexpr ConstStringRef printfBuffer("printf_buffer");
+static constexpr ConstStringRef workDimensions("work_dimensions");
 } // namespace ArgType
 namespace MemoryAddressingMode {
 static constexpr ConstStringRef stateless("stateless");
@@ -287,6 +361,18 @@ struct ExperimentalPropertiesBaseT {
 
 } // namespace ExecutionEnv
 
+namespace DebugEnv {
+using DebugSurfaceBTIT = int32_t;
+
+namespace Defaults {
+static constexpr DebugSurfaceBTIT debugSurfaceBTI = -1;
+} // namespace Defaults
+
+struct DebugEnvBaseT {
+    DebugSurfaceBTIT debugSurfaceBTI = Defaults::debugSurfaceBTI;
+};
+} // namespace DebugEnv
+
 enum ArgType : uint8_t {
     ArgTypeUnknown = 0,
     ArgTypePackedLocalIds = 1,
@@ -300,7 +386,8 @@ enum ArgType : uint8_t {
     ArgTypeArgByvalue,
     ArgTypeArgBypointer,
     ArgTypeBufferOffset,
-    ArgTypePrintfBuffer
+    ArgTypePrintfBuffer,
+    ArgTypeWorkDimensions
 };
 
 namespace PerThreadPayloadArgument {

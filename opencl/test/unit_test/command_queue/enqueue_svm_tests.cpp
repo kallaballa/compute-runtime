@@ -283,7 +283,7 @@ TEST_F(EnqueueSvmTest, GivenNullSrcPtrWhenCopyingMemoryThenInvalidVaueErrorIsRet
 }
 
 TEST_F(EnqueueSvmTest, givenSrcHostPtrAndEventWhenEnqueueSVMMemcpyThenEventCommandTypeIsCorrectlySet) {
-    char srcHostPtr[260];
+    char srcHostPtr[260] = {};
     void *pDstSVM = ptrSVM;
     void *pSrcSVM = srcHostPtr;
     cl_event event = nullptr;
@@ -304,7 +304,7 @@ TEST_F(EnqueueSvmTest, givenSrcHostPtrAndEventWhenEnqueueSVMMemcpyThenEventComma
 }
 
 TEST_F(EnqueueSvmTest, givenSrcHostPtrAndSizeZeroWhenEnqueueSVMMemcpyThenReturnSuccess) {
-    char srcHostPtr[260];
+    char srcHostPtr[260] = {};
     void *pDstSVM = ptrSVM;
     void *pSrcSVM = srcHostPtr;
     retVal = this->pCmdQ->enqueueSVMMemcpy(
@@ -480,8 +480,8 @@ HWTEST_F(EnqueueSvmTest, givenDstHostPtrAndSrcHostPtrWhenEnqueueBlockingSVMMemcp
 }
 
 TEST_F(EnqueueSvmTest, givenDstHostPtrAndSrcHostPtrAndSizeZeroWhenEnqueueSVMMemcpyThenReturnSuccess) {
-    char dstHostPtr[260];
-    char srcHostPtr[260];
+    char dstHostPtr[260] = {};
+    char srcHostPtr[260] = {};
     void *pDstSVM = dstHostPtr;
     void *pSrcSVM = srcHostPtr;
     retVal = this->pCmdQ->enqueueSVMMemcpy(
@@ -1035,7 +1035,7 @@ HWTEST_F(EnqueueSvmTestLocalMemory, givenSvmAllocWithoutFlagsWhenMappingSvmThenM
     EXPECT_FALSE(svmMap->readOnlyMap);
 }
 
-HWTEST_F(EnqueueSvmTestLocalMemory, givenEnabledLocalMemoryWhenEnqeueMapValidSvmPtrThenExpectSingleWalker) {
+HWTEST_F(EnqueueSvmTestLocalMemory, givenEnabledLocalMemoryWhenEnqueueMapValidSvmPtrThenExpectSingleWalker) {
     using WALKER_TYPE = typename FamilyType::WALKER_TYPE;
     MockCommandQueueHw<FamilyType> queue(context.get(), pClDevice, nullptr);
     LinearStream &stream = queue.getCS(0x1000);
@@ -1075,7 +1075,7 @@ HWTEST_F(EnqueueSvmTestLocalMemory, givenEnabledLocalMemoryWhenEnqeueMapValidSvm
     clReleaseEvent(event);
 }
 
-HWTEST_F(EnqueueSvmTestLocalMemory, givenEnabledLocalMemoryWhenEnqeueMapSvmPtrTwiceThenExpectSingleWalker) {
+HWTEST_F(EnqueueSvmTestLocalMemory, givenEnabledLocalMemoryWhenEnqueueMapSvmPtrTwiceThenExpectSingleWalker) {
     using WALKER_TYPE = typename FamilyType::WALKER_TYPE;
     MockCommandQueueHw<FamilyType> queue(context.get(), pClDevice, nullptr);
     LinearStream &stream = queue.getCS(0x1000);

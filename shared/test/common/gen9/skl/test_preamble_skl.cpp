@@ -104,15 +104,25 @@ SKLTEST_F(ThreadArbitration, GivenDefaultWhenProgrammingPreambleThenArbitrationP
     EXPECT_EQ(ThreadArbitrationPolicy::RoundRobin, HwHelperHw<SKLFamily>::get().getDefaultThreadArbitrationPolicy());
 }
 
+SKLTEST_F(ThreadArbitration, whenGetSupportedThreadArbitrationPoliciesIsCalledThenAgeBasedAndRoundRobinAreReturned) {
+    auto supportedPolicies = PreambleHelper<SKLFamily>::getSupportedThreadArbitrationPolicies();
+
+    EXPECT_EQ(2u, supportedPolicies.size());
+    EXPECT_NE(supportedPolicies.end(), std::find(supportedPolicies.begin(),
+                                                 supportedPolicies.end(),
+                                                 ThreadArbitrationPolicy::AgeBased));
+    EXPECT_NE(supportedPolicies.end(), std::find(supportedPolicies.begin(),
+                                                 supportedPolicies.end(),
+                                                 ThreadArbitrationPolicy::RoundRobin));
+}
+
 GEN9TEST_F(PreambleVfeState, GivenWaOffWhenProgrammingVfeStateThenProgrammingIsCorrect) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     testWaTable->waSendMIFLUSHBeforeVFE = 0;
     LinearStream &cs = linearStream;
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&linearStream, pPlatform->getClDevice(0)->getHardwareInfo(), EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u,
-                                                AdditionalKernelExecInfo::NotApplicable,
-                                                emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u, emptyProperties);
 
     parseCommands<FamilyType>(cs);
 
@@ -132,9 +142,7 @@ GEN9TEST_F(PreambleVfeState, GivenWaOnWhenProgrammingVfeStateThenProgrammingIsCo
     LinearStream &cs = linearStream;
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&linearStream, pPlatform->getClDevice(0)->getHardwareInfo(), EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u,
-                                                AdditionalKernelExecInfo::NotApplicable,
-                                                emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, pPlatform->getClDevice(0)->getHardwareInfo(), 0u, 0, 168u, emptyProperties);
 
     parseCommands<FamilyType>(cs);
 

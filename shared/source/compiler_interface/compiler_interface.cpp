@@ -300,7 +300,7 @@ TranslationOutput::ErrorCode CompilerInterface::createLibrary(
     return TranslationOutput::ErrorCode::Success;
 }
 
-TranslationOutput::ErrorCode CompilerInterface::getSipKernelBinary(NEO::Device &device, SipKernelType type, std::vector<char> &retBinary,
+TranslationOutput::ErrorCode CompilerInterface::getSipKernelBinary(NEO::Device &device, SipKernelType type, bool bindlessSip, std::vector<char> &retBinary,
                                                                    std::vector<char> &stateSaveAreaHeader) {
     if (false == isIgcAvailable()) {
         return TranslationOutput::ErrorCode::CompilerNotAvailable;
@@ -325,7 +325,7 @@ TranslationOutput::ErrorCode CompilerInterface::getSipKernelBinary(NEO::Device &
     }
 
     auto deviceCtx = getIgcDeviceCtx(device);
-    bool bindlessSip = debugSip ? DebugManager.flags.UseBindlessDebugSip.get() : false;
+    bindlessSip |= debugSip ? DebugManager.flags.UseBindlessDebugSip.get() : false;
 
     auto systemRoutineBuffer = igcMain.get()->CreateBuiltin<CIF::Builtins::BufferLatest>();
     auto stateSaveAreaBuffer = igcMain.get()->CreateBuiltin<CIF::Builtins::BufferLatest>();
@@ -452,7 +452,7 @@ IGC::IgcOclDeviceCtxTagOCL *CompilerInterface::getIgcDeviceCtx(const Device &dev
     igcFeWa.get()->SetFtrGTX(device.getHardwareInfo().featureTable.ftrGTX);
     igcFeWa.get()->SetFtr5Slice(device.getHardwareInfo().featureTable.ftr5Slice);
 
-    igcFeWa.get()->SetFtrGpGpuMidThreadLevelPreempt(device.getHardwareInfo().featureTable.ftrGpGpuMidThreadLevelPreempt);
+    igcFeWa.get()->SetFtrGpGpuMidThreadLevelPreempt(isMidThreadPreemptionSupported(device.getHardwareInfo()));
     igcFeWa.get()->SetFtrIoMmuPageFaulting(device.getHardwareInfo().featureTable.ftrIoMmuPageFaulting);
     igcFeWa.get()->SetFtrWddm2Svm(device.getHardwareInfo().featureTable.ftrWddm2Svm);
     igcFeWa.get()->SetFtrPooledEuEnabled(device.getHardwareInfo().featureTable.ftrPooledEuEnabled);
