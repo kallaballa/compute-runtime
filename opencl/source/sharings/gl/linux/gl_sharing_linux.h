@@ -38,11 +38,11 @@ typedef const GLubyte *(*PFNglGetStringi)(GLenum name, GLuint index);
 typedef void(*PFNglGetIntegerv)(GLenum pname, GLint *params);
 typedef void(*PFNglBindTexture)(GLenum target, GLuint texture);
 
-//wgl
-typedef BOOL(*PFNwglMakeCurrent)(HDC, HGLRC);
-typedef GLContext(*PFNwglCreateContext)(GLDisplay hdcHandle);
-typedef int(*PFNwglShareLists)(GLContext contextHandle, GLContext backupContextHandle);
-typedef BOOL(*PFNwglDeleteContext)(HGLRC hglrcHandle);
+//egl
+typedef BOOL(*PFNeglMakeCurrent)(HDC, HGLRC);
+typedef GLContext(*PFNeglCreateContext)(GLDisplay hdcHandle);
+typedef int(*PFNeglShareLists)(GLContext contextHandle, GLContext backupContextHandle);
+typedef BOOL(*PFNeglDeleteContext)(HGLRC hglrcHandle);
 
 typedef bool (*PFNglArbSyncObjectSetup)(GLSharingFunctions &sharing, OSInterface &osInterface, CL_GL_SYNC_INFO &glSyncInfo);
 typedef void (*PFNglArbSyncObjectCleanup)(OSInterface &osInterface, CL_GL_SYNC_INFO *glSyncInfo);
@@ -84,10 +84,18 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
         return GLReleaseSharedRenderBuffer(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pResourceInfo);
     }
     GLboolean acquireSharedTexture(GLvoid *pResourceInfo) {
+#ifdef STUB
         return GLAcquireSharedTexture(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pResourceInfo);
+#else
+        return 1;
+#endif
     }
     GLboolean releaseSharedTexture(GLvoid *pResourceInfo) {
+#ifdef STUB
         return GLReleaseSharedTexture(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pResourceInfo);
+#else
+        return 1;
+#endif
     }
     GLboolean retainSync(GLvoid *pSyncInfo) {
         return GLRetainSync(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pSyncInfo);
@@ -108,7 +116,7 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
         if (displayHandle == 0) {
             displayHandle = GLHDCHandle;
         }
-        return this->wglMakeCurrent(displayHandle, contextHandle);
+        return this->eglMakeCurrent(displayHandle, contextHandle);
     }
     GLContext getBackupContextHandle() {
         return GLHGLRCHandleBkpCtx;
@@ -167,10 +175,10 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
     PFNglGetString glGetString = nullptr;
     PFNglGetStringi glGetStringi = nullptr;
     PFNglGetIntegerv glGetIntegerv = nullptr;
-    PFNwglCreateContext pfnWglCreateContext = nullptr;
-    PFNwglMakeCurrent wglMakeCurrent = nullptr;
-    PFNwglShareLists pfnWglShareLists = nullptr;
-    PFNwglDeleteContext pfnWglDeleteContext = nullptr;
+    PFNeglCreateContext pfnEglCreateContext = nullptr;
+    PFNeglMakeCurrent eglMakeCurrent = nullptr;
+    PFNeglShareLists pfnEglShareLists = nullptr;
+    PFNeglDeleteContext pfnEglDeleteContext = nullptr;
     PFNOGLRetainSyncINTEL GLRetainSync = nullptr;
     PFNOGLReleaseSyncINTEL GLReleaseSync = nullptr;
     PFNOGLGetSyncivINTEL GLGetSynciv = nullptr;

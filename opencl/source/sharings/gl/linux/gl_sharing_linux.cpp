@@ -26,12 +26,16 @@ GLSharingFunctionsLinux::GLSharingFunctionsLinux(GLType glhdcType, GLContext glh
     : GLHDCType(glhdcType), GLHGLRCHandle(glhglrcHandle), GLHGLRCHandleBkpCtx(glhglrcHandleBkpCtx), GLHDCHandle(glhdcHandle) {
     initGLFunctions();
     updateOpenGLContext();
+#ifdef STUB
     createBackupContext();
+#endif
 }
 GLSharingFunctionsLinux::~GLSharingFunctionsLinux() {
-    if (pfnWglDeleteContext) {
-        pfnWglDeleteContext(GLHGLRCHandleBkpCtx);
+#ifdef STUB
+    if (pfnEglDeleteContext) {
+        pfnEglDeleteContext(GLHGLRCHandleBkpCtx);
     }
+#endif
 }
 
 bool GLSharingFunctionsLinux::isGlSharingEnabled() {
@@ -40,9 +44,9 @@ bool GLSharingFunctionsLinux::isGlSharingEnabled() {
 }
 
 void GLSharingFunctionsLinux::createBackupContext() {
-    if (pfnWglCreateContext) {
-        GLHGLRCHandleBkpCtx = pfnWglCreateContext(GLHDCHandle);
-        pfnWglShareLists(GLHGLRCHandle, GLHGLRCHandleBkpCtx);
+    if (pfnEglCreateContext) {
+        GLHGLRCHandleBkpCtx = pfnEglCreateContext(GLHDCHandle);
+        pfnEglShareLists(GLHGLRCHandle, GLHGLRCHandleBkpCtx);
     }
 }
 
@@ -137,29 +141,31 @@ GLboolean GLSharingFunctionsLinux::initGLFunctions() {
     glLibrary.reset(OsLibrary::load(Os::openglDllName));
 
     if (glLibrary->isLoaded()) {
-        glFunctionHelper wglLibrary(glLibrary.get(), "wglGetProcAddress");
-        GLGetCurrentContext = (*glLibrary)["wglGetCurrentContext"];
-        GLGetCurrentDisplay = (*glLibrary)["wglGetCurrentDC"];
-        glGetString = (*glLibrary)["glGetString"];
-        glGetIntegerv = (*glLibrary)["glGetIntegerv"];
-        pfnWglCreateContext = (*glLibrary)["wglCreateContext"];
-        pfnWglDeleteContext = (*glLibrary)["wglDeleteContext"];
-        pfnWglShareLists = (*glLibrary)["wglShareLists"];
-        wglMakeCurrent = (*glLibrary)["wglMakeCurrent"];
+        glFunctionHelper eglLibrary(glLibrary.get(), "eglGetProcAddress");
+        GLGetCurrentContext = (*glLibrary)["eglGetCurrentContext"];
+        GLGetCurrentDisplay = (*glLibrary)["eglGetCurrentDisplay"];
+//        glGetString = (*glLibrary)["glGetString"]; //libGL.so.1
+//        glGetIntegerv = (*glLibrary)["glGetIntegerv"]; //libGL.so.1
+        pfnEglCreateContext = (*glLibrary)["eglCreateContext"];
+        pfnEglDeleteContext = (*glLibrary)["eglDestroyContext"];
+//        pfnEglShareLists = (*glLibrary)["wglShareLists"];
+        eglMakeCurrent = (*glLibrary)["eglMakeCurrent"];
 
-        GLSetSharedOCLContextState = wglLibrary["wglSetSharedOCLContextStateINTEL"];
-        GLAcquireSharedBuffer = wglLibrary["wglAcquireSharedBufferINTEL"];
-        GLReleaseSharedBuffer = wglLibrary["wglReleaseSharedBufferINTEL"];
-        GLAcquireSharedRenderBuffer = wglLibrary["wglAcquireSharedRenderBufferINTEL"];
-        GLReleaseSharedRenderBuffer = wglLibrary["wglReleaseSharedRenderBufferINTEL"];
-        GLAcquireSharedTexture = wglLibrary["wglAcquireSharedTextureINTEL"];
-        GLReleaseSharedTexture = wglLibrary["wglReleaseSharedTextureINTEL"];
-        GLRetainSync = wglLibrary["wglRetainSyncINTEL"];
-        GLReleaseSync = wglLibrary["wglReleaseSyncINTEL"];
-        GLGetSynciv = wglLibrary["wglGetSyncivINTEL"];
-        glGetStringi = wglLibrary["glGetStringi"];
 #ifdef STUB
-        glGetLuid = wglLibrary["wglGetLuidINTEL"];
+        GLSetSharedOCLContextState = eglLibrary["wglSetSharedOCLContextStateINTEL"];
+        GLAcquireSharedBuffer = eglLibrary["wglAcquireSharedBufferINTEL"];
+        GLReleaseSharedBuffer = eglLibrary["wglReleaseSharedBufferINTEL"];
+        GLAcquireSharedRenderBuffer = eglLibrary["wglAcquireSharedRenderBufferINTEL"];
+        GLReleaseSharedRenderBuffer = eglLibrary["wglReleaseSharedRenderBufferINTEL"];
+        GLAcquireSharedTexture = eglLibrary["wglAcquireSharedTextureINTEL"];
+        GLReleaseSharedTexture = eglLibrary["wglReleaseSharedTextureINTEL"];
+        GLRetainSync = eglLibrary["wglRetainSyncINTEL"];
+        GLReleaseSync = eglLibrary["wglReleaseSyncINTEL"];
+#endif
+//      GLGetSynciv = eglLibrary["glGetSyncivINTEL"]; //libGL.so.1
+//        glGetStringi = eglLibrary["glGetStringi"]; //libGL.so.1
+#ifdef STUB
+        glGetLuid = eglLibrary["wglGetLuidINTEL"];
 #endif
     }
     this->pfnGlArbSyncObjectCleanup = cleanupArbSyncObject;
