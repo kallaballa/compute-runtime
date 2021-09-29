@@ -31,7 +31,7 @@ int SharingHandler::acquire(MemObj *memObj, uint32_t rootDeviceIndex) {
             return CL_OUT_OF_RESOURCES;
         }
 
-        DEBUG_BREAK_IF(graphicsAllocation->peekSharedHandle() != updateData.sharedHandle);
+        //DEBUG_BREAK_IF(graphicsAllocation->peekSharedHandle() != updateData.sharedHandle);
     }
     acquireCount++;
     return CL_SUCCESS;

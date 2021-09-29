@@ -31,15 +31,17 @@ namespace NEO {
 Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl_GLenum target, cl_GLint miplevel, cl_GLuint texture,
                                         cl_int *errcodeRet) {
     ErrorCodeHelper errorCode(errcodeRet, CL_INVALID_GL_OBJECT);
-    auto clientContext = context->getDevice(0)->getRootDeviceEnvironment().getGmmClientContext();
+//    auto clientContext = context->getDevice(0)->getRootDeviceEnvironment().getGmmClientContext();
     auto memoryManager = context->getMemoryManager();
     cl_image_desc imgDesc = {};
+    ImageInfo imgInfo = {};
     cl_image_format imgFormat = {};
     McsSurfaceInfo mcsSurfaceInfo = {};
 
     CL_GL_RESOURCE_INFO texInfo = {};
     texInfo.name = texture;
     texInfo.target = getBaseTargetType(target);
+    texInfo.glInternalFormat = GL_RGBA;
 
     GLSharingFunctionsLinux *sharingFunctions = context->getSharing<GLSharingFunctionsLinux>();
 
@@ -51,11 +53,38 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
 
     errorCode.set(CL_SUCCESS);
 
+    uint32_t qPitch = 0;
+    uint32_t cubeFaceIndex = __GMM_NO_CUBE_MAP;
+    imgDesc.image_width = 256;
+    //imgDesc.image_row_pitch = 256 *8;
+    imgDesc.image_height = 256;
+
+    imgInfo.imgDesc.imageWidth = imgDesc.image_width;
+    imgInfo.imgDesc.imageType = ImageType::Image2D;
+    imgInfo.imgDesc.imageHeight = imgDesc.image_height;
+
+    if (setClImageFormat(texInfo.glInternalFormat, imgFormat) == false) {
+      //  memoryManager->freeGraphicsMemory(alloc);
+        errorCode.set(CL_INVALID_GL_OBJECT);
+        return nullptr;
+    }
+
+    auto surfaceFormatInfoAddress = Image::getSurfaceFormatFromTable(flags, &imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+    if (!surfaceFormatInfoAddress) {
+    //    memoryManager->freeGraphicsMemory(alloc);
+        errorCode.set(CL_INVALID_GL_OBJECT);
+        return nullptr;
+    }
+    auto surfaceFormatInfo = *surfaceFormatInfoAddress;
+    if (texInfo.glInternalFormat != GL_RGB10) {
+        surfaceFormatInfo.surfaceFormat.GenxSurfaceFormat = (GFX3DSTATE_SURFACEFORMAT) 0x0C7; //texInfo.glHWFormat;
+    }
+
+    imgInfo.surfaceFormat = &surfaceFormatInfo.surfaceFormat;
     AllocationProperties allocProperties(context->getDevice(0)->getRootDeviceIndex(),
                                          false, // allocateMemory
-                                         0u,    // size
+                                         imgInfo,
                                          GraphicsAllocation::AllocationType::SHARED_IMAGE,
-                                         false, // isMultiStorageAllocation
                                          context->getDeviceBitfieldForAllocation(context->getDevice(0)->getRootDeviceIndex()));
     auto alloc = memoryManager->createGraphicsAllocationFromSharedHandle(texInfo.globalShareHandle, allocProperties, false, false);
 
@@ -63,11 +92,13 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
         errorCode.set(CL_INVALID_GL_OBJECT);
         return nullptr;
     }
-    if (texInfo.pGmmResInfo) {
+    memoryManager->closeSharedHandle(alloc);
+
+/*    if (texInfo.pGmmResInfo) {
         DEBUG_BREAK_IF(alloc->getDefaultGmm() != nullptr);
         alloc->setDefaultGmm(new Gmm(clientContext, texInfo.pGmmResInfo));
     }
-
+*/
     auto gmm = alloc->getDefaultGmm();
 
     imgDesc.image_type = getClMemObjectType(target);
@@ -103,27 +134,14 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
         imgDesc.image_slice_pitch = alloc->getUnderlyingBufferSize();
     }
 
-    uint32_t cubeFaceIndex = GmmTypesConverter::getCubeFaceIndex(target);
+    cubeFaceIndex = GmmTypesConverter::getCubeFaceIndex(target);
 
-    auto qPitch = gmm->queryQPitch(gmm->gmmResourceInfo->getResourceType());
+    qPitch = gmm->queryQPitch(gmm->gmmResourceInfo->getResourceType());
 
-    if (setClImageFormat(texInfo.glInternalFormat, imgFormat) == false) {
-        memoryManager->freeGraphicsMemory(alloc);
-        errorCode.set(CL_INVALID_GL_OBJECT);
-        return nullptr;
-    }
-    auto surfaceFormatInfoAddress = Image::getSurfaceFormatFromTable(flags, &imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    if (!surfaceFormatInfoAddress) {
-        memoryManager->freeGraphicsMemory(alloc);
-        errorCode.set(CL_INVALID_GL_OBJECT);
-        return nullptr;
-    }
-    auto surfaceFormatInfo = *surfaceFormatInfoAddress;
-    if (texInfo.glInternalFormat != GL_RGB10) {
-        surfaceFormatInfo.surfaceFormat.GenxSurfaceFormat = (GFX3DSTATE_SURFACEFORMAT)texInfo.glHWFormat;
-    }
 
     GraphicsAllocation *mcsAlloc = nullptr;
+
+#ifdef STUB
     if (texInfo.globalShareHandleMCS) {
         AllocationProperties allocProperties(context->getDevice(0)->getRootDeviceIndex(), 0, GraphicsAllocation::AllocationType::MCS, context->getDeviceBitfieldForAllocation(context->getDevice(0)->getRootDeviceIndex()));
         mcsAlloc = memoryManager->createGraphicsAllocationFromSharedHandle(texInfo.globalShareHandleMCS, allocProperties, false, false);
@@ -139,9 +157,12 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
     if (miplevel < 0) {
         imgDesc.num_mip_levels = gmm->gmmResourceInfo->getMaxLod() + 1;
     }
+#endif
 
-    ImageInfo imgInfo = {};
+
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
+
     imgInfo.surfaceFormat = &surfaceFormatInfo.surfaceFormat;
     imgInfo.qPitch = qPitch;
 

@@ -151,13 +151,15 @@ GLboolean GLSharingFunctionsLinux::initGLFunctions() {
 //        pfnEglShareLists = (*glLibrary)["wglShareLists"];
         eglMakeCurrent = (*glLibrary)["eglMakeCurrent"];
 
+        eglCreateImage = (*glLibrary)["eglCreateImage"];
+        GLAcquireSharedTexture = eglLibrary["eglExportDMABUFImageMESA"];
+
+        //GLAcquireSharedRenderBuffer = eglLibrary["eglExportDMABUFImageMESA"];
 #ifdef STUB
         GLSetSharedOCLContextState = eglLibrary["wglSetSharedOCLContextStateINTEL"];
         GLAcquireSharedBuffer = eglLibrary["wglAcquireSharedBufferINTEL"];
         GLReleaseSharedBuffer = eglLibrary["wglReleaseSharedBufferINTEL"];
-        GLAcquireSharedRenderBuffer = eglLibrary["wglAcquireSharedRenderBufferINTEL"];
         GLReleaseSharedRenderBuffer = eglLibrary["wglReleaseSharedRenderBufferINTEL"];
-        GLAcquireSharedTexture = eglLibrary["wglAcquireSharedTextureINTEL"];
         GLReleaseSharedTexture = eglLibrary["wglReleaseSharedTextureINTEL"];
         GLRetainSync = eglLibrary["wglRetainSyncINTEL"];
         GLReleaseSync = eglLibrary["wglReleaseSyncINTEL"];

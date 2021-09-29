@@ -9,8 +9,18 @@
 
 #include "opencl/source/sharings/gl/gl_sharing.h"
 #include "opencl/source/sharings/gl/linux/include/gl_types.h"
+#include "opencl/extensions/public/cl_gl_private_intel.h"
 
 #include <GL/gl.h>
+#include <EGL/eglext.h>
+
+//for drm test
+#include <libdrm/intel_bufmgr.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+//
+
 
 //from windows
 #define BOOL unsigned char
@@ -22,7 +32,7 @@ namespace NEO {
 typedef GLboolean(*PFNOGLSetSharedOCLContextStateINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLboolean state, GLvoid *pContextInfo);
 typedef GLboolean(*PFNOGLAcquireSharedBufferINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pBufferInfo);
 typedef GLboolean(*PFNOGLAcquireSharedRenderBufferINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pResourceInfo);
-typedef GLboolean(*PFNOGLAcquireSharedTextureINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pResourceInfo);
+//typedef GLboolean(*PFNOGLAcquireSharedTextureINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pResourceInfo);
 typedef GLboolean(*PFNOGLReleaseSharedBufferINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pBufferInfo);
 typedef GLboolean(*PFNOGLReleaseSharedRenderBufferINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pResourceInfo);
 typedef GLboolean(*PFNOGLReleaseSharedTextureINTEL)(GLDisplay hdcHandle, GLContext contextHandle, GLContext backupContextHandle, GLvoid *pResourceInfo);
@@ -48,6 +58,9 @@ typedef bool (*PFNglArbSyncObjectSetup)(GLSharingFunctions &sharing, OSInterface
 typedef void (*PFNglArbSyncObjectCleanup)(OSInterface &osInterface, CL_GL_SYNC_INFO *glSyncInfo);
 typedef void (*PFNglArbSyncObjectSignal)(OsContext &osContext, CL_GL_SYNC_INFO &glSyncInfo);
 typedef void (*PFNglArbSyncObjectWaitServer)(OSInterface &osInterface, CL_GL_SYNC_INFO &glSyncInfo);
+
+typedef EGLImage (*PFNeglCreateImage)(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLAttrib *attrib_list);
+
 #ifdef STUB
 typedef LUID(*PFNGLGETLUIDINTEL)(HGLRC hglrcHandle);
 #endif
@@ -83,12 +96,36 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
     GLboolean releaseSharedRenderBuffer(GLvoid *pResourceInfo) {
         return GLReleaseSharedRenderBuffer(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pResourceInfo);
     }
-    GLboolean acquireSharedTexture(GLvoid *pResourceInfo) {
-#ifdef STUB
-        return GLAcquireSharedTexture(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pResourceInfo);
-#else
-        return 1;
-#endif
+    EGLBoolean acquireSharedTexture(CL_GL_RESOURCE_INFO *pResourceInfo) {
+//       typedef EGLBoolean (EGLAPIENTRYP PFNEGLEXPORTDMABUFIMAGEMESAPROC) (EGLDisplay dpy, EGLImageKHR image, int *fds, EGLint *strides, EGLint *offsets);
+        int fds;
+        int stride, offset;
+        int miplevel = 0;
+
+        EGLAttrib attrib_list[] = {EGL_GL_TEXTURE_LEVEL, miplevel, EGL_NONE};
+        EGLImage image = eglCreateImage(GLHDCHandle, GLHGLRCHandle, EGL_GL_TEXTURE_2D, (EGLClientBuffer) pResourceInfo->name, &attrib_list[0]);
+
+        EGLBoolean ret = GLAcquireSharedTexture(GLHDCHandle, image, &fds, &stride, &offset);
+        printf("fds=%d stride=%d offset=%d\n", fds, stride, offset);
+        pResourceInfo->globalShareHandle = fds;
+
+
+        int drm_fd = open("/dev/dri/renderD128", O_RDWR);
+
+        dri_bufmgr* bufmgr = drm_intel_bufmgr_gem_init(drm_fd, 0x4000);
+
+        drm_intel_bo* bo = drm_intel_bo_gem_create_from_prime(bufmgr, fds, 0);
+
+        drm_intel_bo_map(bo, 1);
+        printf("drm data %x %x %x %x\n",
+        		*((unsigned int*)(bo->virt)),
+				*((unsigned int*)(bo->virt+4)),
+				*((unsigned int*)(bo->virt+8)),
+				*((unsigned int*)(bo->virt+12))
+				);
+        drm_intel_bo_unmap(bo);
+
+        return ret;
     }
     GLboolean releaseSharedTexture(GLvoid *pResourceInfo) {
 #ifdef STUB
@@ -168,7 +205,7 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
     PFNOGLReleaseSharedBufferINTEL GLReleaseSharedBuffer = nullptr;
     PFNOGLAcquireSharedRenderBufferINTEL GLAcquireSharedRenderBuffer = nullptr;
     PFNOGLReleaseSharedRenderBufferINTEL GLReleaseSharedRenderBuffer = nullptr;
-    PFNOGLAcquireSharedTextureINTEL GLAcquireSharedTexture = nullptr;
+    PFNEGLEXPORTDMABUFIMAGEMESAPROC GLAcquireSharedTexture = nullptr;
     PFNOGLReleaseSharedTextureINTEL GLReleaseSharedTexture = nullptr;
     PFNOGLGetCurrentContext GLGetCurrentContext = nullptr;
     PFNOGLGetCurrentDisplay GLGetCurrentDisplay = nullptr;
@@ -186,6 +223,7 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
     PFNglArbSyncObjectCleanup pfnGlArbSyncObjectCleanup = nullptr;
     PFNglArbSyncObjectSignal pfnGlArbSyncObjectSignal = nullptr;
     PFNglArbSyncObjectWaitServer pfnGlArbSyncObjectWaitServer = nullptr;
+    PFNeglCreateImage eglCreateImage = nullptr;
 #ifdef STUB
     PFNGLGETLUIDINTEL glGetLuid = nullptr;
 #endif

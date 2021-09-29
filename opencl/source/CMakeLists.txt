@@ -78,7 +78,7 @@ if(WIN32)
   )
   target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC OGL=1)
 else()
-  set(IGDRCL_EXTRA_LIBS dl pthread)
+  set(IGDRCL_EXTRA_LIBS dl pthread drm_intel)
   target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
                              ${NEO_SHARED_DIRECTORY}/os_interface/linux
                              ${NEO_SOURCE_DIR}/opencl/source/os_interface/linux
