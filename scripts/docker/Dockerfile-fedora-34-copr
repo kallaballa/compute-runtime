@@ -3,7 +3,7 @@ LABEL maintainer="jacek.danecki@intel.com"
 
 COPY neo /root/neo
 
-RUN df -h; dnf install -y gcc-c++ cmake ninja-build git pkg-config libglvnd-devel; \
+RUN df -h; dnf install -y gcc-c++ cmake ninja-build git pkg-config libglvnd-devel libdrm-devel; \
     dnf install -y 'dnf-command(copr)'; \
     dnf copr enable -y jdanecki/intel-opencl; \
     dnf copr enable -y jdanecki/intel-opencl-ci; \
