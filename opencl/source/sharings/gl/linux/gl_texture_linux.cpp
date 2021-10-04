@@ -55,9 +55,13 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
 
     uint32_t qPitch = 0;
     uint32_t cubeFaceIndex = __GMM_NO_CUBE_MAP;
-    imgDesc.image_width = 256;
+    int image_width, image_height;
+
+    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_WIDTH, &image_width);
+    imgDesc.image_width = image_width;
+    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_HEIGHT, &image_height);
+    imgDesc.image_height = image_height;
     //imgDesc.image_row_pitch = 256 *8;
-    imgDesc.image_height = 256;
 
     imgInfo.imgDesc.imageWidth = imgDesc.image_width;
     imgInfo.imgDesc.imageType = ImageType::Image2D;
@@ -76,10 +80,11 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
         return nullptr;
     }
     auto surfaceFormatInfo = *surfaceFormatInfoAddress;
+#ifdef STUB
     if (texInfo.glInternalFormat != GL_RGB10) {
         surfaceFormatInfo.surfaceFormat.GenxSurfaceFormat = (GFX3DSTATE_SURFACEFORMAT) 0x0C7; //texInfo.glHWFormat;
     }
-
+#endif
     imgInfo.surfaceFormat = &surfaceFormatInfo.surfaceFormat;
     AllocationProperties allocProperties(context->getDevice(0)->getRootDeviceIndex(),
                                          false, // allocateMemory
