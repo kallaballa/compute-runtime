@@ -109,22 +109,6 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
         printf("fds=%d stride=%d offset=%d\n", fds, stride, offset);
         pResourceInfo->globalShareHandle = fds;
 
-
-        int drm_fd = open("/dev/dri/renderD128", O_RDWR);
-
-        dri_bufmgr* bufmgr = drm_intel_bufmgr_gem_init(drm_fd, 0x4000);
-
-        drm_intel_bo* bo = drm_intel_bo_gem_create_from_prime(bufmgr, fds, 0);
-
-        drm_intel_bo_map(bo, 1);
-        printf("drm data %x %x %x %x\n",
-        		*((unsigned int*)(bo->virt)),
-				*((unsigned int*)(bo->virt+4)),
-				*((unsigned int*)(bo->virt+8)),
-				*((unsigned int*)(bo->virt+12))
-				);
-        drm_intel_bo_unmap(bo);
-
         return ret;
     }
     GLboolean releaseSharedTexture(GLvoid *pResourceInfo) {
