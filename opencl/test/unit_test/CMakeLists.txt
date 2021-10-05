@@ -19,7 +19,7 @@ function(ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION)
 endfunction()
 
 ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION()
-link_libraries(${ASAN_LIBS} ${TSAN_LIBS})
+link_libraries(${ASAN_LIBS} ${TSAN_LIBS} -lGL)
 
 add_custom_target(prepare_test_kernels)
 add_custom_target(copy_test_files_per_product)
