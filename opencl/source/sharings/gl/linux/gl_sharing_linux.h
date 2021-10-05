@@ -14,14 +14,6 @@
 #include <GL/gl.h>
 #include <EGL/eglext.h>
 
-//for drm test
-#include <libdrm/intel_bufmgr.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-//
-
-
 //from windows
 #define BOOL unsigned char
 typedef void* HDC;
