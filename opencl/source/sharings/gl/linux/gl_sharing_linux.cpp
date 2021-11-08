@@ -144,18 +144,18 @@ GLboolean GLSharingFunctionsLinux::initGLFunctions() {
         glFunctionHelper eglLibrary(glLibrary.get(), "eglGetProcAddress");
         GLGetCurrentContext = (*glLibrary)["eglGetCurrentContext"];
         GLGetCurrentDisplay = (*glLibrary)["eglGetCurrentDisplay"];
-//        glGetString = (*glLibrary)["glGetString"]; //libGL.so.1
-//        glGetIntegerv = (*glLibrary)["glGetIntegerv"]; //libGL.so.1
+        glGetString = ::glGetString;
+        //glGetStringi = ::glGetStringi; 
+        glGetIntegerv = ::glGetIntegerv;
         pfnEglCreateContext = (*glLibrary)["eglCreateContext"];
         pfnEglDeleteContext = (*glLibrary)["eglDestroyContext"];
-//        pfnEglShareLists = (*glLibrary)["wglShareLists"];
         eglMakeCurrent = (*glLibrary)["eglMakeCurrent"];
-
         eglCreateImage = (*glLibrary)["eglCreateImage"];
         GLAcquireSharedTexture = eglLibrary["eglExportDMABUFImageMESA"];
 
-        //GLAcquireSharedRenderBuffer = eglLibrary["eglExportDMABUFImageMESA"];
 #ifdef STUB
+        pfnEglShareLists = (*glLibrary)["wglShareLists"];
+        GLAcquireSharedRenderBuffer = eglLibrary["eglExportDMABUFImageMESA"];
         GLSetSharedOCLContextState = eglLibrary["wglSetSharedOCLContextStateINTEL"];
         GLAcquireSharedBuffer = eglLibrary["wglAcquireSharedBufferINTEL"];
         GLReleaseSharedBuffer = eglLibrary["wglReleaseSharedBufferINTEL"];
@@ -163,10 +163,7 @@ GLboolean GLSharingFunctionsLinux::initGLFunctions() {
         GLReleaseSharedTexture = eglLibrary["wglReleaseSharedTextureINTEL"];
         GLRetainSync = eglLibrary["wglRetainSyncINTEL"];
         GLReleaseSync = eglLibrary["wglReleaseSyncINTEL"];
-#endif
-//      GLGetSynciv = eglLibrary["glGetSyncivINTEL"]; //libGL.so.1
-//        glGetStringi = eglLibrary["glGetStringi"]; //libGL.so.1
-#ifdef STUB
+        GLGetSynciv = eglLibrary["glGetSyncivINTEL"]; //libGL.so.1
         glGetLuid = eglLibrary["wglGetLuidINTEL"];
 #endif
     }

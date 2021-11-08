@@ -41,31 +41,54 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
     CL_GL_RESOURCE_INFO texInfo = {};
     texInfo.name = texture;
     texInfo.target = getBaseTargetType(target);
-    texInfo.glInternalFormat = GL_RGBA;
+    if (texInfo.target != GL_TEXTURE_2D) {
+        printf("target %x not supported\n", target);
+        errorCode.set(CL_INVALID_GL_OBJECT);
+        return nullptr;
+    }
+
+    uint32_t qPitch = 0;
+    uint32_t cubeFaceIndex = __GMM_NO_CUBE_MAP;
+    int image_width, image_height, internal_format;
+
+    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_WIDTH, &image_width);
+    imgDesc.image_width = image_width;
+    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_HEIGHT, &image_height);
+    imgDesc.image_height = image_height;
+    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_INTERNAL_FORMAT, &internal_format);
+    printf("internal_format = %x\n", internal_format);
+    switch(internal_format){
+        case GL_RGBA:
+        case GL_RGBA8:
+        case GL_RGBA16F:
+        case GL_RGB:
+            texInfo.glInternalFormat = internal_format;
+            break;
+        default: 
+            printf("internal format %x not supported\n", internal_format);
+            errorCode.set(CL_INVALID_GL_OBJECT);
+            return nullptr;
+    }
+
+    //imgDesc.image_row_pitch = 256 *8;
+
+    imgInfo.imgDesc.imageWidth = imgDesc.image_width;
+    imgInfo.imgDesc.imageType = ImageType::Image2D;
+    imgInfo.imgDesc.imageHeight = imgDesc.image_height;
 
     GLSharingFunctionsLinux *sharingFunctions = context->getSharing<GLSharingFunctionsLinux>();
 
     if (target == GL_RENDERBUFFER_EXT) {
         sharingFunctions->acquireSharedRenderBuffer(&texInfo);
     } else {
-        sharingFunctions->acquireSharedTexture(&texInfo);
+        if (sharingFunctions->acquireSharedTexture(&texInfo) != EGL_TRUE) {
+            errorCode.set(CL_INVALID_GL_OBJECT);
+            return nullptr;
+        }
     }
 
     errorCode.set(CL_SUCCESS);
 
-    uint32_t qPitch = 0;
-    uint32_t cubeFaceIndex = __GMM_NO_CUBE_MAP;
-    int image_width, image_height;
-
-    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_WIDTH, &image_width);
-    imgDesc.image_width = image_width;
-    glGetTexLevelParameteriv(target, miplevel, GL_TEXTURE_HEIGHT, &image_height);
-    imgDesc.image_height = image_height;
-    //imgDesc.image_row_pitch = 256 *8;
-
-    imgInfo.imgDesc.imageWidth = imgDesc.image_width;
-    imgInfo.imgDesc.imageType = ImageType::Image2D;
-    imgInfo.imgDesc.imageHeight = imgDesc.image_height;
 
     if (setClImageFormat(texInfo.glInternalFormat, imgFormat) == false) {
       //  memoryManager->freeGraphicsMemory(alloc);

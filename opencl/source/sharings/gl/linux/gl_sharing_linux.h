@@ -98,7 +98,7 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
         EGLImage image = eglCreateImage(GLHDCHandle, GLHGLRCHandle, EGL_GL_TEXTURE_2D, (EGLClientBuffer) pResourceInfo->name, &attrib_list[0]);
 
         EGLBoolean ret = GLAcquireSharedTexture(GLHDCHandle, image, &fds, &stride, &offset);
-        printf("fds=%d stride=%d offset=%d\n", fds, stride, offset);
+        fprintf(stderr, "GLAcquireSharedTexture ret=%d fds=%d stride=%d offset=%d\n", ret, fds, stride, offset);
         pResourceInfo->globalShareHandle = fds;
 
         return ret;
@@ -107,6 +107,7 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
 #ifdef STUB
         return GLReleaseSharedTexture(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pResourceInfo);
 #else
+        fprintf(stderr, "GLReleaseSharedTexture %d\n",((CL_GL_RESOURCE_INFO*)pResourceInfo)->globalShareHandle);
         return 1;
 #endif
     }

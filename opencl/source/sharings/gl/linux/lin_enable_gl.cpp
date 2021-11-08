@@ -32,10 +32,13 @@ bool GlSharingContextBuilder::processProperties(cl_context_properties &propertyT
     case CL_GL_CONTEXT_KHR:
         contextData->GLHGLRCHandle = (GLContext)propertyValue;
         return true;
+#if 0
+        //GLX not supported
     case CL_GLX_DISPLAY_KHR:
         contextData->GLHDCType = (GLType)CL_GLX_DISPLAY_KHR;
         contextData->GLHDCHandle = (GLDisplay)propertyValue;
         return true;
+#endif
     case CL_EGL_DISPLAY_KHR:
         contextData->GLHDCType = (GLType)CL_EGL_DISPLAY_KHR;
         contextData->GLHDCHandle = (GLDisplay)propertyValue;

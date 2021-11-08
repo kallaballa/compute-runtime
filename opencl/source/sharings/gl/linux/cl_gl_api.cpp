@@ -390,6 +390,7 @@ cl_int CL_API_CALL clGetGLContextInfoKHR(const cl_context_properties *properties
                 GLHGLRCHandle = propertyValue;
                 break;
             case CL_WGL_HDC_KHR:
+            case CL_EGL_DISPLAY_KHR:
                 GLHDCHandle = propertyValue;
                 break;
             }
@@ -415,15 +416,14 @@ cl_int CL_API_CALL clGetGLContextInfoKHR(const cl_context_properties *properties
         }
 
         ClDevice *deviceToReturn = nullptr;
-#ifdef STUB
         for (auto i = 0u; i < platform->getNumDevices(); i++) {
-            auto device = platform->getClDevice(i);
-            if (device->getRootDeviceEnvironment().osInterface->getDriverModel()->as<Wddm>()->verifyAdapterLuid(glSharing->getAdapterLuid(reinterpret_cast<GLContext>(static_cast<uintptr_t>(GLHGLRCHandle))))) {
+            //auto device = platform->getClDevice(i);
+            auto device = platform->getClDevice(0); //return first device
+//            if (device->getRootDeviceEnvironment().osInterface->getDriverModel()->as<Wddm>()->verifyAdapterLuid(glSharing->getAdapterLuid(reinterpret_cast<GLContext>(static_cast<uintptr_t>(GLHGLRCHandle))))) {
                 deviceToReturn = device;
                 break;
-            }
+//            }
         }
-#endif
         if (!deviceToReturn) {
             retVal = CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR;
             return retVal;
