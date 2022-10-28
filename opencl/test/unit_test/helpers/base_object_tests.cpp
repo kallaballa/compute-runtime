@@ -24,7 +24,7 @@
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 
-#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 namespace NEO {
 typedef struct _cl_object_for_test2 *cl_object_for_test2;
@@ -145,7 +145,7 @@ TYPED_TEST(BaseObjectTests, WhenRetainingAndReleasingThenObjectReferenceIsUpdate
     EXPECT_EQ(2, object->getReference());
 
     object->release();
-    EXPECT_EQ(1, object->getReference());
+    EXPECT_EQ(1, object->getReference()); // NOLINT(clang-analyzer-cplusplus.NewDelete)
 
     object->release();
 
@@ -331,7 +331,7 @@ TYPED_TEST(BaseObjectTests, WhenConvertingToInternalObjectThenRefApiCountIsSetTo
     EXPECT_EQ(1, object->getRefApiCount());
     EXPECT_EQ(1, object->getRefInternalCount());
     object->convertToInternalObject();
-    EXPECT_EQ(0, object->getRefApiCount());
+    EXPECT_EQ(0, object->getRefApiCount()); // NOLINT(clang-analyzer-cplusplus.NewDelete)
     EXPECT_EQ(1, object->getRefInternalCount());
     object->decRefInternal();
 }

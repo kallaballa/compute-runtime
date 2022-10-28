@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "level_zero/core/source/device/device.h"
 #include <level_zero/zes_api.h>
 
+#include <mutex>
 #include <vector>
 
 struct _zes_perf_handle_t {
@@ -21,7 +22,7 @@ struct OsSysman;
 
 class Performance : _zes_perf_handle_t {
   public:
-    virtual ~Performance() {}
+    ~Performance() override {}
     virtual ze_result_t performanceGetProperties(zes_perf_properties_t *pProperties) = 0;
     virtual ze_result_t performanceGetConfig(double *pFactor) = 0;
     virtual ze_result_t performanceSetConfig(double pFactor) = 0;
@@ -47,6 +48,7 @@ struct PerformanceHandleContext {
 
   private:
     void createHandle(ze_device_handle_t deviceHandle, zes_engine_type_flag_t domain);
+    std::once_flag initPerformanceOnce;
 };
 
 } // namespace L0

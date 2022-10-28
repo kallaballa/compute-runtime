@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,8 +10,8 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/pipe_control_args.h"
 #include "shared/source/helpers/simd_helper.h"
+#include "shared/source/utilities/hw_timestamps.h"
 
-#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/command_queue/gpgpu_walker_base.inl"
 
 namespace NEO {
@@ -66,9 +66,9 @@ void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(
 
     uint64_t address = TimestampPacketHelper::getContextEndGpuAddress(*timestampPacketNode);
     PipeControlArgs args;
-    MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+    MemorySynchronizationCommands<GfxFamily>::addBarrierWithPostSyncOperation(
         *cmdStream,
-        PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+        PostSyncMode::ImmediateData,
         address,
         0,
         *rootDeviceEnvironment.getHardwareInfo(),
@@ -80,7 +80,7 @@ void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel, const DispatchInfo &dispatchInfo) {
     size_t size = sizeof(typename GfxFamily::GPGPU_WALKER) + HardwareCommandsHelper<GfxFamily>::getSizeRequiredCS() +
-                  sizeof(PIPE_CONTROL) * (MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(commandQueue.getDevice().getHardwareInfo()) ? 2 : 1);
+                  sizeof(PIPE_CONTROL) * (MemorySynchronizationCommands<GfxFamily>::isBarrierWaRequired(commandQueue.getDevice().getHardwareInfo()) ? 2 : 1);
     size += HardwareCommandsHelper<GfxFamily>::getSizeRequiredForCacheFlush(commandQueue, pKernel, 0U);
     size += PreemptionHelper::getPreemptionWaCsSize<GfxFamily>(commandQueue.getDevice());
     if (reserveProfilingCmdsSpace) {
@@ -112,19 +112,19 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsStart(
     // PIPE_CONTROL for global timestamp
     uint64_t timeStampAddress = hwTimeStamps.getGpuAddress() + offsetof(HwTimeStamps, GlobalStartTS);
     PipeControlArgs args;
-    MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+    MemorySynchronizationCommands<GfxFamily>::addBarrierWithPostSyncOperation(
         *commandStream,
-        PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP,
+        PostSyncMode::Timestamp,
         timeStampAddress,
         0llu,
         hwInfo,
         args);
 
     if (!HwHelper::get(hwInfo.platform.eRenderCoreFamily).useOnlyGlobalTimestamps()) {
-        //MI_STORE_REGISTER_MEM for context local timestamp
+        // MI_STORE_REGISTER_MEM for context local timestamp
         timeStampAddress = hwTimeStamps.getGpuAddress() + offsetof(HwTimeStamps, ContextStartTS);
 
-        //low part
+        // low part
         auto pMICmdLow = commandStream->getSpaceForCmd<MI_STORE_REGISTER_MEM>();
         MI_STORE_REGISTER_MEM cmd = GfxFamily::cmdInitStoreRegisterMem;
         adjustMiStoreRegMemMode(&cmd);
@@ -144,19 +144,19 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsEnd(
     // PIPE_CONTROL for global timestamp
     uint64_t timeStampAddress = hwTimeStamps.getGpuAddress() + offsetof(HwTimeStamps, GlobalEndTS);
     PipeControlArgs args;
-    MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+    MemorySynchronizationCommands<GfxFamily>::addBarrierWithPostSyncOperation(
         *commandStream,
-        PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP,
+        PostSyncMode::Timestamp,
         timeStampAddress,
         0llu,
         hwInfo,
         args);
 
     if (!HwHelper::get(hwInfo.platform.eRenderCoreFamily).useOnlyGlobalTimestamps()) {
-        //MI_STORE_REGISTER_MEM for context local timestamp
+        // MI_STORE_REGISTER_MEM for context local timestamp
         uint64_t timeStampAddress = hwTimeStamps.getGpuAddress() + offsetof(HwTimeStamps, ContextEndTS);
 
-        //low part
+        // low part
         auto pMICmdLow = commandStream->getSpaceForCmd<MI_STORE_REGISTER_MEM>();
         MI_STORE_REGISTER_MEM cmd = GfxFamily::cmdInitStoreRegisterMem;
         adjustMiStoreRegMemMode(&cmd);

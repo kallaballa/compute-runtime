@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,7 +13,7 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/hw_helper_tests.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 using namespace NEO;
 
@@ -23,14 +23,14 @@ struct XeHPAndLaterTbxCommandStreamReceiverTests : DeviceFixture, ::testing::Tes
         hardwareInfo = *defaultHwInfo;
         hardwareInfoSetup[hardwareInfo.platform.eProductFamily](&hardwareInfo, true, 0);
         hardwareInfo.gtSystemInfo.MultiTileArchInfo.IsValid = true;
-        DeviceFixture::SetUpImpl(&hardwareInfo);
+        DeviceFixture::setUpImpl(&hardwareInfo);
     }
 
     void SetUp() override {
     }
 
     void TearDown() override {
-        DeviceFixture::TearDown();
+        DeviceFixture::tearDown();
     }
 };
 

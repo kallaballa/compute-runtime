@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,11 +8,56 @@
 #pragma once
 #include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/helpers/logical_state_helper.h"
 
 namespace NEO {
+
 template <typename Family>
-inline void EncodeStoreMMIO<Family>::remapOffset(MI_STORE_REGISTER_MEM *pStoreRegMem) {
-    pStoreRegMem->setMmioRemapEnable(true);
+size_t EncodeComputeMode<Family>::getCmdSizeForComputeMode(const HardwareInfo &hwInfo, bool hasSharedHandles, bool isRcs) {
+    size_t size = 0;
+    auto &hwInfoConfig = (*HwInfoConfig::get(hwInfo.platform.eProductFamily));
+    const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig.isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs);
+    std::ignore = isExtendedWARequired;
+
+    if (isBasicWARequired) {
+        size += MemorySynchronizationCommands<Family>::getSizeForSingleBarrier(false);
+    }
+    size += sizeof(typename Family::STATE_COMPUTE_MODE);
+    if (hasSharedHandles) {
+        size += MemorySynchronizationCommands<Family>::getSizeForSingleBarrier(false);
+    }
+    if (hwInfoConfig.is3DPipelineSelectWARequired() && isRcs) {
+        size += (2 * PreambleHelper<Family>::getCmdSizeForPipelineSelect(hwInfo));
+    }
+    return size;
+}
+
+template <typename Family>
+inline void EncodeComputeMode<Family>::programComputeModeCommandWithSynchronization(
+    LinearStream &csr, StateComputeModeProperties &properties, const PipelineSelectArgs &args,
+    bool hasSharedHandles, const HardwareInfo &hwInfo, bool isRcs, bool dcFlush, LogicalStateHelper *logicalStateHelper) {
+
+    NEO::EncodeWA<Family>::encodeAdditionalPipelineSelect(csr, args, true, hwInfo, isRcs);
+
+    auto &hwInfoConfig = (*HwInfoConfig::get(hwInfo.platform.eProductFamily));
+    const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig.isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs);
+    std::ignore = isExtendedWARequired;
+
+    if (isBasicWARequired) {
+        PipeControlArgs args;
+        args.dcFlushEnable = dcFlush;
+        NEO::EncodeWA<Family>::addPipeControlPriorToNonPipelinedStateCommand(csr, args, hwInfo, isRcs);
+    }
+
+    EncodeComputeMode<Family>::programComputeModeCommand(csr, properties, hwInfo, logicalStateHelper);
+
+    if (hasSharedHandles) {
+        PipeControlArgs args;
+        args.csStallOnly = true;
+        MemorySynchronizationCommands<Family>::addSingleBarrier(csr, args);
+    }
+
+    NEO::EncodeWA<Family>::encodeAdditionalPipelineSelect(csr, args, false, hwInfo, isRcs);
 }
 
 template <typename Family>

@@ -35,18 +35,20 @@ GraphicsAllocation *allocateGlobalsSurface(NEO::SVMAllocsManager *const svmAlloc
         svmProps.readOnly = constant;
         svmProps.hostPtrReadOnly = constant;
 
-        std::set<uint32_t> rootDeviceIndices;
-        rootDeviceIndices.insert(rootDeviceIndex);
+        RootDeviceIndicesContainer rootDeviceIndices;
+        rootDeviceIndices.push_back(rootDeviceIndex);
         std::map<uint32_t, DeviceBitfield> subDeviceBitfields;
         subDeviceBitfields.insert({rootDeviceIndex, deviceBitfield});
-        auto ptr = svmAllocManager->createSVMAlloc(size, svmProps, rootDeviceIndices, subDeviceBitfields);
+        NEO::SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY, rootDeviceIndices, subDeviceBitfields);
+        unifiedMemoryProperties.device = &device;
+        auto ptr = svmAllocManager->createUnifiedMemoryAllocation(size, unifiedMemoryProperties);
         DEBUG_BREAK_IF(ptr == nullptr);
         if (ptr == nullptr) {
             return nullptr;
         }
-        auto svmAlloc = svmAllocManager->getSVMAlloc(ptr);
-        UNRECOVERABLE_IF(svmAlloc == nullptr);
-        gpuAllocation = svmAlloc->gpuAllocations.getGraphicsAllocation(rootDeviceIndex);
+        auto usmAlloc = svmAllocManager->getSVMAlloc(ptr);
+        UNRECOVERABLE_IF(usmAlloc == nullptr);
+        gpuAllocation = usmAlloc->gpuAllocations.getGraphicsAllocation(rootDeviceIndex);
     } else {
         auto allocationType = constant ? AllocationType::CONSTANT_SURFACE : AllocationType::GLOBAL_SURFACE;
         gpuAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex,
@@ -61,9 +63,9 @@ GraphicsAllocation *allocateGlobalsSurface(NEO::SVMAllocsManager *const svmAlloc
     }
 
     auto &hwInfo = device.getHardwareInfo();
-    auto &helper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
 
-    auto success = MemoryTransferHelper::transferMemoryToAllocation(helper.isBlitCopyRequiredForLocalMemory(hwInfo, *gpuAllocation),
+    auto success = MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(hwInfo, *gpuAllocation),
                                                                     device, gpuAllocation, 0, initData, size);
 
     UNRECOVERABLE_IF(!success);

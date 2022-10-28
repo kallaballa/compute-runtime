@@ -10,14 +10,14 @@
 #include "shared/source/command_container/command_encoder_xehp_and_later.inl"
 #include "shared/source/command_container/encode_compute_mode_tgllp_and_later.inl"
 #include "shared/source/command_stream/stream_properties.h"
+#include "shared/source/helpers/cache_flush_xehp_and_later.inl"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/source/xe_hpg_core/hw_cmds_base.h"
+#include "shared/source/utilities/lookup_array.h"
+#include "shared/source/xe_hpg_core/hw_cmds_xe_hpg_core_base.h"
 
-namespace NEO {
+using Family = NEO::XeHpgCoreFamily;
 
-using Family = XE_HPG_COREFamily;
-}
-
+#include "shared/source/command_container/command_encoder_tgllp_and_later.inl"
 #include "shared/source/command_container/command_encoder_xe_hpg_core_and_later.inl"
 #include "shared/source/command_container/image_surface_state/compression_params_tgllp_and_later.inl"
 #include "shared/source/command_container/image_surface_state/compression_params_xehp_and_later.inl"
@@ -86,7 +86,7 @@ void EncodeDispatchKernel<Family>::appendAdditionalIDDFields(INTERFACE_DESCRIPTO
 }
 
 template <>
-void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo) {
+void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadGroupCount, const uint32_t numGrf) {
     const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
     if (hwInfoConfig.isDisableOverdispatchAvailable(hwInfo)) {
         if (interfaceDescriptor.getNumberOfThreadsInGpgpuThreadGroup() == 1) {
@@ -104,21 +104,25 @@ void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCR
 
 template <>
 void EncodeDispatchKernel<Family>::programBarrierEnable(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, uint32_t value, const HardwareInfo &hwInfo) {
-    interfaceDescriptor.setNumberOfBarriers(static_cast<INTERFACE_DESCRIPTOR_DATA::NUMBER_OF_BARRIERS>(value));
+    using BARRIERS = INTERFACE_DESCRIPTOR_DATA::NUMBER_OF_BARRIERS;
+    static const LookupArray<uint32_t, BARRIERS, 2> barrierLookupArray({{{0, BARRIERS::NUMBER_OF_BARRIERS_NONE},
+                                                                         {1, BARRIERS::NUMBER_OF_BARRIERS_B1}}});
+    BARRIERS numBarriers = barrierLookupArray.lookUp(value);
+    interfaceDescriptor.setNumberOfBarriers(numBarriers);
 }
 
 template <>
-void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd, KernelExecutionType kernelExecutionType) {
-    if (HwInfoConfig::get(hwInfo.platform.eProductFamily)->isPrefetchDisablingRequired(hwInfo)) {
-        walkerCmd.setL3PrefetchDisable(true);
+void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd, const EncodeWalkerArgs &walkerArgs) {
+    bool l3PrefetchDisable = HwInfoConfig::get(hwInfo.platform.eProductFamily)->isPrefetchDisablingRequired(hwInfo);
+    int32_t overrideL3PrefetchDisable = DebugManager.flags.ForceL3PrefetchForComputeWalker.get();
+    if (overrideL3PrefetchDisable != -1) {
+        l3PrefetchDisable = !overrideL3PrefetchDisable;
     }
-    if (DebugManager.flags.ForceL3PrefetchForComputeWalker.get() != -1) {
-        walkerCmd.setL3PrefetchDisable(!DebugManager.flags.ForceL3PrefetchForComputeWalker.get());
-    }
+    walkerCmd.setL3PrefetchDisable(l3PrefetchDisable);
 }
 
 template <>
-void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo) {
+void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo, LogicalStateHelper *logicalStateHelper) {
     using STATE_COMPUTE_MODE = typename Family::STATE_COMPUTE_MODE;
     using FORCE_NON_COHERENT = typename STATE_COMPUTE_MODE::FORCE_NON_COHERENT;
     using PIXEL_ASYNC_COMPUTE_THREAD_LIMIT = typename STATE_COMPUTE_MODE::PIXEL_ASYNC_COMPUTE_THREAD_LIMIT;
@@ -127,26 +131,31 @@ void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, Sta
     STATE_COMPUTE_MODE stateComputeMode = Family::cmdInitStateComputeMode;
     auto maskBits = stateComputeMode.getMaskBits();
 
-    if (properties.zPassAsyncComputeThreadLimit.isDirty) {
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    bool ignoreIsDirty = hwInfoConfig.programAllStateComputeCommandFields();
+
+    if (properties.zPassAsyncComputeThreadLimit.isDirty ||
+        (ignoreIsDirty && (properties.zPassAsyncComputeThreadLimit.value != -1))) {
         auto limitValue = static_cast<Z_PASS_ASYNC_COMPUTE_THREAD_LIMIT>(properties.zPassAsyncComputeThreadLimit.value);
         stateComputeMode.setZPassAsyncComputeThreadLimit(limitValue);
         maskBits |= Family::stateComputeModeZPassAsyncComputeThreadLimitMask;
     }
 
-    if (properties.pixelAsyncComputeThreadLimit.isDirty) {
+    if (properties.pixelAsyncComputeThreadLimit.isDirty ||
+        (ignoreIsDirty && (properties.pixelAsyncComputeThreadLimit.value != -1))) {
         auto limitValue = static_cast<PIXEL_ASYNC_COMPUTE_THREAD_LIMIT>(properties.pixelAsyncComputeThreadLimit.value);
         stateComputeMode.setPixelAsyncComputeThreadLimit(limitValue);
         maskBits |= Family::stateComputeModePixelAsyncComputeThreadLimitMask;
     }
 
-    if (properties.largeGrfMode.isDirty) {
-        stateComputeMode.setLargeGrfMode(properties.largeGrfMode.value);
+    if (properties.largeGrfMode.isDirty || ignoreIsDirty) {
+        stateComputeMode.setLargeGrfMode(properties.largeGrfMode.value == 1);
         maskBits |= Family::stateComputeModeLargeGrfModeMask;
     }
 
     stateComputeMode.setMaskBits(maskBits);
 
-    HwInfoConfig::get(hwInfo.platform.eProductFamily)->setForceNonCoherent(&stateComputeMode, properties);
+    hwInfoConfig.setForceNonCoherent(&stateComputeMode, properties);
 
     auto buffer = csr.getSpaceForCmd<STATE_COMPUTE_MODE>();
     *buffer = stateComputeMode;
@@ -164,6 +173,27 @@ void EncodeSurfaceState<Family>::appendParamsForImageFromBuffer(R_SURFACE_STATE 
         }
     }
 }
+
+template <>
+void EncodeDispatchKernel<Family>::adjustWalkOrder(WALKER_TYPE &walkerCmd, uint32_t requiredWorkGroupOrder, const HardwareInfo &hwInfo) {
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    if (hwInfoConfig.isAdjustWalkOrderAvailable(hwInfo)) {
+        if (HwWalkOrderHelper::compatibleDimensionOrders[requiredWorkGroupOrder] == HwWalkOrderHelper::linearWalk) {
+            walkerCmd.setDispatchWalkOrder(WALKER_TYPE::DISPATCH_WALK_ORDER::LINERAR_WALKER);
+        } else if (HwWalkOrderHelper::compatibleDimensionOrders[requiredWorkGroupOrder] == HwWalkOrderHelper::yOrderWalk) {
+            walkerCmd.setDispatchWalkOrder(WALKER_TYPE::DISPATCH_WALK_ORDER::Y_ORDER_WALKER);
+        }
+    }
+}
+
+template <>
+void adjustL3ControlField<Family>(void *l3ControlBuffer) {
+    using L3_CONTROL = typename Family::L3_CONTROL;
+    auto l3Control = reinterpret_cast<L3_CONTROL *>(l3ControlBuffer);
+    l3Control->setUnTypedDataPortCacheFlush(true);
+}
+
+template void flushGpuCache<Family>(LinearStream *commandStream, const Range<L3Range> &ranges, uint64_t postSyncAddress, const HardwareInfo &hwInfo);
 
 template struct EncodeDispatchKernel<Family>;
 template struct EncodeStates<Family>;
@@ -186,4 +216,6 @@ template struct EncodeWA<Family>;
 template struct EncodeEnableRayTracing<Family>;
 template struct EncodeNoop<Family>;
 template struct EncodeStoreMemory<Family>;
+template struct EncodeMemoryFence<Family>;
+template struct EncodeKernelArgsBuffer<Family>;
 } // namespace NEO

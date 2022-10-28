@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,7 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/command_stream/command_stream_fixture.h"
@@ -24,20 +24,20 @@ struct FinishFixture : public ClDeviceFixture,
                        public CommandStreamFixture,
                        public HardwareParse {
 
-    void SetUp() override {
-        ClDeviceFixture::SetUp();
-        CommandQueueHwFixture::SetUp(pClDevice, 0);
+    void setUp() {
+        ClDeviceFixture::setUp();
+        CommandQueueHwFixture::setUp(pClDevice, 0);
         ASSERT_NE(nullptr, pCmdQ);
-        CommandStreamFixture::SetUp(pCmdQ);
+        CommandStreamFixture::setUp(pCmdQ);
         ASSERT_NE(nullptr, pCS);
-        HardwareParse::SetUp();
+        HardwareParse::setUp();
     }
 
-    void TearDown() override {
-        HardwareParse::TearDown();
-        CommandStreamFixture::TearDown();
-        CommandQueueHwFixture::TearDown();
-        ClDeviceFixture::TearDown();
+    void tearDown() {
+        HardwareParse::tearDown();
+        CommandStreamFixture::tearDown();
+        CommandQueueHwFixture::tearDown();
+        ClDeviceFixture::tearDown();
     }
 };
 
@@ -83,7 +83,7 @@ HWTEST_F(FinishTest, WhenFinishIsCalledThenPipeControlIsNotAddedToCqCommandStrea
 
     // Check for PIPE_CONTROL
     parseCommands<FamilyType>(pCmdQ->getCS(1024));
-    auto itorCmd = reverse_find<PIPE_CONTROL *>(cmdList.rbegin(), cmdList.rend());
+    auto itorCmd = reverseFind<PIPE_CONTROL *>(cmdList.rbegin(), cmdList.rend());
     EXPECT_EQ(cmdList.rend(), itorCmd);
 }
 HWTEST_F(FinishTest, givenFreshQueueWhenFinishIsCalledThenCommandStreamIsNotAllocated) {

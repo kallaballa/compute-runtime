@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,8 +10,8 @@
 #include "shared/source/memory_manager/memory_banks.h"
 #include "shared/source/memory_manager/page_table.h"
 #include "shared/source/memory_manager/page_table.inl"
-#include "shared/test/common/mocks/mock_physical_address_allocator.h"
 #include "shared/test/common/test_macros/test.h"
+#include "shared/test/unit_test/mocks/mock_physical_address_allocator.h"
 
 #include "gtest/gtest.h"
 
@@ -107,11 +107,11 @@ class PageTableFixture {
     uint64_t startAddress = 0x1000;
 
   public:
-    void SetUp() {
+    void setUp() {
         startAddress = 0x1000;
     }
 
-    void TearDown() {
+    void tearDown() {
     }
 };
 
@@ -136,9 +136,9 @@ void PageTableEntryChecker::testEntry<MockPDPE>(MockPDPE *pageTable, uint32_t pt
     EXPECT_EQ(reinterpret_cast<void *>(expectedValue), pageTable->entries[0]->entries[0]->entries[pteIndex]);
 }
 
-typedef Test<PageTableFixture> PageTableTests32;
-typedef Test<PageTableFixture> PageTableTests48;
-typedef Test<PageTableFixture> PageTableTestsGPU;
+using PageTableTests32 = Test<PageTableFixture>;
+using PageTableTests48 = Test<PageTableFixture>;
+using PageTableTestsGPU = Test<PageTableFixture>;
 
 TEST_F(PageTableTests48, WhenPageTableIsCreatedThenWalkerIsDummy) {
     PageTable<void, 0, 9> pt(&allocator);
@@ -390,8 +390,8 @@ TEST_F(PageTableTests48, givenPageTableWhenMappingTheSameAddressMultipleTimesThe
     auto phys1 = pageTable->map(address, pageSize, 0, MemoryBanks::MainBank);
     EXPECT_EQ(startAddress, phys1);
 
-    auto phys1_1 = pageTable->map(address, 1, 0, MemoryBanks::MainBank);
-    EXPECT_EQ(startAddress, phys1_1);
+    auto phys11 = pageTable->map(address, 1, 0, MemoryBanks::MainBank);
+    EXPECT_EQ(startAddress, phys11);
 
     auto phys2 = pageTable->map(address, pageSize, 0, MemoryBanks::MainBank);
     EXPECT_EQ(phys1, phys2);
@@ -425,8 +425,8 @@ TEST_F(PageTableTests48, WhenMappingThenAddressesAreCorrect) {
     EXPECT_EQ(startAddress, phys1);
     EXPECT_EQ(allocator.initialPageAddress + pageSize, allocator.mainAllocator);
 
-    auto phys1_1 = pageTable->map(addr1, 1, 0, MemoryBanks::MainBank);
-    EXPECT_EQ(startAddress, phys1_1);
+    auto phys11 = pageTable->map(addr1, 1, 0, MemoryBanks::MainBank);
+    EXPECT_EQ(startAddress, phys11);
     EXPECT_EQ(allocator.initialPageAddress + pageSize, allocator.mainAllocator);
 }
 
@@ -438,8 +438,8 @@ TEST_F(PageTableTests48, GivenMultipleCallsWhenMappingThenAddressesAreCorrect) {
     EXPECT_EQ(startAddress, phys1);
     EXPECT_EQ(allocator.initialPageAddress + pageSize, allocator.mainAllocator);
 
-    auto phys1_1 = pageTable->map(addr1, 1, 0, MemoryBanks::MainBank);
-    EXPECT_EQ(startAddress, phys1_1);
+    auto phys11 = pageTable->map(addr1, 1, 0, MemoryBanks::MainBank);
+    EXPECT_EQ(startAddress, phys11);
     EXPECT_EQ(allocator.initialPageAddress + pageSize, allocator.mainAllocator);
 
     auto phys2 = pageTable->map(addr1, pageSize, 0, MemoryBanks::MainBank);

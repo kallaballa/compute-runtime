@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,12 +27,14 @@ class MediaImageSetArgTest : public ClDeviceFixture,
 
   protected:
     void SetUp() override {
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
+        context = new MockContext(pClDevice);
 
         pKernelInfo = std::make_unique<MockKernelInfo>();
         pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
 
         program = std::make_unique<MockProgram>(toClDeviceVector(*pClDevice));
+        program->setContext(context);
 
         pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
@@ -51,7 +53,7 @@ class MediaImageSetArgTest : public ClDeviceFixture,
 
         pKernel->setKernelArgHandler(0, &Kernel::setArgImage);
         pKernel->setKernelArgHandler(1, &Kernel::setArgImage);
-        context = new MockContext(pClDevice);
+
         srcImage = Image2dHelper<>::create(context);
         ASSERT_NE(nullptr, srcImage);
     }
@@ -61,7 +63,7 @@ class MediaImageSetArgTest : public ClDeviceFixture,
         delete pMultiDeviceKernel;
         program.reset();
         delete context;
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     cl_int retVal = CL_SUCCESS;

@@ -6,14 +6,17 @@
  */
 
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/test/unit_test/aub_tests/fixtures/aub_fixture.h"
 #include "opencl/test/unit_test/aub_tests/fixtures/multicontext_aub_fixture.h"
 #include "opencl/test/unit_test/fixtures/program_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
+
+#include "hw_cmds_xe_hpc_core_base.h"
 
 using namespace NEO;
 
@@ -24,17 +27,17 @@ class SystemMemFenceViaMiMemFence : public AUBFixture,
         DebugManager.flags.ProgramGlobalFenceAsMiMemFenceCommandInCommandStream.set(1);
         DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.set(0);
         DebugManager.flags.ProgramGlobalFenceAsKernelInstructionInEUKernel.set(0);
-        AUBFixture::SetUp(defaultHwInfo.get());
+        AUBFixture::setUp(defaultHwInfo.get());
     }
     void TearDown() override {
-        AUBFixture::TearDown();
+        AUBFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
     cl_int retVal = CL_SUCCESS;
 };
 
-XE_HPC_CORETEST_F(SystemMemFenceViaMiMemFence, givenSystemMemFenceWhenGeneratedAsMiMemFenceCommandInCommandStreamThenWritesToSystemMemoryAreGloballyObservable) {
+XE_HPC_CORETEST_F(SystemMemFenceViaMiMemFence, givenSystemMemFenceWhenMiMemFenceInCommandStreamThenWritesToSystemMemoryAreGloballyObservable) {
     const size_t bufferSize = MemoryConstants::kiloByte;
     std::vector<char> buffer(bufferSize, 0x11);
 
@@ -70,17 +73,17 @@ class SystemMemFenceViaComputeWalker : public AUBFixture,
         DebugManager.flags.ProgramGlobalFenceAsMiMemFenceCommandInCommandStream.set(0);
         DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.set(1);
         DebugManager.flags.ProgramGlobalFenceAsKernelInstructionInEUKernel.set(0);
-        AUBFixture::SetUp(defaultHwInfo.get());
+        AUBFixture::setUp(defaultHwInfo.get());
     }
     void TearDown() override {
-        AUBFixture::TearDown();
+        AUBFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
     cl_int retVal = CL_SUCCESS;
 };
 
-XE_HPC_CORETEST_F(SystemMemFenceViaComputeWalker, givenSystemMemFenceWhenGeneratedAsPostSyncOperationInWalkerThenWritesToSystemMemoryAreGloballyObservable) {
+XE_HPC_CORETEST_F(SystemMemFenceViaComputeWalker, givenSystemMemFenceWhenPostSyncOperationThenWritesToSystemMemoryAreGloballyObservable) {
     const size_t bufferSize = MemoryConstants::kiloByte;
     std::vector<char> buffer(bufferSize, 0x11);
 
@@ -120,10 +123,10 @@ class SystemMemFenceWithBlitter : public MulticontextAubFixture,
         DebugManager.flags.EnableBlitterOperationsSupport.set(1);
         DebugManager.flags.EnableBlitterForEnqueueOperations.set(1);
 
-        MulticontextAubFixture::SetUp(1, EnabledCommandStreamers::Single, true);
+        MulticontextAubFixture::setUp(1, EnabledCommandStreamers::Single, true);
     }
     void TearDown() override {
-        MulticontextAubFixture::TearDown();
+        MulticontextAubFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
@@ -159,28 +162,28 @@ XE_HPC_CORETEST_F(SystemMemFenceWithBlitter, givenSystemMemFenceWhenGeneratedAsM
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-class SystemMemFenceViaKernelInstruction : public ProgramFixture,
-                                           public MulticontextAubFixture,
-                                           public ::testing::Test {
+class SystemMemFenceViaKernel : public ProgramFixture,
+                                public MulticontextAubFixture,
+                                public ::testing::Test {
   public:
     void SetUp() override {
         DebugManager.flags.ProgramGlobalFenceAsMiMemFenceCommandInCommandStream.set(0);
         DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.set(0);
         DebugManager.flags.ProgramGlobalFenceAsKernelInstructionInEUKernel.set(1);
 
-        ProgramFixture::SetUp();
-        MulticontextAubFixture::SetUp(1, EnabledCommandStreamers::Single, true);
+        ProgramFixture::setUp();
+        MulticontextAubFixture::setUp(1, EnabledCommandStreamers::Single, true);
     }
     void TearDown() override {
-        MulticontextAubFixture::TearDown();
-        ProgramFixture::TearDown();
+        MulticontextAubFixture::tearDown();
+        ProgramFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
     cl_int retVal = CL_SUCCESS;
 };
 
-XE_HPC_CORETEST_F(SystemMemFenceViaKernelInstruction, givenSystemMemFenceWhenGeneratedAsKernelInstructionThenWritesToSystemMemoryAreGloballyObservable) {
+XE_HPC_CORETEST_F(SystemMemFenceViaKernel, givenSystemMemFenceWhenKernelInstructionThenWritesToSystemMemoryAreGloballyObservable) {
     const size_t bufferSize = MemoryConstants::kiloByte;
     std::vector<char> buffer(bufferSize, 0x11);
 
@@ -197,7 +200,7 @@ XE_HPC_CORETEST_F(SystemMemFenceViaKernelInstruction, givenSystemMemFenceWhenGen
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, hostMemAlloc);
 
-    CreateProgramFromBinary(context.get(), context->getDevices(), "system_memfence");
+    createProgramFromBinary(context.get(), context->getDevices(), "system_memfence");
 
     retVal = pProgram->build(pProgram->getDevices(), nullptr, false);
     ASSERT_EQ(CL_SUCCESS, retVal);

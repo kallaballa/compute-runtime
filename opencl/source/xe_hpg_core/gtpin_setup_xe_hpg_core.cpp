@@ -9,13 +9,14 @@
 #include "opencl/source/gtpin/gtpin_hw_helper.inl"
 #include "opencl/source/gtpin/gtpin_hw_helper_xehp_and_later.inl"
 
+#include "hw_cmds_xe_hpg_core_base.h"
 #include "ocl_igc_shared/gtpin/gtpin_ocl_interface.h"
 
 namespace NEO {
 
 extern GTPinHwHelper *gtpinHwHelperFactory[IGFX_MAX_CORE];
 
-typedef XE_HPG_COREFamily Family;
+typedef XeHpgCoreFamily Family;
 static const auto gfxFamily = IGFX_XE_HPG_CORE;
 
 template class GTPinHwHelperHw<Family>;

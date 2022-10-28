@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,9 +9,6 @@
 #include "CL/cl.h"
 
 #include <cstdint>
-
-// It's max SSH size per kernel (MAX_BINDING_TABLE_INDEX * 64)
-const uint32_t SAMPLER_OBJECT_ID_SHIFT = 253 * 64;
 
 // Sampler Patch Token Enums
 enum SAMPLER_PATCH_ENUM {
@@ -28,7 +25,7 @@ enum SAMPLER_PATCH_ENUM {
     CLK_FILTER_LINEAR = 0x00,
 };
 
-inline SAMPLER_PATCH_ENUM GetAddrModeEnum(cl_addressing_mode addressingMode) {
+inline SAMPLER_PATCH_ENUM getAddrModeEnum(cl_addressing_mode addressingMode) {
     switch (addressingMode) {
     case CL_ADDRESS_REPEAT:
         return CLK_ADDRESS_REPEAT;
@@ -44,7 +41,7 @@ inline SAMPLER_PATCH_ENUM GetAddrModeEnum(cl_addressing_mode addressingMode) {
     return CLK_ADDRESS_NONE;
 }
 
-inline SAMPLER_PATCH_ENUM GetNormCoordsEnum(cl_bool normalizedCoords) {
+inline SAMPLER_PATCH_ENUM getNormCoordsEnum(cl_bool normalizedCoords) {
     if (normalizedCoords == CL_TRUE) {
         return CLK_NORMALIZED_COORDS_TRUE;
     } else {

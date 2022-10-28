@@ -9,16 +9,19 @@
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/driver_model_type.h"
 #include "shared/source/helpers/non_copyable_or_moveable.h"
+#include "shared/source/helpers/topology_map.h"
 #include "shared/source/os_interface/driver_info.h"
 
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace NEO {
 class ExecutionEnvironment;
 class MemoryManager;
+class OsContext;
 
 class HwDeviceId : public NonCopyableClass {
   public:
@@ -76,40 +79,44 @@ class DriverModel : public NonCopyableClass {
     }
 
     virtual PhysicalDevicePciBusInfo getPciBusInfo() const = 0;
+    virtual PhysicalDevicePciSpeedInfo getPciSpeedInfo() const = 0;
 
     virtual size_t getMaxMemAllocSize() const {
         return std::numeric_limits<size_t>::max();
     }
 
-    virtual bool skipResourceCleanup() const {
-        return false;
+    virtual bool isDriverAvaliable() {
+        return true;
     }
 
-    virtual bool isGpuHangDetected(uint32_t contextId) {
-        return false;
+    bool skipResourceCleanup() const {
+        return skipResourceCleanupVar;
     }
+
+    virtual void cleanup() {}
+
+    virtual bool isGpuHangDetected(OsContext &osContext) = 0;
+    const TopologyMap &getTopologyMap() {
+        return topologyMap;
+    };
 
   protected:
     DriverModelType driverModelType;
+    TopologyMap topologyMap;
+    bool skipResourceCleanupVar = false;
 };
 
 class OSInterface : public NonCopyableClass {
   public:
-    virtual ~OSInterface() = default;
-    DriverModel *getDriverModel() const {
-        return driverModel.get();
-    };
+    virtual ~OSInterface();
+    DriverModel *getDriverModel() const;
 
-    void setDriverModel(std::unique_ptr<DriverModel> driverModel) {
-        this->driverModel = std::move(driverModel);
-    };
+    void setDriverModel(std::unique_ptr<DriverModel> driverModel);
 
     MOCKABLE_VIRTUAL bool isDebugAttachAvailable() const;
     static bool osEnabled64kbPages;
     static bool osEnableLocalMemory;
-    static bool are64kbPagesEnabled() {
-        return osEnabled64kbPages;
-    }
+    static bool are64kbPagesEnabled();
     static bool newResourceImplicitFlush;
     static bool gpuIdleImplicitFlush;
     static bool requiresSupportForWddmTrimNotification;
@@ -119,4 +126,5 @@ class OSInterface : public NonCopyableClass {
   protected:
     std::unique_ptr<DriverModel> driverModel = nullptr;
 };
+
 } // namespace NEO

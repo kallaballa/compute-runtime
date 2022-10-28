@@ -8,17 +8,13 @@
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/constants.h"
-#include "shared/source/xe_hpg_core/hw_cmds.h"
+#include "shared/source/xe_hpg_core/hw_cmds_dg2.h"
 
 #include "engine_node.h"
 
 namespace NEO {
 
 const char *HwMapper<IGFX_DG2>::abbreviation = "dg2";
-
-bool isSimulationDG2(unsigned short deviceId) {
-    return false;
-};
 
 const PLATFORM DG2::platform = {
     IGFX_DG2,
@@ -44,7 +40,6 @@ const RuntimeCapabilityTable DG2::capabilityTable{
     0,                                                         // sharedSystemMemCapabilities
     83.333,                                                    // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                                 // requiredPreemptionSurfaceSize
-    &isSimulationDG2,                                          // isSimulation
     "dg2",                                                     // platformType
     "",                                                        // deviceName
     PreemptionMode::ThreadGroup,                               // defaultPreemptionMode
@@ -84,7 +79,8 @@ const RuntimeCapabilityTable DG2::capabilityTable{
     true,                                                      // supportsMediaBlock
     true,                                                      // p2pAccessSupported
     false,                                                     // p2pAtomicAccessSupported
-    true                                                       // fusedEuEnabled
+    true,                                                      // fusedEuEnabled
+    true                                                       // l0DebuggerSupported
 };
 
 WorkaroundTable DG2::workaroundTable = {};
@@ -129,19 +125,37 @@ void DG2::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waEnablePreemptionGranularityControlByUMD = true;
 };
 
-const HardwareInfo DG2_CONFIG::hwInfo = {
+void DG2::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * DG2::threadsPerEu;
+    gtSysInfo->TotalVsThreads = 336;
+    gtSysInfo->TotalHsThreads = 336;
+    gtSysInfo->TotalDsThreads = 336;
+    gtSysInfo->TotalGsThreads = 336;
+    gtSysInfo->TotalPsThreadsWindowerRange = 64;
+    gtSysInfo->CsrSizeInMb = 8;
+    gtSysInfo->MaxEuPerSubSlice = DG2::maxEuPerSubslice;
+    gtSysInfo->MaxSlicesSupported = DG2::maxSlicesSupported;
+    gtSysInfo->MaxSubSlicesSupported = DG2::maxSubslicesSupported;
+    gtSysInfo->MaxDualSubSlicesSupported = DG2::maxDualSubslicesSupported;
+    gtSysInfo->IsL3HashModeEnabled = false;
+    gtSysInfo->IsDynamicallyPopulated = false;
+
+    adjustHardwareInfo(hwInfo);
+    if (setupFeatureTableAndWorkaroundTable) {
+        setupFeatureAndWorkaroundTable(hwInfo);
+    }
+}
+
+const HardwareInfo Dg2HwConfig::hwInfo = {
     &DG2::platform,
     &DG2::featureTable,
     &DG2::workaroundTable,
-    &DG2_CONFIG::gtSystemInfo,
+    &Dg2HwConfig::gtSystemInfo,
     DG2::capabilityTable,
 };
-GT_SYSTEM_INFO DG2_CONFIG::gtSystemInfo = {0};
-void DG2_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
-    DG2_CONFIG::setupHardwareInfoMultiTile(hwInfo, setupFeatureTableAndWorkaroundTable, false);
-}
-
-void DG2_CONFIG::setupHardwareInfoMultiTile(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, bool setupMultiTile) {
+GT_SYSTEM_INFO Dg2HwConfig::gtSystemInfo = {0};
+void Dg2HwConfig::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->CsrSizeInMb = 8;
     gtSysInfo->IsL3HashModeEnabled = false;
@@ -157,18 +171,20 @@ void DG2_CONFIG::setupHardwareInfoMultiTile(HardwareInfo *hwInfo, bool setupFeat
         gtSysInfo->MaxSlicesSupported = gtSysInfo->SliceCount;
         gtSysInfo->MaxSubSlicesSupported = gtSysInfo->SubSliceCount;
 
+        gtSysInfo->L3CacheSizeInKb = 1;
         gtSysInfo->L3BankCount = 1;
 
         gtSysInfo->CCSInfo.IsValid = true;
         gtSysInfo->CCSInfo.NumberOfCCSEnabled = 1;
 
         hwInfo->featureTable.ftrBcsInfo = 1;
-
+        gtSysInfo->IsDynamicallyPopulated = true;
         for (uint32_t slice = 0; slice < gtSysInfo->SliceCount; slice++) {
             gtSysInfo->SliceInfo[slice].Enabled = true;
         }
     }
 
+    adjustHardwareInfo(hwInfo);
     if (setupFeatureTableAndWorkaroundTable) {
         DG2::setupFeatureAndWorkaroundTable(hwInfo);
     }

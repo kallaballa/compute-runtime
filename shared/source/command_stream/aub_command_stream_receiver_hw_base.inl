@@ -13,6 +13,7 @@
 #include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "shared/source/command_stream/command_stream_receiver.h"
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
@@ -26,6 +27,7 @@
 #include "shared/source/helpers/neo_driver_version.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
+#include "shared/source/helpers/string_helpers.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/memory_banks.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
@@ -131,6 +133,15 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initFile(const std::string &fileName
             std::ostringstream str;
             str << "driver version: " << driverVersion;
             aubManager->addComment(str.str().c_str());
+
+            std::string strWithNonDefaultFlags;
+            std::string strWithAllFlags;
+
+            DebugManager.getStringWithFlags(strWithAllFlags, strWithNonDefaultFlags);
+            auto vectorWithNonDefaultFlags = StringHelpers::split(strWithNonDefaultFlags, "\n");
+            for (auto &comment : vectorWithNonDefaultFlags) {
+                aubManager->addComment((comment).c_str());
+            }
         }
         return;
     }
@@ -606,8 +617,8 @@ void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletionImpl() {
 }
 
 template <typename GfxFamily>
-inline WaitStatus AUBCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
-    const auto result = CommandStreamReceiverSimulatedHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, forcePowerSavingMode);
+inline WaitStatus AUBCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, QueueThrottle throttle) {
+    const auto result = CommandStreamReceiverSimulatedHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, throttle);
     pollForCompletion();
 
     return result;
@@ -735,10 +746,10 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddress,
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {
+bool AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {
     if (subCaptureManager->isSubCaptureMode()) {
         if (!subCaptureManager->isSubCaptureEnabled()) {
-            return;
+            return true;
         }
     }
 
@@ -760,6 +771,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyCont
     }
 
     dumpAubNonWritable = false;
+    return true;
 }
 
 template <typename GfxFamily>

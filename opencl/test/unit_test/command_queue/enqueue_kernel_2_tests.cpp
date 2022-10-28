@@ -7,13 +7,14 @@
 
 #include "shared/source/command_container/implicit_scaling.h"
 #include "shared/source/command_stream/scratch_space_controller.h"
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/allocations_list.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_csr.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
@@ -65,7 +66,7 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
 
     EnqueueKernelTypeTest() {
     }
-    void FillValues() {
+    void fillValues() {
         globalWorkSize[0] = 1;
         globalWorkSize[1] = 1;
         globalWorkSize[2] = 1;
@@ -83,7 +84,7 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
         cl_event *eventWaitList = nullptr;
         cl_event *event = nullptr;
 
-        FillValues();
+        fillValues();
         // Compute # of expected work items
         expectedWorkItems = 1;
         for (auto i = 0u; i < workDim; i++) {
@@ -117,12 +118,12 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
     }
 
     void SetUp() override {
-        ParentClass::SetUp();
-        ClHardwareParse::SetUp();
+        ParentClass::setUp();
+        ClHardwareParse::setUp();
     }
     void TearDown() override {
-        ClHardwareParse::TearDown();
-        ParentClass::TearDown();
+        ClHardwareParse::tearDown();
+        ParentClass::tearDown();
     }
     size_t globalWorkSize[3];
     size_t localWorkSize[3];
@@ -130,7 +131,7 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
 };
 
 template <>
-void EnqueueKernelTypeTest<TestParam>::FillValues() {
+void EnqueueKernelTypeTest<TestParam>::fillValues() {
     const TestParam &param = GetParam();
     globalWorkSize[0] = param.globalWorkSizeX;
     globalWorkSize[1] = param.globalWorkSizeY;
@@ -243,23 +244,23 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTestsWithLimitedParamSet, WhenEnquein
     auto *cmdSBA = (STATE_BASE_ADDRESS *)*itorCmd;
 
     // Extrach the DSH
-    auto DSH = cmdSBA->getDynamicStateBaseAddress();
-    ASSERT_NE(0u, DSH);
+    auto dsh = cmdSBA->getDynamicStateBaseAddress();
+    ASSERT_NE(0u, dsh);
 
     // IDD should be located within DSH
     auto iddStart = cmdMIDL->getInterfaceDescriptorDataStartAddress();
-    auto IDDEnd = iddStart + cmdMIDL->getInterfaceDescriptorTotalLength();
-    ASSERT_LE(IDDEnd, cmdSBA->getDynamicStateBufferSize() * MemoryConstants::pageSize);
+    auto iddEnd = iddStart + cmdMIDL->getInterfaceDescriptorTotalLength();
+    ASSERT_LE(iddEnd, cmdSBA->getDynamicStateBufferSize() * MemoryConstants::pageSize);
 
-    auto &IDD = *(INTERFACE_DESCRIPTOR_DATA *)cmdInterfaceDescriptorData;
+    auto &idd = *(INTERFACE_DESCRIPTOR_DATA *)cmdInterfaceDescriptorData;
 
     // Validate the kernel start pointer.  Technically, a kernel can start at address 0 but let's force a value.
-    auto kernelStartPointer = ((uint64_t)IDD.getKernelStartPointerHigh() << 32) + IDD.getKernelStartPointer();
+    auto kernelStartPointer = ((uint64_t)idd.getKernelStartPointerHigh() << 32) + idd.getKernelStartPointer();
     EXPECT_LE(kernelStartPointer, cmdSBA->getInstructionBufferSize() * MemoryConstants::pageSize);
 
-    EXPECT_NE(0u, IDD.getNumberOfThreadsInGpgpuThreadGroup());
-    EXPECT_NE(0u, IDD.getCrossThreadConstantDataReadLength());
-    EXPECT_NE(0u, IDD.getConstantIndirectUrbEntryReadLength());
+    EXPECT_NE(0u, idd.getNumberOfThreadsInGpgpuThreadGroup());
+    EXPECT_NE(0u, idd.getCrossThreadConstantDataReadLength());
+    EXPECT_NE(0u, idd.getConstantIndirectUrbEntryReadLength());
 }
 
 HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTestsWithLimitedParamSet, givenDebugVariableToOverrideMOCSWhenStateBaseAddressIsBeingProgrammedThenItContainsDesiredIndex) {
@@ -346,13 +347,13 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
     EXPECT_EQ(bitValue, cmd->getPerThreadScratchSpace());
     EXPECT_EQ(bitValue, cmd->getStackSize());
     auto graphicsAllocation = csr.getScratchAllocation();
-    auto GSHaddress = sba->getGeneralStateBaseAddress();
+    auto gsHaddress = sba->getGeneralStateBaseAddress();
     if (is32bit) {
         EXPECT_NE(0u, cmd->getScratchSpaceBasePointer());
-        EXPECT_EQ(0u, GSHaddress);
+        EXPECT_EQ(0u, gsHaddress);
     } else {
         EXPECT_EQ(ScratchSpaceConstants::scratchSpaceOffsetFor64Bit, cmd->getScratchSpaceBasePointer());
-        EXPECT_EQ(GSHaddress + ScratchSpaceConstants::scratchSpaceOffsetFor64Bit, graphicsAllocation->getGpuAddress());
+        EXPECT_EQ(gsHaddress + ScratchSpaceConstants::scratchSpaceOffsetFor64Bit, graphicsAllocation->getGpuAddress());
     }
 
     auto allocationSize = scratchSize * pDevice->getDeviceInfo().computeUnitsUsedForScratch;
@@ -402,10 +403,10 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
         EXPECT_EQ(graphicsAddress, scratchBase);
     } else {
         auto *sba2 = (STATE_BASE_ADDRESS *)*itorCmdForStateBase;
-        auto GSHaddress2 = sba2->getGeneralStateBaseAddress();
-        EXPECT_NE(0u, GSHaddress2);
+        auto gsHaddress2 = sba2->getGeneralStateBaseAddress();
+        EXPECT_NE(0u, gsHaddress2);
         EXPECT_EQ(ScratchSpaceConstants::scratchSpaceOffsetFor64Bit, cmd2->getScratchSpaceBasePointer());
-        EXPECT_NE(GSHaddress2, GSHaddress);
+        EXPECT_NE(gsHaddress2, gsHaddress);
     }
     EXPECT_EQ(graphicsAllocation->getUnderlyingBufferSize(), allocationSize);
     EXPECT_NE(graphicsAllocation2, graphicsAllocation);
@@ -421,11 +422,11 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
     auto finalItorToSBA = find<STATE_BASE_ADDRESS *>(itorCmd, cmdList.end());
     ASSERT_NE(finalItorToSBA, cmdList.end());
     auto *finalSba2 = (STATE_BASE_ADDRESS *)*finalItorToSBA;
-    auto GSBaddress = finalSba2->getGeneralStateBaseAddress();
+    auto gsBaddress = finalSba2->getGeneralStateBaseAddress();
     if constexpr (is32bit) {
-        EXPECT_EQ(0u, GSBaddress);
+        EXPECT_EQ(0u, gsBaddress);
     } else {
-        EXPECT_EQ(graphicsAllocation2->getGpuAddress(), GSBaddress + ScratchSpaceConstants::scratchSpaceOffsetFor64Bit);
+        EXPECT_EQ(graphicsAllocation2->getGpuAddress(), gsBaddress + ScratchSpaceConstants::scratchSpaceOffsetFor64Bit);
     }
 
     EXPECT_TRUE(csr.getAllocationsForReuse().peekIsEmpty());
@@ -506,9 +507,9 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelWithScratch, givenDeviceForcing32bitAll
         ASSERT_NE(itorCmdForStateBase, itorWalker);
         auto *sba = (STATE_BASE_ADDRESS *)*itorCmdForStateBase;
 
-        auto GSHaddress = sba->getGeneralStateBaseAddress();
+        auto gsHaddress = sba->getGeneralStateBaseAddress();
 
-        EXPECT_EQ(memoryManager->getExternalHeapBaseAddress(graphicsAllocation->getRootDeviceIndex(), graphicsAllocation->isAllocatedInLocalMemoryPool()), GSHaddress);
+        EXPECT_EQ(memoryManager->getExternalHeapBaseAddress(graphicsAllocation->getRootDeviceIndex(), graphicsAllocation->isAllocatedInLocalMemoryPool()), gsHaddress);
 
         //now re-try to see if SBA is not programmed
 
@@ -561,7 +562,7 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfWhenBeingDispatchedThenL3
     cl_event *eventWaitList = nullptr;
     cl_event *event = nullptr;
 
-    FillValues();
+    fillValues();
     // Compute # of expected work items
     expectedWorkItems = 1;
     for (auto i = 0u; i < workDim; i++) {
@@ -600,7 +601,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelPrintfTest, GivenKernelWithPrintfBlocke
     cl_uint workDim = 1;
     size_t globalWorkOffset[3] = {0, 0, 0};
 
-    FillValues();
+    fillValues();
 
     cl_event blockedEvent = &userEvent;
     auto retVal = mockCommandQueue.enqueueKernel(
@@ -624,19 +625,20 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelPrintfTest, GivenKernelWithPrintfBlocke
 }
 
 HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfBlockedByEventWhenEventUnblockedThenOutputPrinted) {
-    testing::internal::CaptureStdout();
-
-    auto userEvent = make_releaseable<UserEvent>(context);
+    auto userEvent = makeReleaseable<UserEvent>(context);
 
     MockKernelWithInternals mockKernel(*pClDevice);
-    mockKernel.kernelInfo.setPrintfSurface(sizeof(uintptr_t), 0);
     std::string testString = "test";
     mockKernel.kernelInfo.addToPrintfStringsMap(0, testString);
-
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.flags.usesPrintf = true;
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.flags.usesStringMapForPrintf = true;
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.binaryFormat = DeviceBinaryFormat::Patchtokens;
+    mockKernel.kernelInfo.setBufferAddressingMode(KernelDescriptor::Stateless);
+    mockKernel.kernelInfo.setPrintfSurface(sizeof(uintptr_t), 8);
     cl_uint workDim = 1;
     size_t globalWorkOffset[3] = {0, 0, 0};
 
-    FillValues();
+    fillValues();
 
     cl_event blockedEvent = userEvent.get();
     cl_event outEvent{};
@@ -660,27 +662,30 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfBlockedByEventWhenEventUn
 
     pOutEvent->release();
 
+    testing::internal::CaptureStdout();
     userEvent->setStatus(CL_COMPLETE);
-
     std::string output = testing::internal::GetCapturedStdout();
+
     EXPECT_STREQ("test", output.c_str());
 }
 
-HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithImplicitArgsWhenEventUnblockedThenOutputPrinted) {
-    auto userEvent = make_releaseable<UserEvent>(context);
+HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfWithStringMapDisbaledAndImplicitArgsBlockedByEventWhenEventUnblockedThenNoOutputPrinted) {
+    auto userEvent = makeReleaseable<UserEvent>(context);
 
     MockKernelWithInternals mockKernel(*pClDevice);
     std::string testString = "test";
     mockKernel.kernelInfo.addToPrintfStringsMap(0, testString);
     mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.flags.usesPrintf = false;
     mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.flags.usesStringMapForPrintf = false;
+    UnitTestHelper<FamilyType>::adjustKernelDescriptorForImplicitArgs(mockKernel.kernelInfo.kernelDescriptor);
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.binaryFormat = DeviceBinaryFormat::Patchtokens;
     mockKernel.mockKernel->pImplicitArgs = std::make_unique<ImplicitArgs>();
     *mockKernel.mockKernel->pImplicitArgs = {};
 
     cl_uint workDim = 1;
     size_t globalWorkOffset[3] = {0, 0, 0};
 
-    FillValues();
+    fillValues();
 
     cl_event blockedEvent = userEvent.get();
     cl_event outEvent{};
@@ -698,9 +703,7 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithImplicitArgsWhenEventUnblockedT
 
     auto pOutEvent = castToObject<Event>(outEvent);
 
-    auto printfAllocation = reinterpret_cast<uint32_t *>(static_cast<CommandComputeKernel *>(pOutEvent->peekCommand())->peekPrintfHandler()->getSurface()->getUnderlyingBuffer());
-    printfAllocation[0] = 8;
-    printfAllocation[1] = 0;
+    EXPECT_EQ(nullptr, static_cast<CommandComputeKernel *>(pOutEvent->peekCommand())->peekPrintfHandler());
 
     pOutEvent->release();
 
@@ -708,7 +711,7 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithImplicitArgsWhenEventUnblockedT
     userEvent->setStatus(CL_COMPLETE);
     std::string output = testing::internal::GetCapturedStdout();
 
-    EXPECT_STREQ("test", output.c_str());
+    EXPECT_STREQ("", output.c_str());
 }
 
 INSTANTIATE_TEST_CASE_P(EnqueueKernel,
@@ -721,6 +724,9 @@ HWTEST_F(EnqueueKernelTests, whenEnqueueingKernelThenCsrCorrectlySetsRequiredThr
     struct myCsr : public UltCommandStreamReceiver<FamilyType> {
         using CommandStreamReceiverHw<FamilyType>::streamProperties;
     };
+
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.ForceThreadArbitrationPolicyProgrammingWithScm.set(1);
 
     cl_uint workDim = 1;
     size_t globalWorkOffset[3] = {0, 0, 0};
@@ -753,7 +759,7 @@ HWTEST_F(EnqueueKernelTests, whenEnqueueingKernelThenCsrCorrectlySetsRequiredThr
         nullptr);
     pCommandQueue->flush();
     EXPECT_EQ(HwHelperHw<FamilyType>::get().getDefaultThreadArbitrationPolicy(),
-              static_cast<uint32_t>(csr.streamProperties.stateComputeMode.threadArbitrationPolicy.value));
+              csr.streamProperties.stateComputeMode.threadArbitrationPolicy.value);
 
     pCommandQueue->enqueueKernel(
         mockKernelWithInternalsWithIfpNotRequired.mockKernel,
@@ -766,7 +772,7 @@ HWTEST_F(EnqueueKernelTests, whenEnqueueingKernelThenCsrCorrectlySetsRequiredThr
         nullptr);
     pCommandQueue->flush();
     EXPECT_EQ(ThreadArbitrationPolicy::AgeBased,
-              static_cast<uint32_t>(csr.streamProperties.stateComputeMode.threadArbitrationPolicy.value));
+              csr.streamProperties.stateComputeMode.threadArbitrationPolicy.value);
 
     pCommandQueue->enqueueKernel(
         mockKernelWithInternalsWithIfpRequired.mockKernel,
@@ -779,7 +785,7 @@ HWTEST_F(EnqueueKernelTests, whenEnqueueingKernelThenCsrCorrectlySetsRequiredThr
         nullptr);
     pCommandQueue->flush();
     EXPECT_EQ(HwHelperHw<FamilyType>::get().getDefaultThreadArbitrationPolicy(),
-              static_cast<uint32_t>(csr.streamProperties.stateComputeMode.threadArbitrationPolicy.value));
+              csr.streamProperties.stateComputeMode.threadArbitrationPolicy.value);
 }
 
 typedef HelloWorldFixture<HelloWorldFixtureFactory> EnqueueKernelFixture;
@@ -804,9 +810,9 @@ class MyCmdQ : public MockCommandQueueHw<FamilyType> {
                                                   auxTranslationDirection);
     }
 
-    void waitUntilComplete(uint32_t gpgpuTaskCountToWait, Range<CopyEngineState> copyEnginesToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool cleanTemporaryAllocationList, bool skipWait) override {
+    WaitStatus waitUntilComplete(uint32_t gpgpuTaskCountToWait, Range<CopyEngineState> copyEnginesToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool cleanTemporaryAllocationList, bool skipWait) override {
         waitCalled++;
-        MockCommandQueueHw<FamilyType>::waitUntilComplete(gpgpuTaskCountToWait, copyEnginesToWait, flushStampToWait, useQuickKmdSleep, cleanTemporaryAllocationList, skipWait);
+        return MockCommandQueueHw<FamilyType>::waitUntilComplete(gpgpuTaskCountToWait, copyEnginesToWait, flushStampToWait, useQuickKmdSleep, cleanTemporaryAllocationList, skipWait);
     }
 
     std::vector<AuxTranslationDirection> auxTranslationDirections;
@@ -889,8 +895,8 @@ HWTEST_F(EnqueueAuxKernelTests, givenMultipleArgsWhenAuxTranslationIsRequiredThe
 
     auto pipeControls = findAll<typename FamilyType::PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
 
-    auto additionalPcCount = MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(
-                                 pDevice->getHardwareInfo()) /
+    auto additionalPcCount = MemorySynchronizationCommands<FamilyType>::getSizeForBarrierWithPostSyncOperation(
+                                 pDevice->getHardwareInfo(), false) /
                              sizeof(typename FamilyType::PIPE_CONTROL);
 
     // |AuxToNonAux|NDR|NonAuxToAux|
@@ -1006,7 +1012,7 @@ HWTEST_F(EnqueueKernelTest, givenTimestampWriteEnableWhenMarkerProfilingWithoutW
     auto baseCommandStreamSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_MARKER, {}, false, false, false, *pCmdQ, multiDispatchInfo, false, false);
     auto extendedCommandStreamSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_MARKER, {}, false, false, false, *pCmdQ, multiDispatchInfo, true, false);
 
-    EXPECT_EQ(baseCommandStreamSize + 4 * EncodeStoreMMIO<FamilyType>::size + MemorySynchronizationCommands<FamilyType>::getSizeForSinglePipeControl(), extendedCommandStreamSize);
+    EXPECT_EQ(baseCommandStreamSize + 4 * EncodeStoreMMIO<FamilyType>::size + MemorySynchronizationCommands<FamilyType>::getSizeForSingleBarrier(false), extendedCommandStreamSize);
 }
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, EnqueueKernelTest, givenTimestampWriteEnableOnMultiTileQueueWhenMarkerProfilingWithoutWaitListThenSizeHasFourMMIOStoresAndCrossTileBarrier) {

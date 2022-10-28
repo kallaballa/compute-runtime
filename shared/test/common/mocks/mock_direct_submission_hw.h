@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,12 +17,12 @@ struct MockDirectSubmissionHw : public DirectSubmissionHw<GfxFamily, Dispatcher>
     using BaseClass = DirectSubmissionHw<GfxFamily, Dispatcher>;
     using BaseClass::activeTiles;
     using BaseClass::allocateResources;
-    using BaseClass::completionRingBuffers;
+    using BaseClass::completionFenceAllocation;
     using BaseClass::cpuCachelineFlush;
     using BaseClass::currentQueueWorkCount;
     using BaseClass::currentRingBuffer;
+    using BaseClass::dcFlushRequired;
     using BaseClass::deallocateResources;
-    using BaseClass::device;
     using BaseClass::diagnostic;
     using BaseClass::DirectSubmissionHw;
     using BaseClass::disableCacheFlush;
@@ -45,14 +45,16 @@ struct MockDirectSubmissionHw : public DirectSubmissionHw<GfxFamily, Dispatcher>
     using BaseClass::getSizeSemaphoreSection;
     using BaseClass::getSizeStartSection;
     using BaseClass::getSizeSwitchRingBufferSection;
+    using BaseClass::getSizeSystemMemoryFenceAddress;
     using BaseClass::hwInfo;
+    using BaseClass::miMemFenceRequired;
     using BaseClass::osContext;
     using BaseClass::partitionConfigSet;
     using BaseClass::partitionedMode;
     using BaseClass::performDiagnosticMode;
     using BaseClass::postSyncOffset;
-    using BaseClass::ringBuffer;
-    using BaseClass::ringBuffer2;
+    using BaseClass::reserved;
+    using BaseClass::ringBuffers;
     using BaseClass::ringCommandStream;
     using BaseClass::ringStart;
     using BaseClass::semaphoreData;
@@ -63,6 +65,7 @@ struct MockDirectSubmissionHw : public DirectSubmissionHw<GfxFamily, Dispatcher>
     using BaseClass::startRingBuffer;
     using BaseClass::stopRingBuffer;
     using BaseClass::switchRingBuffersAllocations;
+    using BaseClass::systemMemoryFenceAddressSet;
     using BaseClass::useNotifyForPostSync;
     using BaseClass::workloadMode;
     using BaseClass::workloadModeOneExpectedValue;
@@ -124,6 +127,10 @@ struct MockDirectSubmissionHw : public DirectSubmissionHw<GfxFamily, Dispatcher>
         BaseClass::performDiagnosticMode();
     }
 
+    bool isCompleted(uint32_t ringBufferIndex) override {
+        return this->isCompletedReturn;
+    }
+
     uint64_t updateTagValueReturn = 1ull;
     uint64_t tagAddressSetValue = MemoryConstants::pageSize;
     uint64_t tagValueSetValue = 1ull;
@@ -137,5 +144,6 @@ struct MockDirectSubmissionHw : public DirectSubmissionHw<GfxFamily, Dispatcher>
     bool submitReturn = true;
     bool handleResidencyReturn = true;
     bool callBaseResident = false;
+    bool isCompletedReturn = true;
 };
 } // namespace NEO

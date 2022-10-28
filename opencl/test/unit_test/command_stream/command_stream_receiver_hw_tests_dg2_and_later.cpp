@@ -8,8 +8,10 @@
 #include "shared/source/helpers/ray_tracing_helper.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/mocks/mock_csr.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/mocks/mock_os_context.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
@@ -22,13 +24,13 @@ struct CommandStreamReceiverHwTestDg2AndLater : public ClDeviceFixture,
                                                 public ::testing::Test {
 
     void SetUp() override {
-        ClDeviceFixture::SetUp();
-        HardwareParse::SetUp();
+        ClDeviceFixture::setUp();
+        HardwareParse::setUp();
     }
 
     void TearDown() override {
-        HardwareParse::TearDown();
-        ClDeviceFixture::TearDown();
+        HardwareParse::tearDown();
+        ClDeviceFixture::tearDown();
     }
 };
 
@@ -60,11 +62,11 @@ HWTEST2_F(CommandStreamReceiverHwTestDg2AndLater, givenGen12AndLaterWhenRayTraci
     EXPECT_TRUE(commandStreamReceiver.isPerDssBackedBufferSent);
 }
 
-typedef UltCommandStreamReceiverTest CommandStreamReceiverFlushTasDg2AndLaterTests;
+typedef UltCommandStreamReceiverTest CommandStreamReceiverFlushTaskDg2AndLaterTests;
 
-HWTEST2_F(CommandStreamReceiverFlushTasDg2AndLaterTests, givenProgramPipeControlPriorToNonPipelinedStateCommandWhenPerDssBackedBufferThenThereIsPipeControlPriorToIt, MatcherIsRTCapable) {
+HWTEST2_F(CommandStreamReceiverFlushTaskDg2AndLaterTests, givenProgramExtendedPipeControlPriorToNonPipelinedStateCommandEnabledWhenPerDssBackedBufferThenThereIsPipeControlPriorToIt, MatcherIsRTCapable) {
     DebugManagerStateRestore restore;
-    DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.set(true);
+    DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.set(true);
 
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     using _3DSTATE_BTD = typename FamilyType::_3DSTATE_BTD;
@@ -94,29 +96,29 @@ HWTEST2_F(CommandStreamReceiverFlushTasDg2AndLaterTests, givenProgramPipeControl
     dispatchFlags.threadArbitrationPolicy = hwHelper.getDefaultThreadArbitrationPolicy();
 
     commandStreamReceiver.streamProperties.stateComputeMode.setProperties(dispatchFlags.requiresCoherency, dispatchFlags.numGrfRequired,
-                                                                          dispatchFlags.threadArbitrationPolicy);
+                                                                          dispatchFlags.threadArbitrationPolicy, PreemptionMode::Disabled, *defaultHwInfo);
     auto cmdSizeForAllCommands = commandStreamReceiver.getRequiredCmdStreamSize(dispatchFlags, *pDevice);
     commandStreamReceiver.flushTask(commandStream,
                                     0,
-                                    dsh,
-                                    ioh,
-                                    ssh,
+                                    &dsh,
+                                    &ioh,
+                                    &ssh,
                                     taskLevel,
                                     dispatchFlags,
                                     *pDevice);
 
     parseCommands<FamilyType>(commandStreamReceiver.getCS(0));
 
-    auto _3dStateBtdIterator = find<_3DSTATE_BTD *>(cmdList.begin(), cmdList.end());
-    auto _3dStateBtdCmd = genCmdCast<_3DSTATE_BTD *>(*_3dStateBtdIterator);
+    auto cmd3dStateBtdIterator = find<_3DSTATE_BTD *>(cmdList.begin(), cmdList.end());
+    auto cmd3dStateBtdCmd = genCmdCast<_3DSTATE_BTD *>(*cmd3dStateBtdIterator);
 
-    ASSERT_NE(nullptr, _3dStateBtdCmd);
-    EXPECT_EQ(RayTracingHelper::getMemoryBackedFifoSizeToPatch(), _3dStateBtdCmd->getBtdStateBody().getPerDssMemoryBackedBufferSize());
-    EXPECT_EQ(allocation->getGpuAddressToPatch(), _3dStateBtdCmd->getBtdStateBody().getMemoryBackedBufferBasePointer());
+    ASSERT_NE(nullptr, cmd3dStateBtdCmd);
+    EXPECT_EQ(RayTracingHelper::getMemoryBackedFifoSizeToPatch(), cmd3dStateBtdCmd->getBtdStateBody().getPerDssMemoryBackedBufferSize());
+    EXPECT_EQ(allocation->getGpuAddressToPatch(), cmd3dStateBtdCmd->getBtdStateBody().getMemoryBackedBufferBasePointer());
     EXPECT_TRUE(commandStreamReceiver.isPerDssBackedBufferSent);
 
-    --_3dStateBtdIterator;
-    auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*_3dStateBtdIterator);
+    --cmd3dStateBtdIterator;
+    auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*cmd3dStateBtdIterator);
 
     EXPECT_TRUE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControlCmd));
     EXPECT_TRUE(pipeControlCmd->getAmfsFlushEnable());
@@ -129,9 +131,9 @@ HWTEST2_F(CommandStreamReceiverFlushTasDg2AndLaterTests, givenProgramPipeControl
 
     commandStreamReceiver.flushTask(commandStream,
                                     0,
-                                    dsh,
-                                    ioh,
-                                    ssh,
+                                    &dsh,
+                                    &ioh,
+                                    &ssh,
                                     taskLevel,
                                     dispatchFlags,
                                     *pDevice);

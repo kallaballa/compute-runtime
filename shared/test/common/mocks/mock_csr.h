@@ -10,8 +10,6 @@
 #include "shared/test/common/mocks/mock_command_stream_receiver.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
 
-#include "gmock/gmock.h"
-
 #include <vector>
 
 using namespace NEO;
@@ -44,7 +42,7 @@ class MockCsrBase : public UltCommandStreamReceiver<GfxFamily> {
         madeNonResidentGfxAllocations.push_back(&gfxAllocation);
     }
 
-    uint32_t peekThreadArbitrationPolicy() { return static_cast<uint32_t>(this->streamProperties.stateComputeMode.threadArbitrationPolicy.value); }
+    int32_t peekThreadArbitrationPolicy() { return this->streamProperties.stateComputeMode.threadArbitrationPolicy.value; }
 
     bool isMadeResident(GraphicsAllocation *gfxAllocation) {
         for (GraphicsAllocation *gfxAlloc : madeResidentGfxAllocations) {
@@ -116,9 +114,9 @@ class MockCsr : public MockCsrBase<GfxFamily> {
     CompletionStamp flushTask(
         LinearStream &commandStream,
         size_t commandStreamStart,
-        const IndirectHeap &dsh,
-        const IndirectHeap &ioh,
-        const IndirectHeap &ssh,
+        const IndirectHeap *dsh,
+        const IndirectHeap *ioh,
+        const IndirectHeap *ssh,
         uint32_t taskLevel,
         DispatchFlags &dispatchFlags,
         Device &device) override {

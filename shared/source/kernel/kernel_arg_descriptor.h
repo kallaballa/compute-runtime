@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,8 +12,6 @@
 #include "shared/source/utilities/arrayref.h"
 #include "shared/source/utilities/stackvec.h"
 
-#include <cinttypes>
-#include <cstddef>
 #include <limits>
 
 namespace NEO {
@@ -113,7 +111,6 @@ struct ArgDescriptor final {
                 bool isTransformable : 1;
                 bool needsPatch : 1;
                 bool hasVmeExtendedDescriptor : 1;
-                bool hasDeviceSideEnqueueExtendedDescriptor : 1;
             };
             uint32_t packed;
         };
@@ -164,7 +161,9 @@ struct ArgDescriptor final {
         case ArgTImage:
             return (KernelArgMetadata::AccessReadOnly == traits.accessQualifier);
         case ArgTPointer:
-            return (KernelArgMetadata::AddrConstant == traits.addressQualifier) || (traits.typeQualifiers.constQual);
+            return (KernelArgMetadata::AddrConstant == traits.addressQualifier) ||
+                   (KernelArgMetadata::AccessReadOnly == traits.accessQualifier) ||
+                   traits.typeQualifiers.constQual;
         }
     }
 

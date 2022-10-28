@@ -8,8 +8,7 @@
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/api/api.h"
@@ -32,11 +31,11 @@ struct StatelessCompressionInSBA : public KernelAUBFixture<StatelessCopyKernelFi
         DebugManager.flags.EnableLocalMemory.set(true);
         DebugManager.flags.NodeOrdinal.set(GetParam());
         DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
-        KernelAUBFixture<StatelessCopyKernelFixture>::SetUp();
+        KernelAUBFixture<StatelessCopyKernelFixture>::setUp();
     }
 
     void TearDown() override {
-        KernelAUBFixture<StatelessCopyKernelFixture>::TearDown();
+        KernelAUBFixture<StatelessCopyKernelFixture>::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
@@ -169,7 +168,7 @@ XE_HP_CORE_TEST_P(StatelessCompressionInSBA, givenUncompressibleBufferInHostMemo
     auto uncompressibleBufferInHostMemory = std::unique_ptr<Buffer>(Buffer::create(context, CL_MEM_FORCE_HOST_MEMORY_INTEL, bufferSize, nullptr, retVal));
     auto uncompressibleAllocationInHostMemory = uncompressibleBufferInHostMemory->getGraphicsAllocation(device->getRootDeviceIndex());
     EXPECT_EQ(AllocationType::BUFFER_HOST_MEMORY, uncompressibleAllocationInHostMemory->getAllocationType());
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(uncompressibleAllocationInHostMemory->getMemoryPool()));
+    EXPECT_TRUE(MemoryPoolHelper::isSystemMemoryPool(uncompressibleAllocationInHostMemory->getMemoryPool()));
 
     retVal = pCmdQ->enqueueWriteBuffer(compressedBuffer.get(), CL_FALSE, 0, bufferSize, writePattern, nullptr, 0, nullptr, nullptr);
     ASSERT_EQ(CL_SUCCESS, retVal);
@@ -219,7 +218,7 @@ XE_HP_CORE_TEST_P(StatelessCompressionInSBA, givenUncompressibleHostMemoryAlloca
     auto uncompressibleHostMemAlloc = context->getSVMAllocsManager()->getSVMAllocs()->get(uncompressibleHostMemAllocPtr)->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());
     EXPECT_NE(nullptr, uncompressibleHostMemAlloc);
     EXPECT_EQ(AllocationType::BUFFER_HOST_MEMORY, uncompressibleHostMemAlloc->getAllocationType());
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(uncompressibleHostMemAlloc->getMemoryPool()));
+    EXPECT_TRUE(MemoryPoolHelper::isSystemMemoryPool(uncompressibleHostMemAlloc->getMemoryPool()));
 
     retVal = clEnqueueMemcpyINTEL(pCmdQ, true, compressedDeviceMemAllocPtr, writePattern, bufferSize, 0, nullptr, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -262,12 +261,12 @@ struct UmStatelessCompressionInSBA : public KernelAUBFixture<StatelessKernelWith
         DebugManager.flags.EnableLocalMemory.set(true);
         DebugManager.flags.NodeOrdinal.set(GetParam());
         DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
-        KernelAUBFixture<StatelessKernelWithIndirectAccessFixture>::SetUp();
+        KernelAUBFixture<StatelessKernelWithIndirectAccessFixture>::setUp();
         EXPECT_TRUE(multiDeviceKernel->getKernel(rootDeviceIndex)->getKernelInfo().hasIndirectStatelessAccess);
     }
 
     void TearDown() override {
-        KernelAUBFixture<StatelessKernelWithIndirectAccessFixture>::TearDown();
+        KernelAUBFixture<StatelessKernelWithIndirectAccessFixture>::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
@@ -482,16 +481,16 @@ struct StatelessCompressionInSBAWithBCS : public MulticontextAubFixture,
         DebugManager.flags.EnableStatelessCompression.set(1);
         DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Blit));
         DebugManager.flags.EnableBlitterOperationsSupport.set(true);
-        MulticontextAubFixture::SetUp(1, EnabledCommandStreamers::Single, true);
-        StatelessCopyKernelFixture::SetUp(tileDevices[0], context.get());
+        MulticontextAubFixture::setUp(1, EnabledCommandStreamers::Single, true);
+        StatelessCopyKernelFixture::setUp(tileDevices[0], context.get());
         if (!tileDevices[0]->getHardwareInfo().featureTable.flags.ftrLocalMemory) {
             GTEST_SKIP();
         }
     }
 
     void TearDown() override {
-        MulticontextAubFixture::TearDown();
-        StatelessCopyKernelFixture::TearDown();
+        MulticontextAubFixture::tearDown();
+        StatelessCopyKernelFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestorer;
@@ -549,7 +548,7 @@ XE_HP_CORE_TEST_F(StatelessCompressionInSBAWithBCS, givenUncompressibleBufferInH
     auto uncompressibleBufferInHostMemory = std::unique_ptr<Buffer>(Buffer::create(context.get(), CL_MEM_FORCE_HOST_MEMORY_INTEL, bufferSize, nullptr, retVal));
     auto uncompressibleAllocationInHostMemory = uncompressibleBufferInHostMemory->getGraphicsAllocation(tileDevices[0]->getRootDeviceIndex());
     EXPECT_EQ(AllocationType::BUFFER_HOST_MEMORY, uncompressibleAllocationInHostMemory->getAllocationType());
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(uncompressibleAllocationInHostMemory->getMemoryPool()));
+    EXPECT_TRUE(MemoryPoolHelper::isSystemMemoryPool(uncompressibleAllocationInHostMemory->getMemoryPool()));
 
     retVal = commandQueues[0][0]->enqueueWriteBuffer(compressedBuffer.get(), CL_FALSE, 0, bufferSize, writePattern, nullptr, 0, nullptr, nullptr);
     ASSERT_EQ(CL_SUCCESS, retVal);

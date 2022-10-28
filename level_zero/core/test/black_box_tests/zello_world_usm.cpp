@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,17 +13,21 @@
 #include <iostream>
 #include <memory>
 
-bool verbose = false;
 bool useSyncQueue = false;
 
 int main(int argc, char *argv[]) {
+    const std::string blackBoxName = "Zello World USM";
     verbose = isVerbose(argc, argv);
+    bool aubMode = isAubMode(argc, argv);
+
     useSyncQueue = isSyncQueueEnabled(argc, argv);
     bool outputValidationSuccessful = false;
     // 1. Set-up
-    constexpr size_t allocSize = 4096 + 7;
+    constexpr char srcInitValue = 7;
+    constexpr char dstInitValue = 3;
     constexpr size_t bytesPerThread = sizeof(char);
-    constexpr size_t numThreads = allocSize / bytesPerThread;
+    uint32_t allocSize = getBufferLength(argc, argv, 4096 + 7);
+    uint32_t numThreads = allocSize / bytesPerThread;
     ze_module_handle_t module;
     ze_kernel_handle_t kernel;
     ze_command_queue_handle_t cmdQueue;
@@ -44,9 +48,7 @@ int main(int argc, char *argv[]) {
 
     ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
     SUCCESS_OR_TERMINATE(zeDeviceGetProperties(device, &deviceProperties));
-    std::cout << "Device : \n"
-              << " * name : " << deviceProperties.name << "\n"
-              << " * vendorId : " << std::hex << deviceProperties.vendorId << "\n";
+    printDeviceProperties(deviceProperties);
 
     file.seekg(0, file.end);
     auto length = file.tellg();
@@ -69,6 +71,10 @@ int main(int argc, char *argv[]) {
         std::cout << "Build log:" << strLog << std::endl;
 
         free(strLog);
+        SUCCESS_OR_TERMINATE(zeModuleBuildLogDestroy(buildlog));
+        std::cout << "\nZello World Usm Results validation FAILED. Module creation error."
+                  << std::endl;
+        SUCCESS_OR_TERMINATE_BOOL(false);
     }
     SUCCESS_OR_TERMINATE(zeModuleBuildLogDestroy(buildlog));
 
@@ -92,10 +98,7 @@ int main(int argc, char *argv[]) {
     cmdQueueDesc.stype = ZE_STRUCTURE_TYPE_COMMAND_QUEUE_DESC;
     cmdQueueDesc.pNext = nullptr;
     cmdQueueDesc.flags = 0;
-    if (useSyncQueue)
-        cmdQueueDesc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
-    else
-        cmdQueueDesc.mode = ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS;
+    selectQueueMode(cmdQueueDesc, useSyncQueue);
 
     cmdQueueDesc.priority = ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
     cmdQueueDesc.ordinal = getCommandQueueOrdinal(device);
@@ -130,11 +133,11 @@ int main(int argc, char *argv[]) {
     SUCCESS_OR_TERMINATE_BOOL(memProperties.type == ZE_MEMORY_TYPE_SHARED);
 
     // initialize the src buffer
-    memset(srcBuffer, 7, allocSize);
+    memset(srcBuffer, srcInitValue, allocSize);
 
     // Encode run user kernel
-    SUCCESS_OR_TERMINATE(zeKernelSetArgumentValue(kernel, 0, sizeof(dstBuffer), &dstBuffer));
-    SUCCESS_OR_TERMINATE(zeKernelSetArgumentValue(kernel, 1, sizeof(srcBuffer), &srcBuffer));
+    SUCCESS_OR_TERMINATE(zeKernelSetArgumentValue(kernel, 0, sizeof(srcBuffer), &srcBuffer));
+    SUCCESS_OR_TERMINATE(zeKernelSetArgumentValue(kernel, 1, sizeof(dstBuffer), &dstBuffer));
 
     ze_group_count_t dispatchTraits;
     dispatchTraits.groupCountX = numThreads / groupSizeX;
@@ -152,7 +155,7 @@ int main(int argc, char *argv[]) {
     // initialize the dst buffer after appending the kernel but before executing the lists, to
     // ensure page-fault manager is correctly making resident the buffers in the GPU at
     // execution time
-    memset(dstBuffer, 3, allocSize);
+    memset(dstBuffer, dstInitValue, allocSize);
 
     // Dispatch and wait
     SUCCESS_OR_TERMINATE(zeCommandListClose(cmdList));
@@ -160,11 +163,32 @@ int main(int argc, char *argv[]) {
 
     // if using async command queue, explicit sync must be used for correctness
     if (useSyncQueue == false)
-        SUCCESS_OR_TERMINATE(zeCommandQueueSynchronize(cmdQueue, std::numeric_limits<uint32_t>::max()));
+        SUCCESS_OR_TERMINATE(zeCommandQueueSynchronize(cmdQueue, std::numeric_limits<uint64_t>::max()));
 
-    // Validate
-    outputValidationSuccessful = (0 == memcmp(dstBuffer, srcBuffer, allocSize));
-    SUCCESS_OR_WARNING_BOOL(outputValidationSuccessful);
+    // Validate input / output
+    outputValidationSuccessful = true;
+    uint8_t *srcCharBuffer = static_cast<uint8_t *>(srcBuffer);
+    uint8_t *dstCharBuffer = static_cast<uint8_t *>(dstBuffer);
+    for (size_t i = 0; i < allocSize; i++) {
+        if (dstCharBuffer[i] != srcCharBuffer[i]) {
+            outputValidationSuccessful = false;
+            std::cout << "dstBuffer[" << i << "] = " << static_cast<unsigned int>(dstCharBuffer[i]) << " not equal to "
+                      << "srcBuffer[" << i << "] = " << static_cast<unsigned int>(srcCharBuffer[i]) << "\n";
+        }
+        if (srcCharBuffer[i] != srcInitValue) {
+            outputValidationSuccessful = false;
+            std::cout << "srcBuffer[" << i << "] = " << static_cast<unsigned int>(srcCharBuffer[i]) << " not equal to "
+                      << "value = " << static_cast<unsigned int>(srcInitValue) << "\n";
+        }
+        if (dstCharBuffer[i] != srcInitValue) {
+            outputValidationSuccessful = false;
+            std::cout << "dstBuffer[" << i << "] = " << static_cast<unsigned int>(dstCharBuffer[i]) << " not equal to "
+                      << "value = " << static_cast<unsigned int>(srcInitValue) << "\n";
+        }
+        if (!outputValidationSuccessful) {
+            break;
+        }
+    }
 
     // Cleanup
     SUCCESS_OR_TERMINATE(zeMemFree(context, dstBuffer));
@@ -178,6 +202,7 @@ int main(int argc, char *argv[]) {
     SUCCESS_OR_TERMINATE(zeModuleDestroy(module));
     SUCCESS_OR_TERMINATE(zeContextDestroy(context));
 
-    std::cout << "\nZello World USM Results validation " << (outputValidationSuccessful ? "PASSED" : "FAILED") << "\n";
-    return 0;
+    printResult(aubMode, outputValidationSuccessful, blackBoxName);
+    outputValidationSuccessful = aubMode ? true : outputValidationSuccessful;
+    return outputValidationSuccessful ? 0 : 1;
 }

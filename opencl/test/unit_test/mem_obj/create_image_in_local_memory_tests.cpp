@@ -80,8 +80,10 @@ TEST_F(ImageInLocalMemoryTest, givenImageWithoutHostPtrWhenLocalMemoryIsEnabledT
     EXPECT_EQ(MemoryPool::LocalMemory, imgGfxAlloc->getMemoryPool());
     EXPECT_LE(imageDesc.image_width * surfaceFormat->surfaceFormat.ImageElementSizeInBytes, imgGfxAlloc->getUnderlyingBufferSize());
     EXPECT_EQ(AllocationType::IMAGE, imgGfxAlloc->getAllocationType());
-    EXPECT_FALSE(imgGfxAlloc->getDefaultGmm()->useSystemMemoryPool);
-    EXPECT_LT(GmmHelper::canonize(mockMemoryManager->getGfxPartition(imgGfxAlloc->getRootDeviceIndex())->getHeapBase(HeapIndex::HEAP_STANDARD64KB)), imgGfxAlloc->getGpuAddress());
-    EXPECT_GT(GmmHelper::canonize(mockMemoryManager->getGfxPartition(imgGfxAlloc->getRootDeviceIndex())->getHeapLimit(HeapIndex::HEAP_STANDARD64KB)), imgGfxAlloc->getGpuAddress());
+    EXPECT_EQ(0u, imgGfxAlloc->getDefaultGmm()->resourceParams.Flags.Info.NonLocalOnly);
+
+    auto gmmHelper = context->getDevice(0)->getGmmHelper();
+    EXPECT_LT(gmmHelper->canonize(mockMemoryManager->getGfxPartition(imgGfxAlloc->getRootDeviceIndex())->getHeapBase(HeapIndex::HEAP_STANDARD64KB)), imgGfxAlloc->getGpuAddress());
+    EXPECT_GT(gmmHelper->canonize(mockMemoryManager->getGfxPartition(imgGfxAlloc->getRootDeviceIndex())->getHeapLimit(HeapIndex::HEAP_STANDARD64KB)), imgGfxAlloc->getGpuAddress());
     EXPECT_EQ(0llu, imgGfxAlloc->getGpuBaseAddress());
 }

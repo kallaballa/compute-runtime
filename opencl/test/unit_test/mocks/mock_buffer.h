@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -20,9 +20,16 @@ class MockBufferStorage {
   public:
     MockBufferStorage() : mockGfxAllocation(data, sizeof(data) / 2),
                           multiGfxAllocation(GraphicsAllocationHelper::toMultiGraphicsAllocation(&mockGfxAllocation)) {
+        initDevice();
     }
+
     MockBufferStorage(bool unaligned) : mockGfxAllocation(unaligned ? alignUp(&data, 4) : alignUp(&data, 64), sizeof(data) / 2),
                                         multiGfxAllocation(GraphicsAllocationHelper::toMultiGraphicsAllocation(&mockGfxAllocation)) {
+        initDevice();
+    }
+    void initDevice() {
+        VariableBackup<uint32_t> maxOsContextCountBackup(&MemoryManager::maxOsContextCount);
+        device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     }
     ~MockBufferStorage() {
         if (mockGfxAllocation.getDefaultGmm()) {
@@ -31,7 +38,7 @@ class MockBufferStorage {
     }
     char data[128];
     MockGraphicsAllocation mockGfxAllocation;
-    std::unique_ptr<MockDevice> device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    std::unique_ptr<MockDevice> device;
     MultiGraphicsAllocation multiGfxAllocation;
 };
 
@@ -40,6 +47,7 @@ class MockBuffer : public MockBufferStorage, public Buffer {
     using Buffer::magic;
     using Buffer::offset;
     using Buffer::size;
+    using MemObj::associatedMemObject;
     using MemObj::context;
     using MemObj::isZeroCopy;
     using MemObj::memObjectType;
@@ -47,12 +55,12 @@ class MockBuffer : public MockBufferStorage, public Buffer {
 
     void setAllocationType(uint32_t rootDeviceIndex, bool compressed) {
         setAllocationType(multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex),
-                          device->getRootDeviceEnvironment().getGmmClientContext(), compressed);
+                          device->getRootDeviceEnvironment().getGmmHelper(), compressed);
     }
 
-    static void setAllocationType(GraphicsAllocation *graphicsAllocation, GmmClientContext *gmmClientContext, bool compressed) {
+    static void setAllocationType(GraphicsAllocation *graphicsAllocation, GmmHelper *gmmHelper, bool compressed) {
         if (compressed && !graphicsAllocation->getDefaultGmm()) {
-            graphicsAllocation->setDefaultGmm(new Gmm(gmmClientContext, nullptr, 0, 0, false));
+            graphicsAllocation->setDefaultGmm(new Gmm(gmmHelper, nullptr, 0, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, compressed, {}, true));
         }
 
         if (graphicsAllocation->getDefaultGmm()) {
@@ -83,10 +91,34 @@ class MockBuffer : public MockBufferStorage, public Buffer {
             this->multiGraphicsAllocation.removeAllocation(0u);
         }
     }
+
     void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) override {
         Buffer::setSurfaceState(this->device.get(), memory, forceNonAuxMode, disableL3, getSize(), getCpuAddress(), 0, (externalAlloc != nullptr) ? externalAlloc : &mockGfxAllocation, 0, 0, false, false);
     }
+
+    void transferDataToHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override {
+        ++transferDataToHostPtrCalledCount;
+
+        if (callBaseTransferDataToHostPtr) {
+            Buffer::transferDataToHostPtr(copySize, copyOffset);
+        }
+    }
+
+    void transferDataFromHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override {
+        ++transferDataFromHostPtrCalledCount;
+
+        if (callBaseTransferDataFromHostPtr) {
+            Buffer::transferDataFromHostPtr(copySize, copyOffset);
+        }
+    }
+
     GraphicsAllocation *externalAlloc = nullptr;
+
+    bool callBaseTransferDataToHostPtr{true};
+    bool callBaseTransferDataFromHostPtr{true};
+
+    int transferDataToHostPtrCalledCount{0};
+    int transferDataFromHostPtrCalledCount{0};
 };
 
 class AlignedBuffer : public MockBufferStorage, public Buffer {

@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/debugger/debugger_l0.h"
 #include "shared/source/device/device.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/gmm_helper/gmm.h"
@@ -26,6 +27,7 @@
 #include "shared/source/kernel/implicit_args.h"
 #include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/os_interface/hw_info_config.h"
+#include "shared/source/program/kernel_info.h"
 
 #include "encode_surface_state.inl"
 
@@ -115,7 +117,7 @@ void EncodeMathMMIO<Family>::encodeMulRegVal(CommandContainer &container, uint32
         EncodeSetMMIO<Family>::encodeREG(container, CS_GPR_R0, CS_GPR_R2);
         i++;
     }
-    EncodeStoreMMIO<Family>::encode(*container.getCommandStream(), CS_GPR_R1, dstAddress);
+    EncodeStoreMMIO<Family>::encode(*container.getCommandStream(), CS_GPR_R1, dstAddress, false);
 }
 
 /*
@@ -143,14 +145,15 @@ void EncodeMathMMIO<Family>::encodeGreaterThanPredicate(CommandContainer &contai
  * and store it into dstAddress.
  */
 template <typename Family>
-void EncodeMathMMIO<Family>::encodeBitwiseAndVal(CommandContainer &container, uint32_t regOffset, uint32_t immVal, uint64_t dstAddress) {
+void EncodeMathMMIO<Family>::encodeBitwiseAndVal(CommandContainer &container, uint32_t regOffset, uint32_t immVal, uint64_t dstAddress,
+                                                 bool workloadPartition) {
     EncodeSetMMIO<Family>::encodeREG(container, CS_GPR_R0, regOffset);
     EncodeSetMMIO<Family>::encodeIMM(container, CS_GPR_R1, immVal, true);
     EncodeMath<Family>::bitwiseAnd(container, AluRegisters::R_0,
                                    AluRegisters::R_1,
                                    AluRegisters::R_2);
     EncodeStoreMMIO<Family>::encode(*container.getCommandStream(),
-                                    CS_GPR_R2, dstAddress);
+                                    CS_GPR_R2, dstAddress, workloadPartition);
 }
 
 /*
@@ -200,9 +203,14 @@ void EncodeMathMMIO<Family>::encodeAlu(MI_MATH_ALU_INST_INLINE *pAluParam, AluRe
 
 template <typename Family>
 uint32_t *EncodeMath<Family>::commandReserve(CommandContainer &container) {
+    return commandReserve(*container.getCommandStream());
+}
+
+template <typename Family>
+uint32_t *EncodeMath<Family>::commandReserve(LinearStream &cmdStream) {
     size_t size = sizeof(MI_MATH) + sizeof(MI_MATH_ALU_INST_INLINE) * NUM_ALU_INST_FOR_READ_MODIFY_WRITE;
 
-    auto cmd = reinterpret_cast<uint32_t *>(container.getCommandStream()->getSpace(size));
+    auto cmd = reinterpret_cast<uint32_t *>(cmdStream.getSpace(size));
     MI_MATH mathBuffer;
     mathBuffer.DW0.Value = 0x0;
     mathBuffer.DW0.BitField.InstructionType = MI_MATH::COMMAND_TYPE_MI_COMMAND;
@@ -268,6 +276,19 @@ void EncodeMath<Family>::addition(CommandContainer &container,
 }
 
 template <typename Family>
+void EncodeMath<Family>::addition(LinearStream &cmdStream,
+                                  AluRegisters firstOperandRegister,
+                                  AluRegisters secondOperandRegister,
+                                  AluRegisters finalResultRegister) {
+    uint32_t *cmd = EncodeMath<Family>::commandReserve(cmdStream);
+
+    EncodeMathMMIO<Family>::encodeAluAdd(reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd),
+                                         firstOperandRegister,
+                                         secondOperandRegister,
+                                         finalResultRegister);
+}
+
+template <typename Family>
 void EncodeMath<Family>::bitwiseAnd(CommandContainer &container,
                                     AluRegisters firstOperandRegister,
                                     AluRegisters secondOperandRegister,
@@ -304,6 +325,20 @@ inline void EncodeSetMMIO<Family>::encodeIMM(LinearStream &cmdStream, uint32_t o
 }
 
 template <typename Family>
+inline void EncodeStateBaseAddress<Family>::setSbaTrackingForL0DebuggerIfEnabled(bool trackingEnabled,
+                                                                                 Device &device,
+                                                                                 LinearStream &commandStream,
+                                                                                 STATE_BASE_ADDRESS &sbaCmd) {
+    if (!trackingEnabled) {
+        return;
+    }
+
+    NEO::Debugger::SbaAddresses sbaAddresses = {};
+    NEO::EncodeStateBaseAddress<Family>::setSbaAddressesForDebugger(sbaAddresses, sbaCmd);
+    device.getL0Debugger()->captureStateBaseAddress(commandStream, sbaAddresses);
+}
+
+template <typename Family>
 void EncodeSetMMIO<Family>::encodeMEM(LinearStream &cmdStream, uint32_t offset, uint64_t address) {
     MI_LOAD_REGISTER_MEM cmd = Family::cmdInitLoadRegisterMem;
     cmd.setRegisterAddress(offset);
@@ -325,13 +360,18 @@ void EncodeSetMMIO<Family>::encodeREG(LinearStream &cmdStream, uint32_t dstOffse
 }
 
 template <typename Family>
-void EncodeStoreMMIO<Family>::encode(LinearStream &csr, uint32_t offset, uint64_t address) {
+void EncodeStoreMMIO<Family>::encode(LinearStream &csr, uint32_t offset, uint64_t address, bool workloadPartition) {
+    auto buffer = csr.getSpaceForCmd<MI_STORE_REGISTER_MEM>();
+    EncodeStoreMMIO<Family>::encode(buffer, offset, address, workloadPartition);
+}
+
+template <typename Family>
+inline void EncodeStoreMMIO<Family>::encode(MI_STORE_REGISTER_MEM *cmdBuffer, uint32_t offset, uint64_t address, bool workloadPartition) {
     MI_STORE_REGISTER_MEM cmd = Family::cmdInitStoreRegisterMem;
     cmd.setRegisterAddress(offset);
     cmd.setMemoryAddress(address);
-    remapOffset(&cmd);
-    auto buffer = csr.getSpaceForCmd<MI_STORE_REGISTER_MEM>();
-    *buffer = cmd;
+    appendFlags(&cmd, workloadPartition);
+    *cmdBuffer = cmd;
 }
 
 template <typename Family>
@@ -339,12 +379,12 @@ void EncodeSurfaceState<Family>::encodeBuffer(EncodeSurfaceStateArgs &args) {
     auto surfaceState = reinterpret_cast<R_SURFACE_STATE *>(args.outMemory);
     UNRECOVERABLE_IF(!isAligned<getSurfaceBaseAddressAlignment()>(args.size));
 
-    SURFACE_STATE_BUFFER_LENGTH Length = {0};
-    Length.Length = static_cast<uint32_t>(args.size - 1);
+    SURFACE_STATE_BUFFER_LENGTH length = {0};
+    length.Length = static_cast<uint32_t>(args.size - 1);
 
-    surfaceState->setWidth(Length.SurfaceState.Width + 1);
-    surfaceState->setHeight(Length.SurfaceState.Height + 1);
-    surfaceState->setDepth(Length.SurfaceState.Depth + 1);
+    surfaceState->setWidth(length.SurfaceState.Width + 1);
+    surfaceState->setHeight(length.SurfaceState.Height + 1);
+    surfaceState->setDepth(length.SurfaceState.Depth + 1);
 
     surfaceState->setSurfaceType((args.graphicsAddress != 0) ? R_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER
                                                              : R_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_NULL);
@@ -443,7 +483,7 @@ size_t EncodeSurfaceState<Family>::pushBindingTableAndSurfaceStates(IndirectHeap
 }
 
 template <typename Family>
-inline void EncodeSurfaceState<Family>::encodeExtraCacheSettings(R_SURFACE_STATE *surfaceState, const HardwareInfo &hwInfo) {}
+inline void EncodeSurfaceState<Family>::encodeExtraCacheSettings(R_SURFACE_STATE *surfaceState, const EncodeSurfaceStateArgs &args) {}
 
 template <typename Family>
 void EncodeSurfaceState<Family>::setImageAuxParamsForCCS(R_SURFACE_STATE *surfaceState, Gmm *gmm) {
@@ -478,7 +518,9 @@ template <typename Family>
 void EncodeSurfaceState<Family>::encodeImplicitScalingParams(const EncodeSurfaceStateArgs &args) {}
 
 template <typename Family>
-void *EncodeDispatchKernel<Family>::getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset) {
+void *EncodeDispatchKernel<Family>::getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset, const HardwareInfo &hwInfo) {
+
+    using STATE_BASE_ADDRESS = typename Family::STATE_BASE_ADDRESS;
 
     if (container.nextIddInBlock == container.getNumIddPerBlock()) {
         if (ApiSpecificConfig::getBindlessConfiguration()) {
@@ -490,6 +532,24 @@ void *EncodeDispatchKernel<Family>::getInterfaceDescriptor(CommandContainer &con
                                                                   sizeof(INTERFACE_DESCRIPTOR_DATA) * container.getNumIddPerBlock()));
         }
         container.nextIddInBlock = 0;
+
+        if (container.isHeapDirty(HeapType::DYNAMIC_STATE)) {
+            PipeControlArgs syncArgs;
+            syncArgs.dcFlushEnable = MemorySynchronizationCommands<Family>::getDcFlushEnable(true, hwInfo);
+            syncArgs.hdcPipelineFlush = true;
+            MemorySynchronizationCommands<Family>::addSingleBarrier(*container.getCommandStream(), syncArgs);
+
+            STATE_BASE_ADDRESS sba;
+            EncodeStateBaseAddressArgs<Family> encodeStateBaseAddressArgs = {
+                &container,
+                sba,
+                0,
+                false,
+                false,
+                false};
+            EncodeStateBaseAddress<Family>::encode(encodeStateBaseAddressArgs);
+            container.setDirtyStateForAllHeaps(false);
+        }
 
         EncodeMediaInterfaceDescriptorLoad<Family>::encode(container);
     }
@@ -536,7 +596,7 @@ void EncodeIndirectParams<Family>::setGroupCountIndirect(CommandContainer &conta
         if (NEO::isUndefinedOffset(offsets[i])) {
             continue;
         }
-        EncodeStoreMMIO<Family>::encode(*container.getCommandStream(), GPUGPU_DISPATCHDIM[i], ptrOffset(crossThreadAddress, offsets[i]));
+        EncodeStoreMMIO<Family>::encode(*container.getCommandStream(), GPUGPU_DISPATCHDIM[i], ptrOffset(crossThreadAddress, offsets[i]), false);
     }
 }
 
@@ -544,8 +604,8 @@ template <typename Family>
 void EncodeIndirectParams<Family>::setWorkDimIndirect(CommandContainer &container, const NEO::CrossThreadDataOffset workDimOffset, uint64_t crossThreadAddress, const uint32_t *groupSize) {
     if (NEO::isValidOffset(workDimOffset)) {
         auto dstPtr = ptrOffset(crossThreadAddress, workDimOffset);
-        constexpr uint32_t RESULT_REGISTER = CS_GPR_R0;
-        constexpr AluRegisters RESULT_ALU_REGISTER = AluRegisters::R_0;
+        constexpr uint32_t resultRegister = CS_GPR_R0;
+        constexpr AluRegisters resultAluRegister = AluRegisters::R_0;
         const uint32_t offset = static_cast<uint32_t>((1ull << 8 * (dstPtr & 0b11)) - 1);
         const uint32_t memoryMask = std::numeric_limits<uint32_t>::max() - static_cast<uint32_t>((1ull << 8 * ((dstPtr & 0b11) + 1)) - 1) + offset;
 
@@ -556,87 +616,93 @@ void EncodeIndirectParams<Family>::setWorkDimIndirect(CommandContainer &containe
          */
 
         if (groupSize[2] > 1) {
-            EncodeSetMMIO<Family>::encodeIMM(container, RESULT_REGISTER, 3 << (8 * (dstPtr & 0b11)), true);
+            EncodeSetMMIO<Family>::encodeIMM(container, resultRegister, 3 << (8 * (dstPtr & 0b11)), true);
         } else {
 
-            constexpr uint32_t GROUP_COUNT_2_REGISTER = CS_GPR_R1;
-            constexpr AluRegisters GROUP_COUNT_2_ALU_REGISTER = AluRegisters::R_1;
+            constexpr uint32_t groupCount2Register = CS_GPR_R1;
+            constexpr AluRegisters groupCount2AluRegister = AluRegisters::R_1;
 
-            constexpr uint32_t GROUP_SIZE_1_REGISTER = CS_GPR_R0;
-            constexpr AluRegisters GROUP_SIZE_1_ALU_REGISTER = AluRegisters::R_0;
+            constexpr uint32_t groupSize1Register = CS_GPR_R0;
+            constexpr AluRegisters groupSize1AluRegister = AluRegisters::R_0;
 
-            constexpr uint32_t GROUP_COUNT_1_REGISTER = CS_GPR_R1;
-            constexpr AluRegisters GROUP_COUNT_1_ALU_REGISTER = AluRegisters::R_1;
+            constexpr uint32_t groupCount1Register = CS_GPR_R1;
+            constexpr AluRegisters groupCount1AluRegister = AluRegisters::R_1;
 
-            constexpr AluRegisters SUM_ALU_REGISTER = AluRegisters::R_0;
+            constexpr AluRegisters sumAluRegister = AluRegisters::R_0;
 
-            constexpr AluRegisters WORK_DIM_EQ_3_ALU_REGISTER = AluRegisters::R_3;
+            constexpr AluRegisters workDimEq3AluRegister = AluRegisters::R_3;
 
-            constexpr AluRegisters WORK_DIM_GE_2_ALU_REGISTER = AluRegisters::R_4;
+            constexpr AluRegisters workDimGe2AluRegister = AluRegisters::R_4;
 
-            constexpr uint32_t CONSTANT_ONE_REGISTER = CS_GPR_R5;
-            constexpr AluRegisters CONSTANT_ONE_ALU_REGISTER = AluRegisters::R_5;
-            constexpr uint32_t CONSTANT_TWO_REGISTER = CS_GPR_R6;
-            constexpr AluRegisters CONSTANT_TWO_ALU_REGISTER = AluRegisters::R_6;
+            constexpr uint32_t constantOneRegister = CS_GPR_R5;
+            constexpr AluRegisters constantOneAluRegister = AluRegisters::R_5;
+            constexpr uint32_t constantTwoRegister = CS_GPR_R6;
+            constexpr AluRegisters constantTwoAluRegister = AluRegisters::R_6;
 
-            constexpr uint32_t BACKUP_REGISTER = CS_GPR_R7;
-            constexpr AluRegisters BACKUP_ALU_REGISTER = AluRegisters::R_7;
+            constexpr uint32_t backupRegister = CS_GPR_R7;
+            constexpr AluRegisters backupAluRegister = AluRegisters::R_7;
 
-            constexpr uint32_t MEMORY_MASK_REGISTER = CS_GPR_R8;
-            constexpr AluRegisters MEMORY_MASK_ALU_REGISTER = AluRegisters::R_8;
+            constexpr uint32_t memoryMaskRegister = CS_GPR_R8;
+            constexpr AluRegisters memoryMaskAluRegister = AluRegisters::R_8;
 
-            constexpr uint32_t OFFSET_REGISTER = CS_GPR_R8;
-            constexpr AluRegisters OFFSET_ALU_REGISTER = AluRegisters::R_8;
+            constexpr uint32_t offsetRegister = CS_GPR_R8;
+            constexpr AluRegisters offsetAluRegister = AluRegisters::R_8;
 
             if (offset) {
-                EncodeSetMMIO<Family>::encodeMEM(container, BACKUP_REGISTER, dstPtr);
-                EncodeSetMMIO<Family>::encodeIMM(container, MEMORY_MASK_REGISTER, memoryMask, true);
-                EncodeMath<Family>::bitwiseAnd(container, MEMORY_MASK_ALU_REGISTER, BACKUP_ALU_REGISTER, BACKUP_ALU_REGISTER);
-                EncodeSetMMIO<Family>::encodeIMM(container, OFFSET_REGISTER, offset, true);
+                EncodeSetMMIO<Family>::encodeMEM(container, backupRegister, dstPtr);
+                EncodeSetMMIO<Family>::encodeIMM(container, memoryMaskRegister, memoryMask, true);
+                EncodeMath<Family>::bitwiseAnd(container, memoryMaskAluRegister, backupAluRegister, backupAluRegister);
+                EncodeSetMMIO<Family>::encodeIMM(container, offsetRegister, offset, true);
             }
 
-            EncodeSetMMIO<Family>::encodeIMM(container, CONSTANT_ONE_REGISTER, 1, true);
-            EncodeSetMMIO<Family>::encodeIMM(container, CONSTANT_TWO_REGISTER, 2, true);
+            EncodeSetMMIO<Family>::encodeIMM(container, constantOneRegister, 1, true);
+            EncodeSetMMIO<Family>::encodeIMM(container, constantTwoRegister, 2, true);
 
-            EncodeSetMMIO<Family>::encodeREG(container, GROUP_COUNT_2_REGISTER, GPUGPU_DISPATCHDIM[2]);
+            EncodeSetMMIO<Family>::encodeREG(container, groupCount2Register, GPUGPU_DISPATCHDIM[2]);
 
-            EncodeMath<Family>::greaterThan(container, GROUP_COUNT_2_ALU_REGISTER, CONSTANT_ONE_ALU_REGISTER, WORK_DIM_EQ_3_ALU_REGISTER);
-            EncodeMath<Family>::bitwiseAnd(container, WORK_DIM_EQ_3_ALU_REGISTER, CONSTANT_ONE_ALU_REGISTER, WORK_DIM_EQ_3_ALU_REGISTER);
+            EncodeMath<Family>::greaterThan(container, groupCount2AluRegister, constantOneAluRegister, workDimEq3AluRegister);
+            EncodeMath<Family>::bitwiseAnd(container, workDimEq3AluRegister, constantOneAluRegister, workDimEq3AluRegister);
 
-            EncodeSetMMIO<Family>::encodeIMM(container, GROUP_SIZE_1_REGISTER, groupSize[1], true);
-            EncodeSetMMIO<Family>::encodeREG(container, GROUP_COUNT_1_REGISTER, GPUGPU_DISPATCHDIM[1]);
+            EncodeSetMMIO<Family>::encodeIMM(container, groupSize1Register, groupSize[1], true);
+            EncodeSetMMIO<Family>::encodeREG(container, groupCount1Register, GPUGPU_DISPATCHDIM[1]);
 
-            EncodeMath<Family>::addition(container, GROUP_SIZE_1_ALU_REGISTER, GROUP_COUNT_1_ALU_REGISTER, SUM_ALU_REGISTER);
-            EncodeMath<Family>::addition(container, SUM_ALU_REGISTER, WORK_DIM_EQ_3_ALU_REGISTER, SUM_ALU_REGISTER);
-            EncodeMath<Family>::greaterThan(container, SUM_ALU_REGISTER, CONSTANT_TWO_ALU_REGISTER, WORK_DIM_GE_2_ALU_REGISTER);
-            EncodeMath<Family>::bitwiseAnd(container, WORK_DIM_GE_2_ALU_REGISTER, CONSTANT_ONE_ALU_REGISTER, WORK_DIM_GE_2_ALU_REGISTER);
+            EncodeMath<Family>::addition(container, groupSize1AluRegister, groupCount1AluRegister, sumAluRegister);
+            EncodeMath<Family>::addition(container, sumAluRegister, workDimEq3AluRegister, sumAluRegister);
+            EncodeMath<Family>::greaterThan(container, sumAluRegister, constantTwoAluRegister, workDimGe2AluRegister);
+            EncodeMath<Family>::bitwiseAnd(container, workDimGe2AluRegister, constantOneAluRegister, workDimGe2AluRegister);
 
             if (offset) {
-                EncodeMath<Family>::addition(container, CONSTANT_ONE_ALU_REGISTER, OFFSET_ALU_REGISTER, CONSTANT_ONE_ALU_REGISTER);
-                EncodeMath<Family>::addition(container, WORK_DIM_EQ_3_ALU_REGISTER, OFFSET_ALU_REGISTER, WORK_DIM_EQ_3_ALU_REGISTER);
-                EncodeMath<Family>::bitwiseAnd(container, WORK_DIM_EQ_3_ALU_REGISTER, CONSTANT_ONE_ALU_REGISTER, WORK_DIM_EQ_3_ALU_REGISTER);
-                EncodeMath<Family>::addition(container, WORK_DIM_GE_2_ALU_REGISTER, OFFSET_ALU_REGISTER, WORK_DIM_GE_2_ALU_REGISTER);
-                EncodeMath<Family>::bitwiseAnd(container, WORK_DIM_GE_2_ALU_REGISTER, CONSTANT_ONE_ALU_REGISTER, WORK_DIM_GE_2_ALU_REGISTER);
+                EncodeMath<Family>::addition(container, constantOneAluRegister, offsetAluRegister, constantOneAluRegister);
+                EncodeMath<Family>::addition(container, workDimEq3AluRegister, offsetAluRegister, workDimEq3AluRegister);
+                EncodeMath<Family>::bitwiseAnd(container, workDimEq3AluRegister, constantOneAluRegister, workDimEq3AluRegister);
+                EncodeMath<Family>::addition(container, workDimGe2AluRegister, offsetAluRegister, workDimGe2AluRegister);
+                EncodeMath<Family>::bitwiseAnd(container, workDimGe2AluRegister, constantOneAluRegister, workDimGe2AluRegister);
             }
 
-            EncodeSetMMIO<Family>::encodeREG(container, RESULT_REGISTER, CONSTANT_ONE_REGISTER);
-            EncodeMath<Family>::addition(container, RESULT_ALU_REGISTER, WORK_DIM_GE_2_ALU_REGISTER, RESULT_ALU_REGISTER);
-            EncodeMath<Family>::addition(container, RESULT_ALU_REGISTER, WORK_DIM_EQ_3_ALU_REGISTER, RESULT_ALU_REGISTER);
+            EncodeSetMMIO<Family>::encodeREG(container, resultRegister, constantOneRegister);
+            EncodeMath<Family>::addition(container, resultAluRegister, workDimGe2AluRegister, resultAluRegister);
+            EncodeMath<Family>::addition(container, resultAluRegister, workDimEq3AluRegister, resultAluRegister);
 
             if (offset) {
-                EncodeMath<Family>::addition(container, RESULT_ALU_REGISTER, BACKUP_ALU_REGISTER, RESULT_ALU_REGISTER);
+                EncodeMath<Family>::addition(container, resultAluRegister, backupAluRegister, resultAluRegister);
             }
         }
-        EncodeStoreMMIO<Family>::encode(*container.getCommandStream(), RESULT_REGISTER, dstPtr);
+        EncodeStoreMMIO<Family>::encode(*container.getCommandStream(), resultRegister, dstPtr, false);
     }
+}
+
+template <typename Family>
+bool EncodeSurfaceState<Family>::doBindingTablePrefetch() {
+    auto enableBindingTablePrefetech = isBindingTablePrefetchPreferred();
+    if (DebugManager.flags.ForceBtpPrefetchMode.get() != -1) {
+        enableBindingTablePrefetech = static_cast<bool>(DebugManager.flags.ForceBtpPrefetchMode.get());
+    }
+    return enableBindingTablePrefetech;
 }
 
 template <typename Family>
 void EncodeDispatchKernel<Family>::adjustBindingTablePrefetch(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, uint32_t samplerCount, uint32_t bindingTableEntryCount) {
     auto enablePrefetch = EncodeSurfaceState<Family>::doBindingTablePrefetch();
-    if (DebugManager.flags.ForceBtpPrefetchMode.get() != -1) {
-        enablePrefetch = static_cast<bool>(DebugManager.flags.ForceBtpPrefetchMode.get());
-    }
 
     if (enablePrefetch) {
         interfaceDescriptor.setSamplerCount(static_cast<typename INTERFACE_DESCRIPTOR_DATA::SAMPLER_COUNT>((samplerCount + 3) / 4));
@@ -648,7 +714,43 @@ void EncodeDispatchKernel<Family>::adjustBindingTablePrefetch(INTERFACE_DESCRIPT
 }
 
 template <typename Family>
-void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo) {}
+void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadGroupCount, const uint32_t numGrf) {}
+
+template <typename Family>
+constexpr bool EncodeDispatchKernel<Family>::shouldUpdateGlobalAtomics(bool &currentVal, bool refVal, bool updateCurrent) { return false; }
+
+template <typename Family>
+size_t EncodeDispatchKernel<Family>::getSizeRequiredDsh(const KernelInfo &kernelInfo) {
+    using INTERFACE_DESCRIPTOR_DATA = typename Family::INTERFACE_DESCRIPTOR_DATA;
+    constexpr auto samplerStateSize = sizeof(typename Family::SAMPLER_STATE);
+    const auto numSamplers = kernelInfo.kernelDescriptor.payloadMappings.samplerTable.numSamplers;
+    const auto additionalDshSize = additionalSizeRequiredDsh();
+    if (numSamplers == 0U) {
+        return alignUp(additionalDshSize, EncodeStates<Family>::alignInterfaceDescriptorData);
+    }
+
+    size_t size = kernelInfo.kernelDescriptor.payloadMappings.samplerTable.tableOffset -
+                  kernelInfo.kernelDescriptor.payloadMappings.samplerTable.borderColor;
+    size = alignUp(size, EncodeStates<Family>::alignIndirectStatePointer);
+
+    size += numSamplers * samplerStateSize;
+    size = alignUp(size, INTERFACE_DESCRIPTOR_DATA::SAMPLERSTATEPOINTER_ALIGN_SIZE);
+
+    if (additionalDshSize > 0) {
+        size += additionalDshSize;
+        size = alignUp(size, EncodeStates<Family>::alignInterfaceDescriptorData);
+    }
+
+    return size;
+}
+
+template <typename Family>
+size_t EncodeDispatchKernel<Family>::getSizeRequiredSsh(const KernelInfo &kernelInfo) {
+    using BINDING_TABLE_STATE = typename Family::BINDING_TABLE_STATE;
+    size_t requiredSshSize = kernelInfo.heapInfo.SurfaceStateHeapSize;
+    requiredSshSize = alignUp(requiredSshSize, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
+    return requiredSshSize;
+}
 
 template <typename Family>
 void EncodeIndirectParams<Family>::setGlobalWorkSizeIndirect(CommandContainer &container, const NEO::CrossThreadDataOffset offsets[3], uint64_t crossThreadAddress, const uint32_t *lws) {
@@ -760,10 +862,15 @@ void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferStart(LinearStream *
 }
 
 template <typename Family>
-void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferEnd(CommandContainer &container) {
+void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferEnd(LinearStream &commandStream) {
     MI_BATCH_BUFFER_END cmd = Family::cmdInitBatchBufferEnd;
-    auto buffer = container.getCommandStream()->getSpaceForCmd<MI_BATCH_BUFFER_END>();
+    auto buffer = commandStream.getSpaceForCmd<MI_BATCH_BUFFER_END>();
     *buffer = cmd;
+}
+
+template <typename Family>
+void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferEnd(CommandContainer &container) {
+    programBatchBufferEnd(*container.getCommandStream());
 }
 
 template <typename Family>
@@ -794,12 +901,16 @@ template <typename Family>
 inline void EncodeMemoryPrefetch<Family>::programMemoryPrefetch(LinearStream &commandStream, const GraphicsAllocation &graphicsAllocation, uint32_t size, size_t offset, const HardwareInfo &hwInfo) {}
 
 template <typename Family>
-inline size_t EncodeMemoryPrefetch<Family>::getSizeForMemoryPrefetch(size_t size) { return 0u; }
+inline size_t EncodeMemoryPrefetch<Family>::getSizeForMemoryPrefetch(size_t size, const HardwareInfo &hwInfo) { return 0u; }
 
 template <typename Family>
 void EncodeMiArbCheck<Family>::program(LinearStream &commandStream) {
+    MI_ARB_CHECK cmd = Family::cmdInitArbCheck;
+
+    EncodeMiArbCheck<Family>::adjust(cmd);
+
     auto miArbCheckStream = commandStream.getSpaceForCmd<MI_ARB_CHECK>();
-    *miArbCheckStream = Family::cmdInitArbCheck;
+    *miArbCheckStream = cmd;
 }
 
 template <typename Family>
@@ -843,5 +954,25 @@ inline void EncodeStoreMemory<Family>::programStoreDataImm(LinearStream &command
 
 template <typename GfxFamily>
 void EncodeEnableRayTracing<GfxFamily>::append3dStateBtd(void *ptr3dStateBtd) {}
+
+template <typename GfxFamily>
+inline void EncodeWA<GfxFamily>::setAdditionalPipeControlFlagsForNonPipelineStateCommand(PipeControlArgs &args) {}
+
+template <typename Family>
+size_t EncodeMemoryFence<Family>::getSystemMemoryFenceSize() {
+    return 0;
+}
+
+template <typename Family>
+void EncodeMemoryFence<Family>::encodeSystemMemoryFence(LinearStream &commandStream, const GraphicsAllocation *globalFenceAllocation, LogicalStateHelper *logicalStateHelper) {
+}
+
+template <typename Family>
+size_t EncodeKernelArgsBuffer<Family>::getKernelArgsBufferCmdsSize(const GraphicsAllocation *kernelArgsBufferAllocation, LogicalStateHelper *logicalStateHelper) {
+    return 0;
+}
+
+template <typename Family>
+void EncodeKernelArgsBuffer<Family>::encodeKernelArgsBufferCmds(const GraphicsAllocation *kernelArgsBufferAllocation, LogicalStateHelper *logicalStateHelper) {}
 
 } // namespace NEO

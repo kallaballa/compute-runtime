@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -47,12 +47,11 @@ void KernelImageArgTest::SetUp() {
     pKernelInfo->addArgImage(3, 0);
 
     pKernelInfo->addArgImage(4, 0x20);
-    pKernelInfo->addExtendedDeviceSideEnqueueDescriptor(4, 0);
 
     pKernelInfo->kernelDescriptor.kernelAttributes.bufferAddressingMode = ApiSpecificConfig::getBindlessConfiguration() ? KernelDescriptor::AddressingMode::BindlessAndStateless : KernelDescriptor::AddressingMode::BindfulAndStateless;
     pKernelInfo->kernelDescriptor.kernelAttributes.imageAddressingMode = ApiSpecificConfig::getBindlessConfiguration() ? KernelDescriptor::AddressingMode::Bindless : KernelDescriptor::AddressingMode::Bindful;
 
-    ClDeviceFixture::SetUp();
+    ClDeviceFixture::setUp();
     context.reset(new MockContext(pClDevice));
     program = std::make_unique<MockProgram>(context.get(), false, toClDeviceVector(*pClDevice));
     int32_t retVal = CL_INVALID_VALUE;
@@ -79,5 +78,5 @@ void KernelImageArgTest::TearDown() {
     pMultiDeviceKernel.reset();
     program.reset();
     context.reset();
-    ClDeviceFixture::TearDown();
+    ClDeviceFixture::tearDown();
 }

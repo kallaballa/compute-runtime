@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
-#include "shared/source/gen9/hw_cmds.h"
+#include "shared/source/gen9/hw_cmds_glk.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
@@ -14,10 +14,6 @@
 namespace NEO {
 
 const char *HwMapper<IGFX_GEMINILAKE>::abbreviation = "glk";
-
-bool isSimulationGLK(unsigned short deviceId) {
-    return false;
-};
 
 const PLATFORM GLK::platform = {
     IGFX_GEMINILAKE,
@@ -39,7 +35,6 @@ const RuntimeCapabilityTable GLK::capabilityTable{
     0,                                             // sharedSystemMemCapabilities
     52.083,                                        // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                     // requiredPreemptionSurfaceSize
-    &isSimulationGLK,                              // isSimulation
     "lp",                                          // platformType
     "",                                            // deviceName
     PreemptionMode::MidThread,                     // defaultPreemptionMode
@@ -79,7 +74,8 @@ const RuntimeCapabilityTable GLK::capabilityTable{
     true,                                          // supportsMediaBlock
     false,                                         // p2pAccessSupported
     false,                                         // p2pAtomicAccessSupported
-    false                                          // fusedEuEnabled
+    false,                                         // fusedEuEnabled
+    false                                          // l0DebuggerSupported;
 };
 
 WorkaroundTable GLK::workaroundTable = {};
@@ -119,22 +115,9 @@ void GLK::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waSamplerCacheFlushBetweenRedescribedSurfaceReads = true;
 }
 
-const HardwareInfo GLK_1x3x6::hwInfo = {
-    &GLK::platform,
-    &GLK::featureTable,
-    &GLK::workaroundTable,
-    &GLK_1x3x6::gtSystemInfo,
-    GLK::capabilityTable,
-};
-
-GT_SYSTEM_INFO GLK_1x3x6::gtSystemInfo = {0};
-void GLK_1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+void GLK::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * GLK::threadsPerEu;
-    gtSysInfo->SliceCount = 1;
-    gtSysInfo->L3CacheSizeInKb = 384;
-    gtSysInfo->L3BankCount = 2;
-    gtSysInfo->MaxFillRate = 8;
     gtSysInfo->TotalVsThreads = 112;
     gtSysInfo->TotalHsThreads = 112;
     gtSysInfo->TotalDsThreads = 112;
@@ -146,53 +129,61 @@ void GLK_1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAn
     gtSysInfo->MaxSubSlicesSupported = GLK::maxSubslicesSupported;
     gtSysInfo->IsL3HashModeEnabled = false;
     gtSysInfo->IsDynamicallyPopulated = false;
+
     if (setupFeatureTableAndWorkaroundTable) {
         setupFeatureAndWorkaroundTable(hwInfo);
     }
-};
+}
 
-const HardwareInfo GLK_1x2x6::hwInfo = {
+const HardwareInfo GlkHw1x3x6::hwInfo = {
     &GLK::platform,
     &GLK::featureTable,
     &GLK::workaroundTable,
-    &GLK_1x2x6::gtSystemInfo,
+    &GlkHw1x3x6::gtSystemInfo,
     GLK::capabilityTable,
 };
-GT_SYSTEM_INFO GLK_1x2x6::gtSystemInfo = {0};
-void GLK_1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+
+GT_SYSTEM_INFO GlkHw1x3x6::gtSystemInfo = {0};
+void GlkHw1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    GLK::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * GLK::threadsPerEu;
     gtSysInfo->SliceCount = 1;
     gtSysInfo->L3CacheSizeInKb = 384;
     gtSysInfo->L3BankCount = 2;
     gtSysInfo->MaxFillRate = 8;
-    gtSysInfo->TotalVsThreads = 112;
-    gtSysInfo->TotalHsThreads = 112;
-    gtSysInfo->TotalDsThreads = 112;
-    gtSysInfo->TotalGsThreads = 112;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = GLK::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = GLK::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = GLK::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo GLK::hwInfo = GLK_1x3x6::hwInfo;
+const HardwareInfo GlkHw1x2x6::hwInfo = {
+    &GLK::platform,
+    &GLK::featureTable,
+    &GLK::workaroundTable,
+    &GlkHw1x2x6::gtSystemInfo,
+    GLK::capabilityTable,
+};
+
+GT_SYSTEM_INFO GlkHw1x2x6::gtSystemInfo = {0};
+void GlkHw1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    GLK::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->SliceCount = 1;
+    gtSysInfo->L3CacheSizeInKb = 384;
+    gtSysInfo->L3BankCount = 2;
+    gtSysInfo->MaxFillRate = 8;
+};
+
+const HardwareInfo GLK::hwInfo = GlkHw1x3x6::hwInfo;
 const uint64_t GLK::defaultHardwareInfoConfig = 0x100030006;
 
 void setupGLKHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
     if (hwInfoConfig == 0x100020006) {
-        GLK_1x2x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        GlkHw1x2x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x100030006) {
-        GLK_1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        GlkHw1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x0) {
         // Default config
-        GLK_1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        GlkHw1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else {
         UNRECOVERABLE_IF(true);
     }

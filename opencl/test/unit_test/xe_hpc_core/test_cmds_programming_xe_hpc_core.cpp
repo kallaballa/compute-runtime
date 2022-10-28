@@ -9,11 +9,14 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/state_base_address.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
 
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+
+#include "hw_cmds_xe_hpc_core_base.h"
 
 using namespace NEO;
 using CmdsProgrammingTestsXeHpcCore = UltCommandStreamReceiverTest;
@@ -40,52 +43,6 @@ XE_HPC_CORETEST_F(CmdsProgrammingTestsXeHpcCore, givenL3ToL1DebugFlagWhenStatele
     EXPECT_EQ(expectedL1CachePolicy, actualL1CachePolocy);
 }
 
-XE_HPC_CORETEST_F(CmdsProgrammingTestsXeHpcCore, givenSpecificProductFamilyWhenAppendingSbaThenProgramWtL1CachePolicy) {
-    auto memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
-    AllocationProperties properties(pDevice->getRootDeviceIndex(), 1, AllocationType::BUFFER, pDevice->getDeviceBitfield());
-    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
-
-    IndirectHeap indirectHeap(allocation, 1);
-    DispatchFlags flags = DispatchFlagsHelper::createDefaultDispatchFlags();
-    auto sbaCmd = FamilyType::cmdInitStateBaseAddress;
-
-    StateBaseAddressHelper<FamilyType>::appendStateBaseAddressParameters(&sbaCmd, &indirectHeap, true, 0,
-                                                                         pDevice->getRootDeviceEnvironment().getGmmHelper(), false,
-                                                                         MemoryCompressionState::NotApplicable, true, false, 1u);
-
-    EXPECT_EQ(FamilyType::STATE_BASE_ADDRESS::L1_CACHE_POLICY_WBP, sbaCmd.getL1CachePolicyL1CacheControl());
-
-    memoryManager->freeGraphicsMemory(allocation);
-}
-
-XE_HPC_CORETEST_F(CmdsProgrammingTestsXeHpcCore, givenL1CachingOverrideWhenStateBaseAddressIsProgrammedThenItMatchesTheOverrideValue) {
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.ForceStatelessL1CachingPolicy.set(0u);
-    auto memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
-    AllocationProperties properties(pDevice->getRootDeviceIndex(), 1, AllocationType::BUFFER, pDevice->getDeviceBitfield());
-    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
-
-    IndirectHeap indirectHeap(allocation, 1);
-    DispatchFlags flags = DispatchFlagsHelper::createDefaultDispatchFlags();
-    auto sbaCmd = FamilyType::cmdInitStateBaseAddress;
-
-    StateBaseAddressHelper<FamilyType>::appendStateBaseAddressParameters(&sbaCmd, &indirectHeap, true, 0,
-                                                                         pDevice->getRootDeviceEnvironment().getGmmHelper(), false,
-                                                                         MemoryCompressionState::NotApplicable, true, false, 1u);
-
-    EXPECT_EQ(0u, sbaCmd.getL1CachePolicyL1CacheControl());
-
-    DebugManager.flags.ForceStatelessL1CachingPolicy.set(1u);
-
-    StateBaseAddressHelper<FamilyType>::appendStateBaseAddressParameters(&sbaCmd, &indirectHeap, true, 0,
-                                                                         pDevice->getRootDeviceEnvironment().getGmmHelper(), false,
-                                                                         MemoryCompressionState::NotApplicable, true, false, 1u);
-
-    EXPECT_EQ(1u, sbaCmd.getL1CachePolicyL1CacheControl());
-
-    memoryManager->freeGraphicsMemory(allocation);
-}
-
 XE_HPC_CORETEST_F(CmdsProgrammingTestsXeHpcCore, whenAppendingRssThenProgramWtL1CachePolicy) {
     auto memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
     size_t allocationSize = MemoryConstants::pageSize;
@@ -99,7 +56,7 @@ XE_HPC_CORETEST_F(CmdsProgrammingTestsXeHpcCore, whenAppendingRssThenProgramWtL1
     multiGraphicsAllocation.addAllocation(allocation);
 
     std::unique_ptr<BufferHw<FamilyType>> buffer(static_cast<BufferHw<FamilyType> *>(
-        BufferHw<FamilyType>::create(&context, {}, 0, 0, allocationSize, nullptr, nullptr, multiGraphicsAllocation, false, false, false)));
+        BufferHw<FamilyType>::create(&context, {}, 0, 0, allocationSize, nullptr, nullptr, std::move(multiGraphicsAllocation), false, false, false)));
 
     NEO::EncodeSurfaceStateArgs args;
     args.outMemory = &rssCmd;

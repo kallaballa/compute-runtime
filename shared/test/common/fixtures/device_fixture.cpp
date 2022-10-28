@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,12 +12,12 @@
 #include "gtest/gtest.h"
 
 namespace NEO {
-void DeviceFixture::SetUp() {
+void DeviceFixture::setUp() {
     hardwareInfo = *defaultHwInfo;
-    SetUpImpl(&hardwareInfo);
+    setUpImpl(&hardwareInfo);
 }
 
-void DeviceFixture::SetUpImpl(const NEO::HardwareInfo *hardwareInfo) {
+void DeviceFixture::setUpImpl(const NEO::HardwareInfo *hardwareInfo) {
     pDevice = MockDevice::createWithNewExecutionEnvironment<MockDevice>(hardwareInfo, rootDeviceIndex);
     ASSERT_NE(nullptr, pDevice);
 
@@ -26,14 +26,15 @@ void DeviceFixture::SetUpImpl(const NEO::HardwareInfo *hardwareInfo) {
     ASSERT_NE(nullptr, const_cast<uint32_t *>(pTagMemory));
 }
 
-void DeviceFixture::TearDown() {
+void DeviceFixture::tearDown() {
     delete pDevice;
     pDevice = nullptr;
 }
 
-MockDevice *DeviceFixture::createWithUsDeviceId(unsigned short usDeviceId) {
+MockDevice *DeviceFixture::createWithUsDeviceIdRevId(unsigned short usDeviceId, unsigned short usRevId) {
     hardwareInfo = *defaultHwInfo;
     hardwareInfo.platform.usDeviceID = usDeviceId;
+    hardwareInfo.platform.usRevId = usRevId;
     return MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hardwareInfo);
 }
 } // namespace NEO

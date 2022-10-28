@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/built_ins/built_ins.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
@@ -14,6 +15,8 @@
 #include "shared/source/helpers/hash.h"
 #include "shared/source/helpers/string.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
+#include "shared/test/common/helpers/test_files.h"
 #include "shared/test/common/libult/global_environment.h"
 #include "shared/test/common/mocks/mock_builtins.h"
 #include "shared/test/common/mocks/mock_builtinslib.h"
@@ -22,7 +25,7 @@
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/built_ins/aux_translation_builtin.h"
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
@@ -41,7 +44,6 @@
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
-#include "compiler_options.h"
 #include "gtest/gtest.h"
 #include "os_inc.h"
 #include "test_traits_common.h"
@@ -56,8 +58,8 @@ class BuiltInTests
       public ContextFixture,
       public ::testing::Test {
 
-    using BuiltInFixture::SetUp;
-    using ContextFixture::SetUp;
+    using BuiltInFixture::setUp;
+    using ContextFixture::setUp;
 
   public:
     BuiltInTests() {
@@ -68,20 +70,20 @@ class BuiltInTests
 
     void SetUp() override {
         DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
         cl_device_id device = pClDevice;
-        ContextFixture::SetUp(1, &device);
-        BuiltInFixture::SetUp(pDevice);
+        ContextFixture::setUp(1, &device);
+        BuiltInFixture::setUp(pDevice);
     }
 
     void TearDown() override {
         allBuiltIns.clear();
-        BuiltInFixture::TearDown();
-        ContextFixture::TearDown();
-        ClDeviceFixture::TearDown();
+        BuiltInFixture::tearDown();
+        ContextFixture::tearDown();
+        ClDeviceFixture::tearDown();
     }
 
-    void AppendBuiltInStringFromFile(std::string builtInFile, size_t &size) {
+    void appendBuiltInStringFromFile(std::string builtInFile, size_t &size) {
         std::string src;
         auto pData = loadDataFromFile(
             builtInFile.c_str(),
@@ -148,9 +150,88 @@ HWTEST2_F(BuiltInTests, GivenBuiltinTypeBinaryWhenGettingAuxTranslationBuiltinTh
               mockBuiltinsLib->getBuiltinResource(EBuiltInOps::AuxTranslation, BuiltinCode::ECodeType::Binary, *pDevice).size() != 0);
 }
 
+class MockAuxBuilInOp : public BuiltInOp<EBuiltInOps::AuxTranslation> {
+  public:
+    using BuiltinDispatchInfoBuilder::populate;
+    using BaseClass = BuiltInOp<EBuiltInOps::AuxTranslation>;
+    using BaseClass::baseKernel;
+    using BaseClass::convertToAuxKernel;
+    using BaseClass::convertToNonAuxKernel;
+    using BaseClass::resizeKernelInstances;
+    using BaseClass::usedKernels;
+
+    using BaseClass::BuiltInOp;
+};
+
 INSTANTIATE_TEST_CASE_P(,
                         AuxBuiltInTests,
                         testing::ValuesIn({KernelObjForAuxTranslation::Type::MEM_OBJ, KernelObjForAuxTranslation::Type::GFX_ALLOC}));
+
+HWCMDTEST_P(IGFX_XE_HP_CORE, AuxBuiltInTests, givenXeHpCoreCommandsAndAuxTranslationKernelWhenSettingKernelArgsThenSetValidMocs) {
+
+    const auto &compilerHwInfoConfig = *CompilerHwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+    if (compilerHwInfoConfig.isForceToStatelessRequired()) {
+        GTEST_SKIP();
+    }
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    MockAuxBuilInOp mockAuxBuiltInOp(*pBuiltIns, *pClDevice);
+
+    BuiltinOpParams builtinOpParamsToAux;
+    builtinOpParamsToAux.auxTranslationDirection = AuxTranslationDirection::NonAuxToAux;
+
+    BuiltinOpParams builtinOpParamsToNonAux;
+    builtinOpParamsToNonAux.auxTranslationDirection = AuxTranslationDirection::AuxToNonAux;
+
+    std::unique_ptr<Buffer> buffer = nullptr;
+    std::unique_ptr<GraphicsAllocation> gfxAllocation = nullptr;
+
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
+    if (kernelObjType == MockKernelObjForAuxTranslation::Type::MEM_OBJ) {
+        cl_int retVal = CL_SUCCESS;
+        buffer.reset(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
+        kernelObjsForAuxTranslation->insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer.get()});
+    } else {
+        gfxAllocation.reset(new MockGraphicsAllocation(nullptr, MemoryConstants::pageSize));
+        kernelObjsForAuxTranslation->insert({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation.get()});
+    }
+
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
+
+    mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParamsToAux);
+    mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParamsToNonAux);
+
+    {
+        // read args
+        auto argNum = 0;
+        auto expectedMocs = pDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
+        auto sshBase = mockAuxBuiltInOp.convertToAuxKernel[0]->getSurfaceStateHeap();
+        auto sshOffset = mockAuxBuiltInOp.convertToAuxKernel[0]->getKernelInfo().getArgDescriptorAt(argNum).as<ArgDescPointer>().bindful;
+        auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(sshBase, sshOffset));
+        EXPECT_EQ(expectedMocs, surfaceState->getMemoryObjectControlState());
+
+        sshBase = mockAuxBuiltInOp.convertToNonAuxKernel[0]->getSurfaceStateHeap();
+        sshOffset = mockAuxBuiltInOp.convertToNonAuxKernel[0]->getKernelInfo().getArgDescriptorAt(argNum).as<ArgDescPointer>().bindful;
+        surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(sshBase, sshOffset));
+        EXPECT_EQ(expectedMocs, surfaceState->getMemoryObjectControlState());
+    }
+
+    {
+        // write args
+        auto argNum = 1;
+        auto expectedMocs = pDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST);
+        auto sshBase = mockAuxBuiltInOp.convertToAuxKernel[0]->getSurfaceStateHeap();
+        auto sshOffset = mockAuxBuiltInOp.convertToAuxKernel[0]->getKernelInfo().getArgDescriptorAt(argNum).as<ArgDescPointer>().bindful;
+        auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(sshBase, sshOffset));
+        EXPECT_EQ(expectedMocs, surfaceState->getMemoryObjectControlState());
+
+        sshBase = mockAuxBuiltInOp.convertToNonAuxKernel[0]->getSurfaceStateHeap();
+        sshOffset = mockAuxBuiltInOp.convertToNonAuxKernel[0]->getKernelInfo().getArgDescriptorAt(argNum).as<ArgDescPointer>().bindful;
+        surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(sshBase, sshOffset));
+        EXPECT_EQ(expectedMocs, surfaceState->getMemoryObjectControlState());
+    }
+}
 
 TEST_F(BuiltInTests, WhenBuildingListOfBuiltinsThenBuiltinsHaveBeenGenerated) {
     for (auto supportsImages : ::testing::Bool()) {
@@ -158,29 +239,29 @@ TEST_F(BuiltInTests, WhenBuildingListOfBuiltinsThenBuiltinsHaveBeenGenerated) {
         size_t size = 0;
 
         for (auto &fileName : getBuiltInFileNames(supportsImages)) {
-            AppendBuiltInStringFromFile(fileName, size);
+            appendBuiltInStringFromFile(sharedBuiltinsDir + "/" + fileName, size);
             ASSERT_NE(0u, size);
         }
 
         // convert /r/n to /n
-        size_t start_pos = 0;
-        while ((start_pos = allBuiltIns.find("\r\n", start_pos)) != std::string::npos) {
-            allBuiltIns.replace(start_pos, 2, "\n");
+        size_t startPos = 0;
+        while ((startPos = allBuiltIns.find("\r\n", startPos)) != std::string::npos) {
+            allBuiltIns.replace(startPos, 2, "\n");
         }
 
         // convert /r to /n
-        start_pos = 0;
-        while ((start_pos = allBuiltIns.find("\r", start_pos)) != std::string::npos) {
-            allBuiltIns.replace(start_pos, 1, "\n");
+        startPos = 0;
+        while ((startPos = allBuiltIns.find("\r", startPos)) != std::string::npos) {
+            allBuiltIns.replace(startPos, 1, "\n");
         }
 
         uint64_t hash = Hash::hash(allBuiltIns.c_str(), allBuiltIns.length());
         auto hashName = getBuiltInHashFileName(hash, supportsImages);
 
-        //First fail, if we are inconsistent
+        // First fail, if we are inconsistent
         EXPECT_EQ(true, fileExists(hashName)) << "**********\nBuilt in kernels need to be regenerated for the mock compilers!\n**********";
 
-        //then write to file if needed
+        // then write to file if needed
 #define GENERATE_NEW_HASH_FOR_BUILT_INS 0
 #if GENERATE_NEW_HASH_FOR_BUILT_INS
         std::cout << "writing builtins to file: " << hashName << std::endl;
@@ -190,7 +271,7 @@ TEST_F(BuiltInTests, WhenBuildingListOfBuiltinsThenBuiltinsHaveBeenGenerated) {
     }
 }
 
-TEST_F(BuiltInTests, GivenCopyBufferToBufferWhenDispatchInfoIsCreatedThenParamsAreCorrect) {
+TEST_F(BuiltInTests, GivenCopyBufferToSystemMemoryBufferWhenDispatchInfoIsCreatedThenParamsAreCorrect) {
     BuiltinDispatchInfoBuilder &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer, *pClDevice);
 
     MockBuffer *srcPtr = new MockBuffer();
@@ -198,6 +279,9 @@ TEST_F(BuiltInTests, GivenCopyBufferToBufferWhenDispatchInfoIsCreatedThenParamsA
 
     MockBuffer &src = *srcPtr;
     MockBuffer &dst = *dstPtr;
+
+    srcPtr->mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+    dstPtr->mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
 
     BuiltinOpParams builtinOpsParams;
 
@@ -247,8 +331,40 @@ TEST_F(BuiltInTests, GivenCopyBufferToBufferWhenDispatchInfoIsCreatedThenParamsA
             EXPECT_EQ(Vec3<size_t>(rightSize, 1, 1), dispatchInfo.getGWS());
         }
         i++;
+        EXPECT_TRUE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
     }
     EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), builtinOpsParams));
+    delete srcPtr;
+    delete dstPtr;
+}
+
+TEST_F(BuiltInTests, GivenCopyBufferToLocalMemoryBufferWhenDispatchInfoIsCreatedThenParamsAreCorrect) {
+    BuiltinDispatchInfoBuilder &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer, *pClDevice);
+
+    MockBuffer *srcPtr = new MockBuffer();
+    MockBuffer *dstPtr = new MockBuffer();
+
+    MockBuffer &src = *srcPtr;
+    MockBuffer &dst = *dstPtr;
+
+    srcPtr->mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
+    dstPtr->mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+
+    BuiltinOpParams builtinOpsParams;
+
+    builtinOpsParams.srcMemObj = &src;
+    builtinOpsParams.dstMemObj = &dst;
+    builtinOpsParams.srcPtr = src.getCpuAddress();
+    builtinOpsParams.dstPtr = dst.getCpuAddress();
+    builtinOpsParams.size = {dst.getSize(), 0, 0};
+
+    MultiDispatchInfo multiDispatchInfo(builtinOpsParams);
+    ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo));
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_FALSE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
+
     delete srcPtr;
     delete dstPtr;
 }
@@ -257,9 +373,6 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingNonAuxDispatchInfoForAuxT
     BuiltinDispatchInfoBuilder &baseBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, *pClDevice);
     auto &builder = static_cast<BuiltInOp<EBuiltInOps::AuxTranslation> &>(baseBuilder);
 
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-    MultiDispatchInfo multiDispatchInfo;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
     std::vector<Kernel *> builtinKernels;
     std::vector<MockKernelObjForAuxTranslation> mockKernelObjForAuxTranslation;
     mockKernelObjForAuxTranslation.push_back(MockKernelObjForAuxTranslation(kernelObjType, 0x1000));
@@ -269,9 +382,14 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingNonAuxDispatchInfoForAuxT
     BuiltinOpParams builtinOpsParams;
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::AuxToNonAux;
 
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
     for (auto &kernelObj : mockKernelObjForAuxTranslation) {
-        kernelObjsForAuxTranslation.insert(kernelObj);
+        kernelObjsForAuxTranslation->insert(kernelObj);
     }
+    auto kernelObjsForAuxTranslationPtr = kernelObjsForAuxTranslation.get();
+
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
 
     EXPECT_TRUE(builder.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpsParams));
     EXPECT_EQ(3u, multiDispatchInfo.size());
@@ -282,10 +400,10 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingNonAuxDispatchInfoForAuxT
 
         if (kernelObjType == KernelObjForAuxTranslation::Type::MEM_OBJ) {
             auto buffer = castToObject<Buffer>(kernel->getKernelArguments().at(0).object);
-            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer});
+            auto kernelObj = *kernelObjsForAuxTranslationPtr->find({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer});
             EXPECT_NE(nullptr, kernelObj.object);
             EXPECT_EQ(KernelObjForAuxTranslation::Type::MEM_OBJ, kernelObj.type);
-            kernelObjsForAuxTranslation.erase(kernelObj);
+            kernelObjsForAuxTranslationPtr->erase(kernelObj);
 
             cl_mem clMem = buffer;
             EXPECT_EQ(clMem, kernel->getKernelArguments().at(0).object);
@@ -297,10 +415,10 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingNonAuxDispatchInfoForAuxT
             EXPECT_EQ(gws, dispatchInfo.getGWS());
         } else {
             auto gfxAllocation = static_cast<GraphicsAllocation *>(kernel->getKernelArguments().at(0).object);
-            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation});
+            auto kernelObj = *kernelObjsForAuxTranslationPtr->find({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation});
             EXPECT_NE(nullptr, kernelObj.object);
             EXPECT_EQ(KernelObjForAuxTranslation::Type::GFX_ALLOC, kernelObj.type);
-            kernelObjsForAuxTranslation.erase(kernelObj);
+            kernelObjsForAuxTranslationPtr->erase(kernelObj);
 
             EXPECT_EQ(gfxAllocation, kernel->getKernelArguments().at(0).object);
             EXPECT_EQ(gfxAllocation, kernel->getKernelArguments().at(1).object);
@@ -323,9 +441,6 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingAuxDispatchInfoForAuxTran
     BuiltinDispatchInfoBuilder &baseBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, *pClDevice);
     auto &builder = static_cast<BuiltInOp<EBuiltInOps::AuxTranslation> &>(baseBuilder);
 
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-    MultiDispatchInfo multiDispatchInfo;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
     std::vector<Kernel *> builtinKernels;
     std::vector<MockKernelObjForAuxTranslation> mockKernelObjForAuxTranslation;
     mockKernelObjForAuxTranslation.push_back(MockKernelObjForAuxTranslation(kernelObjType, 0x1000));
@@ -335,9 +450,13 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingAuxDispatchInfoForAuxTran
     BuiltinOpParams builtinOpsParams;
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::NonAuxToAux;
 
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
+    auto kernelObjsForAuxTranslationPtr = kernelObjsForAuxTranslation.get();
     for (auto &kernelObj : mockKernelObjForAuxTranslation) {
-        kernelObjsForAuxTranslation.insert(kernelObj);
+        kernelObjsForAuxTranslation->insert(kernelObj);
     }
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
 
     EXPECT_TRUE(builder.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpsParams));
     EXPECT_EQ(3u, multiDispatchInfo.size());
@@ -348,10 +467,10 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingAuxDispatchInfoForAuxTran
 
         if (kernelObjType == KernelObjForAuxTranslation::Type::MEM_OBJ) {
             auto buffer = castToObject<Buffer>(kernel->getKernelArguments().at(0).object);
-            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer});
+            auto kernelObj = *kernelObjsForAuxTranslationPtr->find({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer});
             EXPECT_NE(nullptr, kernelObj.object);
             EXPECT_EQ(KernelObjForAuxTranslation::Type::MEM_OBJ, kernelObj.type);
-            kernelObjsForAuxTranslation.erase(kernelObj);
+            kernelObjsForAuxTranslationPtr->erase(kernelObj);
 
             cl_mem clMem = buffer;
             EXPECT_EQ(clMem, kernel->getKernelArguments().at(0).object);
@@ -363,10 +482,10 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingAuxDispatchInfoForAuxTran
             EXPECT_EQ(gws, dispatchInfo.getGWS());
         } else {
             auto gfxAllocation = static_cast<GraphicsAllocation *>(kernel->getKernelArguments().at(0).object);
-            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation});
+            auto kernelObj = *kernelObjsForAuxTranslationPtr->find({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation});
             EXPECT_NE(nullptr, kernelObj.object);
             EXPECT_EQ(KernelObjForAuxTranslation::Type::GFX_ALLOC, kernelObj.type);
-            kernelObjsForAuxTranslation.erase(kernelObj);
+            kernelObjsForAuxTranslationPtr->erase(kernelObj);
 
             EXPECT_EQ(gfxAllocation, kernel->getKernelArguments().at(0).object);
             EXPECT_EQ(gfxAllocation, kernel->getKernelArguments().at(1).object);
@@ -389,20 +508,20 @@ HWTEST2_P(AuxBuiltInTests, givenInputBufferWhenBuildingAuxTranslationDispatchThe
     BuiltinDispatchInfoBuilder &baseBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, *pClDevice);
     auto &builder = static_cast<BuiltInOp<EBuiltInOps::AuxTranslation> &>(baseBuilder);
 
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
     std::vector<MockKernelObjForAuxTranslation> mockKernelObjForAuxTranslation;
     for (int i = 0; i < 3; i++) {
         mockKernelObjForAuxTranslation.push_back(MockKernelObjForAuxTranslation(kernelObjType));
     }
     std::vector<Kernel *> builtinKernels;
 
-    MultiDispatchInfo multiDispatchInfo;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
     BuiltinOpParams builtinOpsParams;
 
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
     for (auto &kernelObj : mockKernelObjForAuxTranslation) {
-        kernelObjsForAuxTranslation.insert(kernelObj);
+        kernelObjsForAuxTranslation->insert(kernelObj);
     }
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
 
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::AuxToNonAux;
     EXPECT_TRUE(builder.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpsParams));
@@ -427,31 +546,19 @@ HWTEST2_P(AuxBuiltInTests, givenInvalidAuxTranslationDirectionWhenBuildingDispat
     BuiltinDispatchInfoBuilder &baseBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, *pClDevice);
     auto &builder = static_cast<BuiltInOp<EBuiltInOps::AuxTranslation> &>(baseBuilder);
 
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
+    auto kernelObjsForAuxTranslationPtr = kernelObjsForAuxTranslation.get();
     MockKernelObjForAuxTranslation mockKernelObjForAuxTranslation(kernelObjType);
 
     MultiDispatchInfo multiDispatchInfo;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
     BuiltinOpParams builtinOpsParams;
 
-    kernelObjsForAuxTranslation.insert(mockKernelObjForAuxTranslation);
+    kernelObjsForAuxTranslationPtr->insert(mockKernelObjForAuxTranslation);
 
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::None;
     EXPECT_THROW(builder.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpsParams), std::exception);
 }
-
-class MockAuxBuilInOp : public BuiltInOp<EBuiltInOps::AuxTranslation> {
-  public:
-    using BuiltinDispatchInfoBuilder::populate;
-    using BaseClass = BuiltInOp<EBuiltInOps::AuxTranslation>;
-    using BaseClass::baseKernel;
-    using BaseClass::convertToAuxKernel;
-    using BaseClass::convertToNonAuxKernel;
-    using BaseClass::resizeKernelInstances;
-    using BaseClass::usedKernels;
-
-    using BaseClass::BuiltInOp;
-};
 
 TEST_F(BuiltInTests, whenAuxBuiltInIsConstructedThenResizeKernelInstancedTo5) {
     MockAuxBuilInOp mockAuxBuiltInOp(*pBuiltIns, *pClDevice);
@@ -464,20 +571,20 @@ HWTEST2_P(AuxBuiltInTests, givenMoreKernelObjectsForAuxTranslationThanKernelInst
     EXPECT_EQ(5u, mockAuxBuiltInOp.convertToAuxKernel.size());
     EXPECT_EQ(5u, mockAuxBuiltInOp.convertToNonAuxKernel.size());
 
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-    BuiltinOpParams builtinOpsParams;
-    MultiDispatchInfo multiDispatchInfo;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
     std::vector<MockKernelObjForAuxTranslation> mockKernelObjForAuxTranslation;
     for (int i = 0; i < 7; i++) {
         mockKernelObjForAuxTranslation.push_back(MockKernelObjForAuxTranslation(kernelObjType));
     }
 
+    BuiltinOpParams builtinOpsParams;
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::AuxToNonAux;
 
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
     for (auto &kernelObj : mockKernelObjForAuxTranslation) {
-        kernelObjsForAuxTranslation.insert(kernelObj);
+        kernelObjsForAuxTranslation->insert(kernelObj);
     }
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
 
     EXPECT_TRUE(mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpsParams));
     EXPECT_EQ(7u, mockAuxBuiltInOp.convertToAuxKernel.size());
@@ -522,17 +629,17 @@ HWTEST2_P(AuxBuiltInTests, givenKernelWithAuxTranslationRequiredWhenEnqueueCalle
 
     MockKernelObjForAuxTranslation mockKernelObjForAuxTranslation(kernelObjType);
     if (kernelObjType == KernelObjForAuxTranslation::Type::MEM_OBJ) {
-        MockBuffer::setAllocationType(mockKernelObjForAuxTranslation.mockBuffer->getGraphicsAllocation(0), pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+        MockBuffer::setAllocationType(mockKernelObjForAuxTranslation.mockBuffer->getGraphicsAllocation(0), pDevice->getRootDeviceEnvironment().getGmmHelper(), true);
 
         cl_mem clMem = mockKernelObjForAuxTranslation.mockBuffer.get();
         mockKernel.mockKernel->setArgBuffer(0, sizeof(cl_mem *), &clMem);
     } else {
         auto gfxAllocation = mockKernelObjForAuxTranslation.mockGraphicsAllocation.get();
 
-        MockBuffer::setAllocationType(gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+        MockBuffer::setAllocationType(gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmHelper(), true);
 
         auto ptr = reinterpret_cast<void *>(gfxAllocation->getGpuAddressToPatch());
-        mockKernel.mockKernel->setArgSvmAlloc(0, ptr, gfxAllocation);
+        mockKernel.mockKernel->setArgSvmAlloc(0, ptr, gfxAllocation, 0u);
 
         gmm.reset(gfxAllocation->getDefaultGmm());
     }
@@ -557,9 +664,6 @@ HWCMDTEST_P(IGFX_GEN8_CORE, AuxBuiltInTests, givenAuxTranslationKernelWhenSettin
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     MockAuxBuilInOp mockAuxBuiltInOp(*pBuiltIns, *pClDevice);
-    MultiDispatchInfo multiDispatchInfo;
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
 
     BuiltinOpParams builtinOpParamsToAux;
     builtinOpParamsToAux.auxTranslationDirection = AuxTranslationDirection::NonAuxToAux;
@@ -570,14 +674,19 @@ HWCMDTEST_P(IGFX_GEN8_CORE, AuxBuiltInTests, givenAuxTranslationKernelWhenSettin
     std::unique_ptr<Buffer> buffer = nullptr;
     std::unique_ptr<GraphicsAllocation> gfxAllocation = nullptr;
 
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
+
     if (kernelObjType == MockKernelObjForAuxTranslation::Type::MEM_OBJ) {
         cl_int retVal = CL_SUCCESS;
         buffer.reset(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
-        kernelObjsForAuxTranslation.insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer.get()});
+        kernelObjsForAuxTranslation->insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer.get()});
     } else {
         gfxAllocation.reset(new MockGraphicsAllocation(nullptr, MemoryConstants::pageSize));
-        kernelObjsForAuxTranslation.insert({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation.get()});
+        kernelObjsForAuxTranslation->insert({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation.get()});
     }
+
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
 
     mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParamsToAux);
     mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParamsToNonAux);
@@ -623,9 +732,6 @@ HWTEST2_P(AuxBuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThe
     using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
 
     MockAuxBuilInOp mockAuxBuiltInOp(*pBuiltIns, *pClDevice);
-    MultiDispatchInfo multiDispatchInfo;
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
 
     BuiltinOpParams builtinOpParams;
     builtinOpParams.auxTranslationDirection = AuxTranslationDirection::AuxToNonAux;
@@ -633,22 +739,25 @@ HWTEST2_P(AuxBuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThe
     std::unique_ptr<Buffer> buffer = nullptr;
     std::unique_ptr<GraphicsAllocation> gfxAllocation = nullptr;
 
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(pDevice->getGmmClientContext(), nullptr, 1, 0, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(pDevice->getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true));
     gmm->isCompressionEnabled = true;
+
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
 
     if (kernelObjType == MockKernelObjForAuxTranslation::Type::MEM_OBJ) {
         cl_int retVal = CL_SUCCESS;
         buffer.reset(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
         buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setDefaultGmm(gmm.release());
 
-        kernelObjsForAuxTranslation.insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer.get()});
+        kernelObjsForAuxTranslation->insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer.get()});
     } else {
         gfxAllocation.reset(new MockGraphicsAllocation(nullptr, MemoryConstants::pageSize));
         gfxAllocation->setDefaultGmm(gmm.get());
 
-        kernelObjsForAuxTranslation.insert({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation.get()});
+        kernelObjsForAuxTranslation->insert({KernelObjForAuxTranslation::Type::GFX_ALLOC, gfxAllocation.get()});
     }
-
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
     mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParams);
 
     {
@@ -680,23 +789,23 @@ HWTEST2_P(AuxBuiltInTests, givenNonAuxToAuxTranslationWhenSettingSurfaceStateThe
     using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
 
     MockAuxBuilInOp mockAuxBuiltInOp(*pBuiltIns, *pClDevice);
-    MultiDispatchInfo multiDispatchInfo;
-    KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-    multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
 
     BuiltinOpParams builtinOpParams;
     builtinOpParams.auxTranslationDirection = AuxTranslationDirection::NonAuxToAux;
 
     MockKernelObjForAuxTranslation mockKernelObjForAuxTranslation(kernelObjType);
-    auto gmm = std::make_unique<Gmm>(pDevice->getGmmClientContext(), nullptr, 1, 0, false);
+    auto gmm = std::make_unique<Gmm>(pDevice->getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, StorageInfo{}, true);
     gmm->isCompressionEnabled = true;
     if (kernelObjType == MockKernelObjForAuxTranslation::Type::MEM_OBJ) {
         mockKernelObjForAuxTranslation.mockBuffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setDefaultGmm(gmm.release());
     } else {
         mockKernelObjForAuxTranslation.mockGraphicsAllocation->setDefaultGmm(gmm.get());
     }
-    kernelObjsForAuxTranslation.insert(mockKernelObjForAuxTranslation);
+    auto kernelObjsForAuxTranslation = std::make_unique<KernelObjsForAuxTranslation>();
+    kernelObjsForAuxTranslation->insert(mockKernelObjForAuxTranslation);
 
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.setKernelObjsForAuxTranslation(std::move(kernelObjsForAuxTranslation));
     mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParams);
 
     {
@@ -783,8 +892,7 @@ TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToBufferStateless
     EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), builtinOpsParams));
 }
 
-TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToBufferRectStatelessIsUsedThenParamsAreCorrect) {
-
+TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToSystemBufferRectStatelessIsUsedThenParamsAreCorrect) {
     if (is32bit) {
         GTEST_SKIP();
     }
@@ -799,6 +907,9 @@ TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToBufferRectState
     srcBuffer.size = static_cast<size_t>(bigSize);
     MockBuffer dstBuffer;
     dstBuffer.size = static_cast<size_t>(bigSize);
+
+    srcBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+    dstBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
 
     BuiltinOpParams dc;
     dc.srcMemObj = &srcBuffer;
@@ -815,10 +926,53 @@ TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToBufferRectState
     ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo));
     EXPECT_EQ(1u, multiDispatchInfo.size());
     EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), dc));
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_TRUE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
 }
 
-TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderFillBufferStatelessIsUsedThenParamsAreCorrect) {
+TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToLocalBufferRectStatelessIsUsedThenParamsAreCorrect) {
+    if (is32bit) {
+        GTEST_SKIP();
+    }
 
+    BuiltinDispatchInfoBuilder &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferRectStateless, *pClDevice);
+
+    uint64_t bigSize = 10ull * MemoryConstants::gigaByte;
+    uint64_t bigOffset = 4ull * MemoryConstants::gigaByte;
+    uint64_t size = 4ull * MemoryConstants::gigaByte;
+
+    MockBuffer srcBuffer;
+    srcBuffer.size = static_cast<size_t>(bigSize);
+    MockBuffer dstBuffer;
+    dstBuffer.size = static_cast<size_t>(bigSize);
+
+    srcBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
+    dstBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+
+    BuiltinOpParams dc;
+    dc.srcMemObj = &srcBuffer;
+    dc.dstMemObj = &dstBuffer;
+    dc.srcOffset = {static_cast<size_t>(bigOffset), 0, 0};
+    dc.dstOffset = {0, 0, 0};
+    dc.size = {static_cast<size_t>(size), 1, 1};
+    dc.srcRowPitch = static_cast<size_t>(size);
+    dc.srcSlicePitch = 0;
+    dc.dstRowPitch = static_cast<size_t>(size);
+    dc.dstSlicePitch = 0;
+
+    MultiDispatchInfo multiDispatchInfo(dc);
+    ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo));
+    EXPECT_EQ(1u, multiDispatchInfo.size());
+    EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), dc));
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_FALSE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
+}
+
+TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderFillSystemBufferStatelessIsUsedThenParamsAreCorrect) {
     if (is32bit) {
         GTEST_SKIP();
     }
@@ -834,6 +988,9 @@ TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderFillBufferStatelessIsUsedTh
     MockBuffer dstBuffer;
     dstBuffer.size = static_cast<size_t>(bigSize);
 
+    srcBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+    dstBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
+
     BuiltinOpParams dc;
     dc.srcMemObj = &srcBuffer;
     dc.dstMemObj = &dstBuffer;
@@ -844,6 +1001,45 @@ TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderFillBufferStatelessIsUsedTh
     ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo));
     EXPECT_EQ(1u, multiDispatchInfo.size());
     EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), dc));
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_TRUE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
+}
+
+TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderFillLocalBufferStatelessIsUsedThenParamsAreCorrect) {
+    if (is32bit) {
+        GTEST_SKIP();
+    }
+
+    BuiltinDispatchInfoBuilder &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBufferStateless, *pClDevice);
+
+    uint64_t bigSize = 10ull * MemoryConstants::gigaByte;
+    uint64_t bigOffset = 4ull * MemoryConstants::gigaByte;
+    uint64_t size = 4ull * MemoryConstants::gigaByte;
+
+    MockBuffer srcBuffer;
+    srcBuffer.size = static_cast<size_t>(bigSize);
+    MockBuffer dstBuffer;
+    dstBuffer.size = static_cast<size_t>(bigSize);
+
+    srcBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
+    dstBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+
+    BuiltinOpParams dc;
+    dc.srcMemObj = &srcBuffer;
+    dc.dstMemObj = &dstBuffer;
+    dc.dstOffset = {static_cast<size_t>(bigOffset), 0, 0};
+    dc.size = {static_cast<size_t>(size), 0, 0};
+
+    MultiDispatchInfo multiDispatchInfo(dc);
+    ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo));
+    EXPECT_EQ(1u, multiDispatchInfo.size());
+    EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), dc));
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_FALSE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
 }
 
 HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToImageStatelessIsUsedThenParamsAreCorrect) {
@@ -880,8 +1076,7 @@ HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToImageStateles
     EXPECT_FALSE(kernel->getKernelInfo().getArgDescriptorAt(0).as<ArgDescPointer>().isPureStateful());
 }
 
-HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyImageToBufferStatelessIsUsedThenParamsAreCorrect) {
-
+HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyImageToSystemBufferStatelessIsUsedThenParamsAreCorrect) {
     if (is32bit) {
         GTEST_SKIP();
     }
@@ -891,6 +1086,7 @@ HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyImageToBufferStateles
 
     MockBuffer dstBuffer;
     dstBuffer.size = static_cast<size_t>(bigSize);
+    dstBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
     std ::unique_ptr<Image> pSrcImage(Image2dHelper<>::create(pContext));
     ASSERT_NE(nullptr, pSrcImage.get());
 
@@ -911,6 +1107,48 @@ HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyImageToBufferStateles
     auto kernel = multiDispatchInfo.begin()->getKernel();
     ASSERT_NE(nullptr, kernel);
     EXPECT_TRUE(kernel->getKernelInfo().kernelDescriptor.kernelAttributes.supportsBuffersBiggerThan4Gb());
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_TRUE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
+}
+
+HWTEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyImageToLocalBufferStatelessIsUsedThenParamsAreCorrect) {
+
+    if (is32bit) {
+        GTEST_SKIP();
+    }
+
+    uint64_t bigSize = 10ull * MemoryConstants::gigaByte;
+    uint64_t bigOffset = 4ull * MemoryConstants::gigaByte;
+
+    MockBuffer dstBuffer;
+    dstBuffer.size = static_cast<size_t>(bigSize);
+    dstBuffer.mockGfxAllocation.setAllocationType(AllocationType::BUFFER);
+    std ::unique_ptr<Image> pSrcImage(Image2dHelper<>::create(pContext));
+    ASSERT_NE(nullptr, pSrcImage.get());
+
+    auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBufferStateless, *pClDevice);
+
+    BuiltinOpParams dc;
+    dc.srcMemObj = pSrcImage.get();
+    dc.dstMemObj = &dstBuffer;
+    dc.srcOffset = {0, 0, 0};
+    dc.dstOffset = {static_cast<size_t>(bigOffset), 0, 0};
+    dc.size = {1, 1, 1};
+
+    MultiDispatchInfo multiDispatchInfo(dc);
+    ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo));
+    EXPECT_EQ(1u, multiDispatchInfo.size());
+    EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), dc));
+
+    auto kernel = multiDispatchInfo.begin()->getKernel();
+    ASSERT_NE(nullptr, kernel);
+    EXPECT_TRUE(kernel->getKernelInfo().kernelDescriptor.kernelAttributes.supportsBuffersBiggerThan4Gb());
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_FALSE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
 }
 
 TEST_F(BuiltInTests, GivenUnalignedCopyBufferToBufferWhenDispatchInfoIsCreatedThenParamsAreCorrect) {
@@ -974,6 +1212,10 @@ TEST_F(BuiltInTests, GivenReadBufferAlignedWhenDispatchInfoIsCreatedThenParamsAr
     size_t middleSize = size / middleElSize;
     EXPECT_EQ(Vec3<size_t>(middleSize, 1, 1), dispatchInfo->getGWS());
     EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), builtinOpsParams));
+
+    for (auto &dispatchInfo : multiDispatchInfo) {
+        EXPECT_TRUE(dispatchInfo.getKernel()->getDestinationAllocationInSystemMemory());
+    }
     alignedFree(dstPtr);
 }
 
@@ -1020,13 +1262,9 @@ TEST_F(BuiltInTests, WhenGettingBuilderInfoTwiceThenPointerIsSame) {
 }
 
 TEST_F(BuiltInTests, GivenUnknownBuiltInOpWhenGettingBuilderInfoThenExceptionThrown) {
-    bool caughtException = false;
-    try {
-        BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::COUNT, *pClDevice);
-    } catch (const std::runtime_error &) {
-        caughtException = true;
-    }
-    EXPECT_TRUE(caughtException);
+    EXPECT_THROW(
+        BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::COUNT, *pClDevice),
+        std::runtime_error);
 }
 
 TEST_F(BuiltInTests, GivenUnsupportedBuildTypeWhenBuildingDispatchInfoThenFalseIsReturned) {
@@ -1223,11 +1461,6 @@ TEST_F(VmeBuiltInTests, WhenGettingBuiltinAsStringThenCorrectStringIsReturned) {
     EXPECT_EQ(0, strcmp("unknown", getBuiltinAsString(EBuiltInOps::COUNT)));
 }
 
-TEST_F(BuiltInTests, WhenUnknownOperationIsSpecifiedThenUnknownNameIsReturned) {
-    EXPECT_EQ(0, strcmp("unknown", getUnknownBuiltinAsString(EBuiltInOps::CopyImage3dToBuffer)));
-    EXPECT_EQ(0, strcmp("unknown", getUnknownBuiltinAsString(EBuiltInOps::COUNT)));
-}
-
 TEST_F(BuiltInTests, GivenEncodeTypeWhenGettingExtensionThenCorrectStringIsReturned) {
     EXPECT_EQ(0, strcmp("", BuiltinCode::getExtension(BuiltinCode::ECodeType::Any)));
     EXPECT_EQ(0, strcmp(".bin", BuiltinCode::getExtension(BuiltinCode::ECodeType::Binary)));
@@ -1246,21 +1479,6 @@ TEST_F(BuiltInTests, GivenBuiltinResourceWhenCreatingBuiltinResourceThenSizesAre
     EXPECT_NE(0u, br2.size());
 
     EXPECT_EQ(br1, br2);
-}
-
-TEST_F(BuiltInTests, WhenCreatingBuiltinResourceNameThenCorrectStringIsReturned) {
-    EBuiltInOps::Type builtin = EBuiltInOps::CopyBufferToBuffer;
-    const std::string extension = ".cl";
-    const std::string platformName = "skl";
-    const uint32_t deviceRevId = 9;
-
-    std::string resourceNameGeneric = createBuiltinResourceName(builtin, extension);
-    std::string resourceNameForPlatform = createBuiltinResourceName(builtin, extension, platformName);
-    std::string resourceNameForPlatformAndStepping = createBuiltinResourceName(builtin, extension, platformName, deviceRevId);
-
-    EXPECT_EQ(0, strcmp("copy_buffer_to_buffer.builtin_kernel.cl", resourceNameGeneric.c_str()));
-    EXPECT_EQ(0, strcmp("skl_0_copy_buffer_to_buffer.builtin_kernel.cl", resourceNameForPlatform.c_str()));
-    EXPECT_EQ(0, strcmp("skl_9_copy_buffer_to_buffer.builtin_kernel.cl", resourceNameForPlatformAndStepping.c_str()));
 }
 
 TEST_F(BuiltInTests, WhenJoiningPathThenPathsAreJoinedWithCorrectSeparator) {
@@ -1333,7 +1551,7 @@ TEST_F(BuiltInTests, GivenFiledNameWhenLoadingImplKernelFromFileStorageThenValid
     };
     MockFileStorage mockEmbeddedStorage("root");
 
-    BuiltinResourceT br = mockEmbeddedStorage.loadImpl("test_files/copybuffer.cl");
+    BuiltinResourceT br = mockEmbeddedStorage.loadImpl(clFiles + "copybuffer.cl");
     EXPECT_NE(0u, br.size());
 
     BuiltinResourceT bnr = mockEmbeddedStorage.loadImpl("unknown.cl");
@@ -1459,17 +1677,21 @@ TEST_F(BuiltInTests, GivenTypeSourceWhenCreatingProgramFromCodeThenValidPointerI
     EXPECT_NE(nullptr, program.get());
 }
 
-TEST_F(BuiltInTests, givenCreateProgramFromSourceWhenDeviceSupportSharedSystemAllocationThenInternalOptionsDisableStosoFlag) {
+TEST_F(BuiltInTests, givenCreateProgramFromSourceWhenForceToStatelessRequiredOr32BitThenInternalOptionsHasGreaterThan4gbBuffersRequired) {
     auto builtinsLib = std::unique_ptr<BuiltinsLib>(new BuiltinsLib());
-    pClDevice->deviceInfo.sharedSystemMemCapabilities = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
-    pDevice->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable.sharedSystemMemCapabilities = 1;
 
     const BuiltinCode bc = builtinsLib->getBuiltinCode(EBuiltInOps::CopyBufferToBuffer, BuiltinCode::ECodeType::Source, *pDevice);
     EXPECT_NE(0u, bc.resource.size());
     auto program = std::unique_ptr<Program>(BuiltinDispatchInfoBuilder::createProgramFromCode(bc, toClDeviceVector(*pClDevice)));
     EXPECT_NE(nullptr, program.get());
     auto builtinInternalOptions = program->getInternalOptions();
-    EXPECT_THAT(builtinInternalOptions, testing::HasSubstr(std::string(CompilerOptions::greaterThan4gbBuffersRequired)));
+
+    const auto &compilerHwInfoConfig = *CompilerHwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+    if (compilerHwInfoConfig.isForceToStatelessRequired() || is32bit) {
+        EXPECT_TRUE(hasSubstr(builtinInternalOptions, std::string(CompilerOptions::greaterThan4gbBuffersRequired)));
+    } else {
+        EXPECT_FALSE(hasSubstr(builtinInternalOptions, std::string(CompilerOptions::greaterThan4gbBuffersRequired)));
+    }
 }
 
 TEST_F(BuiltInTests, GivenTypeIntermediateWhenCreatingProgramFromCodeThenNullPointerIsReturned) {
@@ -1518,7 +1740,9 @@ TEST_F(BuiltInTests, GivenForce32bitWhenCreatingProgramThenCorrectKernelIsCreate
     EXPECT_EQ(std::string::npos, it);
 
     it = builtinInternalOptions.find(NEO::CompilerOptions::greaterThan4gbBuffersRequired.data());
-    if (is32bit || pDevice->areSharedSystemAllocationsAllowed()) {
+    const auto &compilerHwInfoConfig = *CompilerHwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+
+    if (is32bit || compilerHwInfoConfig.isForceToStatelessRequired()) {
         EXPECT_NE(std::string::npos, it);
     } else {
         EXPECT_EQ(std::string::npos, it);
@@ -1659,11 +1883,9 @@ TEST_F(VmeBuiltInTests, WhenValidatingImagesThenCorrectResponses) {
         std::unique_ptr<Image> image1(ImageHelper<ImageVmeValidFormat>::create(pContext));
 
         cl_mem srcImgMem = 0;
-        cl_mem refImgMem = 0;
         EXPECT_EQ(CL_INVALID_KERNEL_ARGS, vmeBuilder.validateImages(Vec3<size_t>{3, 3, 0}, Vec3<size_t>{0, 0, 0}));
 
         srcImgMem = image1.get();
-        refImgMem = 0;
         vmeBuilder.setExplicitArg(srcImgArgNum, sizeof(srcImgMem), &srcImgMem, err);
         EXPECT_EQ(CL_INVALID_KERNEL_ARGS, vmeBuilder.validateImages(Vec3<size_t>{3, 3, 0}, Vec3<size_t>{0, 0, 0}));
     }

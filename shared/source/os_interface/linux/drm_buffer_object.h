@@ -8,11 +8,12 @@
 #pragma once
 
 #include "shared/source/gmm_helper/gmm_helper.h"
+#include "shared/source/helpers/common_types.h"
+#include "shared/source/helpers/constants.h"
 #include "shared/source/memory_manager/definitions/engine_limits.h"
+#include "shared/source/memory_manager/memory_operations_status.h"
 #include "shared/source/os_interface/linux/cache_info.h"
 #include "shared/source/utilities/stackvec.h"
-
-#include "drm/i915_drm.h"
 
 #include <array>
 #include <atomic>
@@ -20,18 +21,17 @@
 #include <stdint.h>
 #include <vector>
 
-struct drm_i915_gem_exec_object2;
-struct drm_i915_gem_relocation_entry;
-
 namespace NEO {
 
+struct ExecBuffer;
+struct ExecObject;
 class DrmMemoryManager;
 class Drm;
 class OsContext;
 
 class BufferObject {
   public:
-    BufferObject(Drm *drm, int handle, size_t size, size_t maxOsContextCount);
+    BufferObject(Drm *drm, uint64_t patIndex, int handle, size_t size, size_t maxOsContextCount);
     MOCKABLE_VIRTUAL ~BufferObject() = default;
 
     struct Deleter {
@@ -47,12 +47,12 @@ class BufferObject {
     MOCKABLE_VIRTUAL int validateHostPtr(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
 
     MOCKABLE_VIRTUAL int exec(uint32_t used, size_t startOffset, unsigned int flags, bool requiresCoherency, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId,
-                              BufferObject *const residency[], size_t residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage, uint64_t completionGpuAddress, uint32_t completionValue);
+                              BufferObject *const residency[], size_t residencyCount, ExecObject *execObjectsStorage, uint64_t completionGpuAddress, uint32_t completionValue);
 
     int bind(OsContext *osContext, uint32_t vmHandleId);
     int unbind(OsContext *osContext, uint32_t vmHandleId);
 
-    void printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const size_t &residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage, BufferObject *const residency[]);
+    void printExecutionBuffer(ExecBuffer &execbuf, const size_t &residencyCount, ExecObject *execObjectsStorage, BufferObject *const residency[]);
 
     int wait(int64_t timeoutNs);
     bool close();
@@ -69,7 +69,7 @@ class BufferObject {
     int peekHandle() const { return handle; }
     const Drm *peekDrm() const { return drm; }
     uint64_t peekAddress() const { return gpuAddress; }
-    void setAddress(uint64_t address) { this->gpuAddress = GmmHelper::canonize(address); }
+    void setAddress(uint64_t address);
     void *peekLockedAddress() const { return lockedAddress; }
     void setLockedAddress(void *cpuAddress) { this->lockedAddress = cpuAddress; }
     void setUnmapSize(uint64_t unmapSize) { this->unmapSize = unmapSize; }
@@ -77,7 +77,7 @@ class BufferObject {
     bool peekIsReusableAllocation() const { return this->isReused; }
     void markAsReusableAllocation() { this->isReused = true; }
     void addBindExtHandle(uint32_t handle);
-    StackVec<uint32_t, 2> &getBindExtHandles() { return bindExtHandles; }
+    const StackVec<uint32_t, 2> &getBindExtHandles() const { return bindExtHandles; }
     void markForCapture() {
         allowCapture = true;
     }
@@ -136,8 +136,17 @@ class BufferObject {
     std::vector<uint64_t> &getColourAddresses() {
         return this->bindAddresses;
     }
+    uint64_t peekPatIndex() const { return patIndex; }
+    void setPatIndex(uint64_t newPatIndex) { this->patIndex = newPatIndex; }
+
+    static constexpr int gpuHangDetected{-7171};
+
+    uint32_t getOsContextId(OsContext *osContext);
+    std::vector<std::array<bool, EngineLimits::maxHandleCount>> bindInfo;
 
   protected:
+    MOCKABLE_VIRTUAL MemoryOperationsStatus evictUnusedAllocations(bool waitForCompletion, bool isLockNeeded);
+
     Drm *drm = nullptr;
     bool perContextVmsUsed = false;
     std::atomic<uint32_t> refCount;
@@ -145,26 +154,24 @@ class BufferObject {
     uint32_t rootDeviceIndex = std::numeric_limits<uint32_t>::max();
     int handle; // i915 gem object handle
     uint64_t size;
-    bool isReused;
+    bool isReused = false;
 
-    //Tiling
     uint32_t tilingMode;
     bool allowCapture = false;
     bool requiresImmediateBinding = false;
     bool requiresExplicitResidency = false;
 
-    uint32_t getOsContextId(OsContext *osContext);
-    MOCKABLE_VIRTUAL void fillExecObject(drm_i915_gem_exec_object2 &execObject, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
-    void fillExecObjectImpl(drm_i915_gem_exec_object2 &execObject, OsContext *osContext, uint32_t vmHandleId);
+    MOCKABLE_VIRTUAL void fillExecObject(ExecObject &execObject, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
+    void printBOBindingResult(OsContext *osContext, uint32_t vmHandleId, bool bind, int retVal);
 
     void *lockedAddress; // CPU side virtual address
 
     uint64_t unmapSize = 0;
+    uint64_t patIndex = CommonConstants::unsupportedPatIndex;
 
     CacheRegion cacheRegion = CacheRegion::Default;
     CachePolicy cachePolicy = CachePolicy::WriteBack;
 
-    std::vector<std::array<bool, EngineLimits::maxHandleCount>> bindInfo;
     StackVec<uint32_t, 2> bindExtHandles;
 
     bool colourWithBind = false;

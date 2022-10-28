@@ -7,6 +7,7 @@
 
 #include "mock_compilers.h"
 
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/os_inc_base.h"
@@ -16,7 +17,6 @@
 #include "shared/test/common/mocks/mock_sip.h"
 
 #include "cif/macros/enable.h"
-#include "compiler_options.h"
 #include "ocl_igc_interface/fcl_ocl_device_ctx.h"
 #include "ocl_igc_interface/igc_ocl_device_ctx.h"
 
@@ -334,6 +334,12 @@ IGC::OclTranslationOutputBase *CIF_GET_INTERFACE_CLASS(FclOclTranslationCtx, 1):
     return nullptr;
 }
 
+void CIF_GET_INTERFACE_CLASS(FclOclTranslationCtx, 2)::GetFclOptions(CIF::Builtins::BufferSimple *options) {
+}
+
+void CIF_GET_INTERFACE_CLASS(FclOclTranslationCtx, 2)::GetFclInternalOptions(CIF::Builtins::BufferSimple *internalOptions) {
+}
+
 // MockFclOclDeviceCtx
 FclOclDeviceCtx<0>::~FclOclDeviceCtx() {}
 
@@ -407,37 +413,48 @@ void translate(bool usingIgc, CIF::Builtins::BufferSimple *src, CIF::Builtins::B
         (out && src && src->GetMemoryRaw() && src->GetSizeRaw())) {
 
         if (debugVars.internalOptionsExpected) {
-            if (internalOptions->GetSizeRaw() < 1 || internalOptions->GetMemoryRaw() == nullptr) {
+            if (internalOptions->GetSizeRaw() < 1 || internalOptions->GetMemoryRaw() == nullptr) { // NOLINT(clang-analyzer-core.CallAndMessage)
                 if (out) {
                     out->setError();
                 }
             }
         }
 
-        std::string inputFile = "";
-        inputFile.append(debugVars.fileName);
-
-        std::string debugFile;
-        auto pos = inputFile.rfind(".");
-        debugFile = inputFile.substr(0, pos);
-        debugFile.append(".dbg");
-
-        if (debugVars.appendOptionsToFileName &&
-            options->GetSizeRaw()) {
-            std::string opts(options->GetMemory<char>(), options->GetMemory<char>() + options->GetSize<char>());
-            // handle special option "-create-library" - just erase it
-            size_t pos = opts.find(CompilerOptions::createLibrary.data(), 0);
-            if (pos != std::string::npos) {
-                opts.erase(pos, CompilerOptions::createLibrary.length());
+        std::string inputFile{}, debugFile{};
+        std::string opts(options->GetMemory<char>(), options->GetMemory<char>() + options->GetSize<char>());
+        if (false == debugVars.fileName.empty()) {
+            auto fileBaseName = debugVars.fileName;
+            auto pos = debugVars.fileName.rfind(".");
+            auto extension = debugVars.fileName.substr(pos, debugVars.fileName.length());
+            if (false == debugVars.fileNameSuffix.empty()) {
+                pos = debugVars.fileName.rfind(debugVars.fileNameSuffix);
             }
-            std::replace(opts.begin(), opts.end(), ' ', '_');
-            inputFile.append(opts);
+            fileBaseName = fileBaseName.substr(0, pos);
 
-            if (debugVars.debugDataToReturn == nullptr) {
-                debugFile.append(opts);
+            if (debugVars.appendOptionsToFileName && false == opts.empty()) {
+                // handle special option "-create-library" - just erase it
+                auto optPos = opts.find(CompilerOptions::createLibrary.data(), 0);
+                if (optPos != std::string::npos) {
+                    opts.erase(optPos, CompilerOptions::createLibrary.length());
+                }
+                std::replace(opts.begin(), opts.end(), ' ', '_');
             }
+
+            inputFile.append(fileBaseName);
+            debugFile.append(fileBaseName);
+
+            if (debugVars.appendOptionsToFileName && false == opts.empty()) {
+                auto optString = opts + "_";
+                inputFile.append(optString);
+                debugFile.append(optString);
+            }
+            if (false == debugVars.fileNameSuffix.empty()) {
+                inputFile.append(debugVars.fileNameSuffix);
+                debugFile.append(debugVars.fileNameSuffix);
+            }
+            inputFile.append(extension);
+            debugFile.append(".dbg");
         }
-
         if ((debugVars.binaryToReturn != nullptr) || (debugVars.binaryToReturnSize != 0)) {
             out->setOutput(debugVars.binaryToReturn, debugVars.binaryToReturnSize);
         } else {
@@ -487,6 +504,10 @@ CIF::ICIF *MockIgcOclDeviceCtx::Create(CIF::InterfaceId_t intId, CIF::Version_t 
 IGC::IgcOclTranslationCtxBase *MockIgcOclDeviceCtx::CreateTranslationCtxImpl(CIF::Version_t ver,
                                                                              IGC::CodeType::CodeType_t inType,
                                                                              IGC::CodeType::CodeType_t outType) {
+    if (igcDebugVars->shouldFailCreationOfTranslationContext) {
+        return nullptr;
+    }
+
     requestedTranslationCtxs.emplace_back(inType, outType);
     return new MockIgcOclTranslationCtx;
 }
@@ -656,6 +677,11 @@ CIF::ICIF *MockFclOclDeviceCtx::Create(CIF::InterfaceId_t intId, CIF::Version_t 
 IGC::FclOclTranslationCtxBase *MockFclOclDeviceCtx::CreateTranslationCtxImpl(CIF::Version_t ver,
                                                                              IGC::CodeType::CodeType_t inType,
                                                                              IGC::CodeType::CodeType_t outType) {
+    if (fclDebugVars->shouldFailCreationOfTranslationContext) {
+        return nullptr;
+    }
+
+    requestedTranslationCtxs.emplace_back(inType, outType);
     return new MockFclOclTranslationCtx;
 }
 
@@ -663,6 +689,15 @@ IGC::FclOclTranslationCtxBase *MockFclOclDeviceCtx::CreateTranslationCtxImpl(CIF
                                                                              IGC::CodeType::CodeType_t inType,
                                                                              IGC::CodeType::CodeType_t outType,
                                                                              CIF::Builtins::BufferSimple *err) {
+    if (!fclDebugVars->translationContextCreationError.empty() && err) {
+        err->PushBackRawBytes(fclDebugVars->translationContextCreationError.c_str(), fclDebugVars->translationContextCreationError.size());
+    }
+
+    if (fclDebugVars->shouldFailCreationOfTranslationContext) {
+        return nullptr;
+    }
+
+    requestedTranslationCtxs.emplace_back(inType, outType);
     return new MockFclOclTranslationCtx;
 }
 

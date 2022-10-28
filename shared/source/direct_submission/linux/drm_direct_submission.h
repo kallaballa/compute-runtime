@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,10 +16,11 @@ class DrmDirectSubmission : public DirectSubmissionHw<GfxFamily, Dispatcher> {
     using DirectSubmissionHw<GfxFamily, Dispatcher>::ringCommandStream;
     using DirectSubmissionHw<GfxFamily, Dispatcher>::switchRingBuffersAllocations;
 
-    DrmDirectSubmission(Device &device,
-                        OsContext &osContext);
+    DrmDirectSubmission(const DirectSubmissionInputParams &inputParams);
 
-    ~DrmDirectSubmission();
+    ~DrmDirectSubmission() override;
+
+    uint32_t *getCompletionValuePointer() override;
 
   protected:
     bool allocateOsResources() override;
@@ -33,10 +34,13 @@ class DrmDirectSubmission : public DirectSubmissionHw<GfxFamily, Dispatcher> {
     void handleSwitchRingBuffers() override;
     uint64_t updateTagValue() override;
     void getTagAddressValue(TagData &tagData) override;
+    bool isCompleted(uint32_t ringBufferIndex) override;
+    bool isCompletionFenceSupported();
 
     MOCKABLE_VIRTUAL void wait(uint32_t taskCountToWait);
 
-    TagData currentTagData;
+    TagData currentTagData{};
     volatile uint32_t *tagAddress;
+    uint32_t completionFenceValue{};
 };
 } // namespace NEO

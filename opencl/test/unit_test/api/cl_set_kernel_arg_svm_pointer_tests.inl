@@ -1,11 +1,13 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/memory_manager/unified_memory_manager.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_svm_manager.h"
 #include "shared/test/common/test_macros/test.h"
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -16,10 +18,10 @@
 
 using namespace NEO;
 
-class KernelArgSvmFixture : public ApiFixture<> {
+class KernelArgSvmApiFixture : public ApiFixture<> {
   protected:
-    void SetUp() override {
-        ApiFixture::SetUp();
+    void setUp() {
+        ApiFixture::setUp();
         REQUIRE_SVM_OR_SKIP(defaultHwInfo);
 
         pKernelInfo = std::make_unique<MockKernelInfo>();
@@ -37,12 +39,12 @@ class KernelArgSvmFixture : public ApiFixture<> {
         pMockKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
     }
 
-    void TearDown() override {
+    void tearDown() {
         if (pMockMultiDeviceKernel) {
             delete pMockMultiDeviceKernel;
         }
 
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
@@ -53,7 +55,7 @@ class KernelArgSvmFixture : public ApiFixture<> {
     char pCrossThreadData[64]{};
 };
 
-typedef Test<KernelArgSvmFixture> clSetKernelArgSVMPointerTests;
+typedef Test<KernelArgSvmApiFixture> clSetKernelArgSVMPointerTests;
 
 namespace ULT {
 
@@ -84,7 +86,7 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenDeviceNotSupportingSvmWhenSettingKern
 
     auto retVal = clSetKernelArgSVMPointer(
         pMultiDeviceKernel.get(), // cl_kernel kernel
-        (cl_uint)-1,              // cl_uint arg_index
+        0,                        // cl_uint arg_index
         nullptr                   // const void *arg_value
     );
     EXPECT_EQ(CL_INVALID_OPERATION, retVal);
@@ -202,6 +204,181 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndPointerWithInvalidOffsetWhenSet
             (char *)ptrSvm + offset // const void *arg_value
         );
         EXPECT_EQ(CL_INVALID_ARG_VALUE, retVal);
+
+        clSVMFree(pContext, ptrSvm);
+    }
+}
+
+TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndValidArgValueWhenSettingSameKernelArgThenSetArgSvmAllocCalledOnlyWhenNeeded) {
+    const ClDeviceInfo &devInfo = pDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities != 0) {
+        auto mockSvmManager = reinterpret_cast<MockSVMAllocsManager *>(pMockKernel->getContext().getSVMAllocsManager());
+        EXPECT_EQ(0u, pMockKernel->setArgSvmAllocCalls);
+        void *const ptrSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
+        EXPECT_NE(nullptr, ptrSvm);
+        auto callCounter = 0u;
+        // first set arg - called
+        auto retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+
+        // same values but allocationsCounter == 0 - called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        // same values - not called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(callCounter, pMockKernel->setArgSvmAllocCalls);
+
+        // same values and allocationsCounter - not called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        // different pointer - called
+        void *const nextPtrSvm = static_cast<char *>(ptrSvm) + 1;
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nextPtrSvm              // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        // different allocId - called
+        pMockKernel->kernelArguments[0].allocId = 1;
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nextPtrSvm              // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        // allocId = 0 - called
+        pMockKernel->kernelArguments[0].allocId = 0;
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nextPtrSvm              // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        // same values - not called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nextPtrSvm              // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        // nullptr - called
+        EXPECT_FALSE(pMockKernel->getKernelArguments()[0].isSetToNullptr);
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nullptr                 // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+        EXPECT_TRUE(pMockKernel->getKernelArguments()[0].isSetToNullptr);
+        ++mockSvmManager->allocationsCounter;
+
+        // nullptr again - not called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nullptr                 // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(callCounter, pMockKernel->setArgSvmAllocCalls);
+        EXPECT_TRUE(pMockKernel->getKernelArguments()[0].isSetToNullptr);
+        ++mockSvmManager->allocationsCounter;
+
+        // same value as before nullptr - called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nextPtrSvm              // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+        ++mockSvmManager->allocationsCounter;
+
+        DebugManagerStateRestore stateRestorer;
+        DebugManager.flags.EnableSharedSystemUsmSupport.set(1);
+        mockSvmManager->freeSVMAlloc(nextPtrSvm);
+        // same values but no svmData - called
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nextPtrSvm              // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+
+        clSVMFree(pContext, ptrSvm);
+    }
+}
+TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndValidArgValueWhenAllocIdCacheHitThenAllocIdMemoryManagerCounterIsUpdated) {
+    const ClDeviceInfo &devInfo = pDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities != 0) {
+        auto mockSvmManager = reinterpret_cast<MockSVMAllocsManager *>(pMockKernel->getContext().getSVMAllocsManager());
+        EXPECT_EQ(0u, pMockKernel->setArgSvmAllocCalls);
+        void *ptrSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
+        EXPECT_NE(nullptr, ptrSvm);
+        auto callCounter = 0u;
+        // first set arg - called
+        auto retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(++callCounter, pMockKernel->setArgSvmAllocCalls);
+
+        EXPECT_EQ(0u, mockSvmManager->allocationsCounter);
+        EXPECT_EQ(mockSvmManager->allocationsCounter, pMockKernel->getKernelArguments()[0].allocIdMemoryManagerCounter);
+
+        ++mockSvmManager->allocationsCounter;
+
+        // second set arg - cache hit on same allocId, updates allocIdMemoryManagerCounter
+        retVal = clSetKernelArgSVMPointer(
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
+        );
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(callCounter, pMockKernel->setArgSvmAllocCalls);
+
+        EXPECT_EQ(1u, mockSvmManager->allocationsCounter);
+        EXPECT_EQ(mockSvmManager->allocationsCounter, pMockKernel->getKernelArguments()[0].allocIdMemoryManagerCounter);
 
         clSVMFree(pContext, ptrSvm);
     }

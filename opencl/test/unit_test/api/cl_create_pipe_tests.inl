@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/device/device.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/source/helpers/base_object.h"
@@ -23,27 +23,27 @@ struct clCreatePipeTests : api_tests {
 
 namespace ClCreatePipeTests {
 
-class clCreatePipeWithParamTests : public ApiFixture<>, public testing::TestWithParam<uint64_t> {
+class ClCreatePipeWithParamTests : public ApiFixture<>, public testing::TestWithParam<uint64_t> {
     void SetUp() override {
-        ApiFixture::SetUp();
+        ApiFixture::setUp();
     }
     void TearDown() override {
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
     VariableBackup<bool> supportsPipesBackup{&defaultHwInfo->capabilityTable.supportsPipes, true};
 };
 
-class clCreatePipeWithParamNegativeTests : public ApiFixture<>, public testing::TestWithParam<uint64_t> {
+class ClCreatePipeWithParamNegativeTests : public ApiFixture<>, public testing::TestWithParam<uint64_t> {
     void SetUp() override {
-        ApiFixture::SetUp();
+        ApiFixture::setUp();
     }
     void TearDown() override {
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
     VariableBackup<bool> supportsPipesBackup{&defaultHwInfo->capabilityTable.supportsPipes, true};
 };
 
-TEST_P(clCreatePipeWithParamTests, GivenValidFlagsWhenCreatingPipeThenPipeIsCreatedAndSuccessIsReturned) {
+TEST_P(ClCreatePipeWithParamTests, GivenValidFlagsWhenCreatingPipeThenPipeIsCreatedAndSuccessIsReturned) {
     cl_mem_flags flags = GetParam();
 
     auto pipe = clCreatePipe(pContext, flags, 1, 20, nullptr, &retVal);
@@ -53,7 +53,7 @@ TEST_P(clCreatePipeWithParamTests, GivenValidFlagsWhenCreatingPipeThenPipeIsCrea
     clReleaseMemObject(pipe);
 }
 
-TEST_P(clCreatePipeWithParamNegativeTests, GivenInalidFlagsWhenCreatingPipeThenInvalidValueErrorIsReturned) {
+TEST_P(ClCreatePipeWithParamNegativeTests, GivenInalidFlagsWhenCreatingPipeThenInvalidValueErrorIsReturned) {
     cl_mem_flags flags = GetParam();
 
     auto pipe = clCreatePipe(pContext, flags, 1, 20, nullptr, &retVal);
@@ -93,12 +93,12 @@ static cl_mem_flags invalidFlags[] = {
 
 INSTANTIATE_TEST_CASE_P(
     CreatePipeCheckFlags,
-    clCreatePipeWithParamTests,
+    ClCreatePipeWithParamTests,
     testing::ValuesIn(validFlags));
 
 INSTANTIATE_TEST_CASE_P(
     CreatePipeCheckFlagsNegative,
-    clCreatePipeWithParamNegativeTests,
+    ClCreatePipeWithParamNegativeTests,
     testing::ValuesIn(invalidFlags));
 
 TEST_F(clCreatePipeTests, GivenValidFlagsAndNullReturnWhenCreatingPipeThenPipeIsCreated) {

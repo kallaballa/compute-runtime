@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/compiler_interface/compiler_interface.inl"
+#include "shared/source/helpers/compiler_hw_info_config.h"
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/common/fixtures/device_fixture.h"
@@ -17,10 +18,9 @@
 #include "shared/test/common/mocks/mock_cif.h"
 #include "shared/test/common/mocks/mock_compiler_interface.h"
 #include "shared/test/common/mocks/mock_compilers.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
-#include "gmock/gmock.h"
-#include "hw_cmds.h"
+#include "gtest/gtest.h"
 
 #include <memory>
 
@@ -38,7 +38,7 @@ class CompilerInterfaceTest : public DeviceFixture,
                               public ::testing::Test {
   public:
     void SetUp() override {
-        DeviceFixture::SetUp();
+        DeviceFixture::setUp();
 
         // create the compiler interface
         this->pCompilerInterface = new MockCompilerInterface();
@@ -64,7 +64,7 @@ class CompilerInterfaceTest : public DeviceFixture,
     void TearDown() override {
         pSource.reset();
 
-        DeviceFixture::TearDown();
+        DeviceFixture::tearDown();
     }
 
     MockCompilerInterface *pCompilerInterface;
@@ -285,7 +285,7 @@ TEST_F(CompilerInterfaceTest, GivenForceBuildFailureWhenLinkingIrThenLinkFailure
     gEnvironment->igcPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, WhenLinkIsCalledThenLlvmBcIsUsedAsIntermediateRepresentation) {
+TEST_F(CompilerInterfaceTest, WhenLinkIsCalledThenOclGenBinIsTheTranslationTarget) {
     // link only from .ll to gen ISA
     MockCompilerDebugVars igcDebugVars;
     retrieveBinaryKernelFilename(igcDebugVars.fileName, "CopyBuffer_simd32_", ".bc");
@@ -294,12 +294,10 @@ TEST_F(CompilerInterfaceTest, WhenLinkIsCalledThenLlvmBcIsUsedAsIntermediateRepr
     auto err = pCompilerInterface->link(*pDevice, inputArgs, translationOutput);
     gEnvironment->igcPopDebugVars();
     ASSERT_EQ(TranslationOutput::ErrorCode::Success, err);
-    ASSERT_EQ(2U, pCompilerInterface->requestedTranslationCtxs.size());
+    ASSERT_EQ(1u, pCompilerInterface->requestedTranslationCtxs.size());
 
-    MockCompilerInterface::TranslationOpT firstTranslation = {IGC::CodeType::elf, IGC::CodeType::llvmBc},
-                                          secondTranslation = {IGC::CodeType::llvmBc, IGC::CodeType::oclGenBin};
-    EXPECT_EQ(firstTranslation, pCompilerInterface->requestedTranslationCtxs[0]);
-    EXPECT_EQ(secondTranslation, pCompilerInterface->requestedTranslationCtxs[1]);
+    MockCompilerInterface::TranslationOpT translation = {IGC::CodeType::elf, IGC::CodeType::oclGenBin};
+    EXPECT_EQ(translation, pCompilerInterface->requestedTranslationCtxs[0]);
 }
 
 TEST_F(CompilerInterfaceTest, whenCompilerIsNotAvailableThenLinkFailsGracefully) {
@@ -437,11 +435,11 @@ struct TranslationCtxMock {
     CIF::Builtins::BufferSimple *receivedIntOpt = nullptr;
     CIF::Builtins::BufferSimple *receivedTracingOpt = nullptr;
 
-    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src,
+    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src, // NOLINT(readability-identifier-naming)
                                                                  CIF::Builtins::BufferSimple *options,
                                                                  CIF::Builtins::BufferSimple *internalOptions,
                                                                  CIF::Builtins::BufferSimple *tracingOptions,
-                                                                 uint32_t tracingOptionsCount) { // NOLINT(readability-identifier-naming)
+                                                                 uint32_t tracingOptionsCount) {
         this->receivedSrc = src;
         this->receivedOpt = options;
         this->receivedIntOpt = internalOptions;
@@ -469,22 +467,22 @@ struct TranslationCtxMock {
 
         return CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL>(ret);
     }
-    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src,
+    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src, // NOLINT(readability-identifier-naming)
                                                                  CIF::Builtins::BufferSimple *options,
                                                                  CIF::Builtins::BufferSimple *internalOptions,
                                                                  CIF::Builtins::BufferSimple *tracingOptions,
                                                                  uint32_t tracingOptionsCount,
-                                                                 void *gtpinInit) { // NOLINT(readability-identifier-naming)
+                                                                 void *gtpinInit) {
         return this->Translate(src, options, internalOptions, tracingOptions, tracingOptionsCount);
     }
-    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src,
+    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src, // NOLINT(readability-identifier-naming)
                                                                  CIF::Builtins::BufferSimple *specConstantsIds,
                                                                  CIF::Builtins::BufferSimple *specConstantsValues,
                                                                  CIF::Builtins::BufferSimple *options,
                                                                  CIF::Builtins::BufferSimple *internalOptions,
                                                                  CIF::Builtins::BufferSimple *tracingOptions,
                                                                  uint32_t tracingOptionsCount,
-                                                                 void *gtPinInput) { // NOLINT(readability-identifier-naming)
+                                                                 void *gtPinInput) {
         return this->Translate(src, options, internalOptions, tracingOptions, tracingOptionsCount);
     }
 };
@@ -619,7 +617,6 @@ TEST(TranslateTest, whenAnyArgIsNullThenNullptrIsReturnedAndTranslatorIsNotInvok
 }
 
 TEST(LoadCompilerTest, whenEverythingIsOkThenReturnsTrueAndValidOutputs) {
-    MockCompilerEnableGuard mock;
     std::unique_ptr<NEO::OsLibrary> retLib;
     CIF::RAII::UPtr_t<CIF::CIFMain> retMain;
     bool retVal = loadCompiler<IGC::IgcOclDeviceCtx>("", retLib, retMain);
@@ -629,7 +626,6 @@ TEST(LoadCompilerTest, whenEverythingIsOkThenReturnsTrueAndValidOutputs) {
 }
 
 TEST(LoadCompilerTest, whenCouldNotLoadLibraryThenReturnFalseAndNullOutputs) {
-    MockCompilerEnableGuard mock;
     std::unique_ptr<NEO::OsLibrary> retLib;
     CIF::RAII::UPtr_t<CIF::CIFMain> retMain;
     bool retVal = loadCompiler<IGC::IgcOclDeviceCtx>("_falseName.notRealLib", retLib, retMain);
@@ -641,7 +637,6 @@ TEST(LoadCompilerTest, whenCouldNotLoadLibraryThenReturnFalseAndNullOutputs) {
 TEST(LoadCompilerTest, whenCreateMainFailsThenReturnFalseAndNullOutputs) {
     NEO::failCreateCifMain = true;
 
-    MockCompilerEnableGuard mock;
     std::unique_ptr<NEO::OsLibrary> retLib;
     CIF::RAII::UPtr_t<CIF::CIFMain> retMain;
     bool retVal = loadCompiler<IGC::IgcOclDeviceCtx>("", retLib, retMain);
@@ -653,7 +648,7 @@ TEST(LoadCompilerTest, whenCreateMainFailsThenReturnFalseAndNullOutputs) {
 }
 
 TEST(LoadCompilerTest, whenEntrypointInterfaceIsNotCompatibleThenReturnFalseAndNullOutputs) {
-    MockCompilerEnableGuard mock;
+
     std::unique_ptr<NEO::OsLibrary> retLib;
     CIF::RAII::UPtr_t<CIF::CIFMain> retMain;
     bool retVal = loadCompiler<IGC::GTSystemInfo>("", retLib, retMain);
@@ -666,7 +661,6 @@ TEST(LoadCompilerTest, GivenZebinIgnoreIcbeVersionDebugFlagThenIgnoreIgcsIcbeVer
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.ZebinIgnoreIcbeVersion.set(true);
 
-    MockCompilerEnableGuard mock;
     std::unique_ptr<NEO::OsLibrary> retLib;
     CIF::RAII::UPtr_t<CIF::CIFMain> retMain;
     bool retVal = loadCompiler<IGC::IgcOclDeviceCtx>("", retLib, retMain);
@@ -678,7 +672,7 @@ TEST(LoadCompilerTest, GivenZebinIgnoreIcbeVersionDebugFlagThenIgnoreIgcsIcbeVer
 template <typename DeviceCtxBase, typename TranslationCtx>
 struct MockCompilerDeviceCtx : DeviceCtxBase {
     TranslationCtx *CreateTranslationCtxImpl(CIF::Version_t ver, IGC::CodeType::CodeType_t inType,
-                                             IGC::CodeType::CodeType_t outType) override { // NOLINT(readability-identifier-naming)
+                                             IGC::CodeType::CodeType_t outType) override {
         returned = new TranslationCtx;
         return returned;
     }
@@ -875,13 +869,14 @@ TEST_F(CompilerInterfaceTest, GivenRequestForNewIgcTranslationCtxWhenCouldNotPop
     setIgcDebugVars(prevDebugVars);
 }
 
-TEST_F(CompilerInterfaceTest, givenNoDbgKeyForceUseDifferentPlatformWhenRequestForNewTranslationCtxThenUseDefaultPlatform) {
+HWTEST_F(CompilerInterfaceTest, givenNoDbgKeyForceUseDifferentPlatformWhenRequestForNewTranslationCtxThenUseDefaultPlatform) {
     auto device = this->pDevice;
     auto retIgc = pCompilerInterface->createIgcTranslationCtx(*device, IGC::CodeType::spirV, IGC::CodeType::oclGenBin);
     EXPECT_NE(nullptr, retIgc);
     IGC::IgcOclDeviceCtxTagOCL *devCtx = pCompilerInterface->peekIgcDeviceCtx(device);
     auto igcPlatform = devCtx->GetPlatformHandle();
     auto igcSysInfo = devCtx->GetGTSystemInfoHandle();
+
     EXPECT_EQ(device->getHardwareInfo().platform.eProductFamily, igcPlatform->GetProductFamily());
     EXPECT_EQ(device->getHardwareInfo().platform.eRenderCoreFamily, igcPlatform->GetRenderCoreFamily());
     EXPECT_EQ(device->getHardwareInfo().gtSystemInfo.SliceCount, igcSysInfo->GetSliceCount());
@@ -890,11 +885,10 @@ TEST_F(CompilerInterfaceTest, givenNoDbgKeyForceUseDifferentPlatformWhenRequestF
     EXPECT_EQ(device->getHardwareInfo().gtSystemInfo.ThreadCount, igcSysInfo->GetThreadCount());
 }
 
-TEST_F(CompilerInterfaceTest, givenDbgKeyForceUseDifferentPlatformWhenRequestForNewTranslationCtxThenUseDbgKeyPlatform) {
+HWTEST_F(CompilerInterfaceTest, givenDbgKeyForceUseDifferentPlatformWhenRequestForNewTranslationCtxThenUseDbgKeyPlatform) {
     DebugManagerStateRestore dbgRestore;
     auto dbgProdFamily = DEFAULT_TEST_PLATFORM::hwInfo.platform.eProductFamily;
     std::string dbgPlatformString(hardwarePrefix[dbgProdFamily]);
-    const PLATFORM dbgPlatform = hardwareInfoTable[dbgProdFamily]->platform;
     const GT_SYSTEM_INFO dbgSystemInfo = hardwareInfoTable[dbgProdFamily]->gtSystemInfo;
     DebugManager.flags.ForceCompilerUsePlatform.set(dbgPlatformString);
 
@@ -905,8 +899,8 @@ TEST_F(CompilerInterfaceTest, givenDbgKeyForceUseDifferentPlatformWhenRequestFor
     auto igcPlatform = devCtx->GetPlatformHandle();
     auto igcSysInfo = devCtx->GetGTSystemInfoHandle();
 
-    EXPECT_EQ(dbgPlatform.eProductFamily, igcPlatform->GetProductFamily());
-    EXPECT_EQ(dbgPlatform.eRenderCoreFamily, igcPlatform->GetRenderCoreFamily());
+    EXPECT_EQ(hardwareInfoTable[dbgProdFamily]->platform.eProductFamily, igcPlatform->GetProductFamily());
+    EXPECT_EQ(hardwareInfoTable[dbgProdFamily]->platform.eRenderCoreFamily, igcPlatform->GetRenderCoreFamily());
     EXPECT_EQ(dbgSystemInfo.SliceCount, igcSysInfo->GetSliceCount());
     EXPECT_EQ(dbgSystemInfo.SubSliceCount, igcSysInfo->GetSubSliceCount());
     EXPECT_EQ(dbgSystemInfo.DualSubSliceCount, igcSysInfo->GetSubSliceCount());

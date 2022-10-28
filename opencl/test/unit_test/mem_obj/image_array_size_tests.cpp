@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/helpers/cl_memory_properties_helpers.h"
 #include "opencl/source/mem_obj/image.h"
@@ -26,7 +26,7 @@ class ImageArraySizeTest : public ClDeviceFixture,
 
   protected:
     void SetUp() override {
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
         types = GetParam();
 
         // clang-format off
@@ -57,7 +57,7 @@ class ImageArraySizeTest : public ClDeviceFixture,
             clReleaseMemObject(imageDesc.mem_object);
         }
         delete context;
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     cl_image_format imageFormat;

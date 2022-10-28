@@ -41,7 +41,7 @@ template Event *Event::create<uint32_t>(EventPool *, const ze_event_desc_t *, De
 ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uint32_t numDevices, ze_device_handle_t *phDevices) {
     this->context = static_cast<ContextImp *>(context);
 
-    std::set<uint32_t> rootDeviceIndices;
+    RootDeviceIndicesContainer rootDeviceIndices;
     uint32_t maxRootDeviceIndex = 0u;
 
     DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(driver);
@@ -67,13 +67,16 @@ ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uin
         }
 
         devices.push_back(eventDevice);
-        rootDeviceIndices.insert(eventDevice->getNEODevice()->getRootDeviceIndex());
+        rootDeviceIndices.push_back(eventDevice->getNEODevice()->getRootDeviceIndex());
         if (maxRootDeviceIndex < eventDevice->getNEODevice()->getRootDeviceIndex()) {
             maxRootDeviceIndex = eventDevice->getNEODevice()->getRootDeviceIndex();
         }
     }
+    rootDeviceIndices.remove_duplicates();
 
     auto &hwHelper = devices[0]->getHwHelper();
+
+    useDeviceAlloc |= L0HwHelper::get(getDevice()->getHwInfo().platform.eRenderCoreFamily).alwaysAllocateEventInLocalMem();
 
     eventAlignment = static_cast<uint32_t>(hwHelper.getTimestampPacketAllocatorAlignment());
     eventSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets * hwHelper.getSingleTimestampPacketSize(), eventAlignment));
@@ -85,7 +88,7 @@ ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uin
         useDeviceAlloc = false;
     }
 
-    if (useDeviceAlloc && !isEventPoolTimestampFlagSet()) {
+    if (useDeviceAlloc) {
         allocationType = NEO::AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER;
     }
 
@@ -96,6 +99,9 @@ ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uin
     if (useDeviceAlloc) {
         NEO::AllocationProperties allocationProperties{*rootDeviceIndices.begin(), alignedSize, allocationType, devices[0]->getNEODevice()->getDeviceBitfield()};
         allocationProperties.alignment = eventAlignment;
+        if (eventPoolFlags & ZE_EVENT_POOL_FLAG_IPC) {
+            this->isShareableEventMemory = true;
+        }
 
         auto graphicsAllocation = driver->getMemoryManager()->allocateGraphicsMemoryWithProperties(allocationProperties);
         if (graphicsAllocation) {
@@ -107,10 +113,13 @@ ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uin
         NEO::AllocationProperties allocationProperties{*rootDeviceIndices.begin(), alignedSize, allocationType, systemMemoryBitfield};
         allocationProperties.alignment = eventAlignment;
 
-        std::vector<uint32_t> rootDeviceIndicesVector = {rootDeviceIndices.begin(), rootDeviceIndices.end()};
-        eventPoolPtr = driver->getMemoryManager()->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndicesVector,
+        eventPoolPtr = driver->getMemoryManager()->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices,
                                                                                                    allocationProperties,
                                                                                                    *eventPoolAllocations);
+
+        if (eventPoolFlags & ZE_EVENT_POOL_FLAG_IPC) {
+            this->isShareableEventMemory = eventPoolAllocations->getDefaultGraphicsAllocation()->isShareableHostMemory;
+        }
 
         allocatedMemory = (nullptr != eventPoolPtr);
     }

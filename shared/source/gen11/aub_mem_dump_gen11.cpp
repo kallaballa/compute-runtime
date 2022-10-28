@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "shared/source/aub_mem_dump/aub_alloc_dump.inl"
 #include "shared/source/aub_mem_dump/aub_mem_dump.inl"
 #include "shared/source/gen11/aub_mapper.h"
+#include "shared/source/gen11/hw_cmds.h"
 #include "shared/source/helpers/completion_stamp.h"
 #include "shared/source/helpers/hw_helper.h"
 
@@ -29,7 +30,7 @@ template struct AubPageTableHelper64<Traits<device, 48>>;
 } // namespace AubMemDump
 
 namespace NEO {
-using Family = ICLFamily;
+using Family = Gen11Family;
 
 static const AubMemDump::LrcaHelperRcs rcs(0x002000);
 static const AubMemDump::LrcaHelperBcs bcs(0x022000);

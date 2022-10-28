@@ -9,10 +9,10 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/test/common/fixtures/mock_execution_environment_gmm_fixture.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
+#include "shared/test/common/utilities/logger_tests.h"
 
 #include "opencl/test/unit_test/os_interface/windows/mock_wddm_allocation.h"
-#include "opencl/test/unit_test/utilities/file_logger_tests.h"
 
 using namespace NEO;
 
@@ -28,7 +28,7 @@ TEST_F(FileLoggerTests, GivenLogAllocationMemoryPoolFlagThenLogsCorrectInfo) {
     bool logFileCreated = fileExists(fileLogger.getLogFileName());
     EXPECT_FALSE(logFileCreated);
 
-    MockWddmAllocation allocation(getGmmClientContext());
+    MockWddmAllocation allocation(getGmmHelper());
     allocation.handle = 4;
     allocation.setAllocationType(AllocationType::BUFFER);
     allocation.memoryPool = MemoryPool::System64KBPages;
@@ -43,7 +43,7 @@ TEST_F(FileLoggerTests, GivenLogAllocationMemoryPoolFlagThenLogsCorrectInfo) {
     threadIDCheck << " ThreadID: " << thisThread;
 
     std::stringstream memoryPoolCheck;
-    memoryPoolCheck << " MemoryPool: " << allocation.getMemoryPool();
+    memoryPoolCheck << " MemoryPool: " << getMemoryPoolString(&allocation);
 
     std::stringstream gpuAddressCheck;
     gpuAddressCheck << " GPU address: 0x" << std::hex << allocation.getGpuAddress();
@@ -74,7 +74,7 @@ TEST_F(FileLoggerTests, GivenLogAllocationMemoryPoolFlagSetFalseThenAllocationIs
 
     auto executionEnvironment = std::unique_ptr<ExecutionEnvironment>(MockDevice::prepareExecutionEnvironment(defaultHwInfo.get(), 0u));
     executionEnvironment->rootDeviceEnvironments[0]->initGmm();
-    MockWddmAllocation allocation(executionEnvironment->rootDeviceEnvironments[0]->getGmmClientContext());
+    MockWddmAllocation allocation(executionEnvironment->rootDeviceEnvironments[0]->getGmmHelper());
     allocation.handle = 4;
     allocation.setAllocationType(AllocationType::BUFFER);
     allocation.memoryPool = MemoryPool::System64KBPages;
@@ -88,7 +88,7 @@ TEST_F(FileLoggerTests, GivenLogAllocationMemoryPoolFlagSetFalseThenAllocationIs
     threadIDCheck << " ThreadID: " << thisThread;
 
     std::stringstream memoryPoolCheck;
-    memoryPoolCheck << " MemoryPool: " << allocation.getMemoryPool();
+    memoryPoolCheck << " MemoryPool: " << getMemoryPoolString(&allocation);
 
     if (fileLogger.wasFileCreated(fileLogger.getLogFileName())) {
         auto str = fileLogger.getFileString(fileLogger.getLogFileName());

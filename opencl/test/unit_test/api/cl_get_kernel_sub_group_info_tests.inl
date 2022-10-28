@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,8 +13,8 @@ using namespace NEO;
 struct KernelSubGroupInfoFixture : HelloWorldFixture<HelloWorldFixtureFactory> {
     typedef HelloWorldFixture<HelloWorldFixtureFactory> ParentClass;
 
-    void SetUp() override {
-        ParentClass::SetUp();
+    void setUp() {
+        ParentClass::setUp();
         pKernel->maxKernelWorkGroupSize = static_cast<uint32_t>(pDevice->getDeviceInfo().maxWorkGroupSize / 2);
         maxSimdSize = static_cast<size_t>(pKernel->getKernelInfo().getMaxSimdSize());
         ASSERT_LE(8u, maxSimdSize);
@@ -35,8 +35,8 @@ struct KernelSubGroupInfoFixture : HelloWorldFixture<HelloWorldFixtureFactory> {
         }
     }
 
-    void TearDown() override {
-        ParentClass::TearDown();
+    void tearDown() {
+        ParentClass::tearDown();
     }
 
     size_t inputValue[3];
@@ -57,11 +57,11 @@ template <typename ParamType>
 struct KernelSubGroupInfoParamFixture : KernelSubGroupInfoFixture,
                                         ::testing::TestWithParam<ParamType> {
     void SetUp() override {
-        KernelSubGroupInfoFixture::SetUp();
+        KernelSubGroupInfoFixture::setUp();
     }
 
     void TearDown() override {
-        KernelSubGroupInfoFixture::TearDown();
+        KernelSubGroupInfoFixture::tearDown();
     }
 };
 

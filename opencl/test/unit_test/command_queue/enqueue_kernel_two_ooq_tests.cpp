@@ -32,12 +32,12 @@ struct TwoOOQsTwoDependentWalkers : public HelloWorldTest<OOQFixtureFactory>,
 
     void SetUp() override {
         Parent::SetUp();
-        ClHardwareParse::SetUp();
+        ClHardwareParse::setUp();
     }
 
     void TearDown() override {
         delete pCmdQ2;
-        ClHardwareParse::TearDown();
+        ClHardwareParse::tearDown();
         Parent::TearDown();
     }
 
@@ -91,12 +91,12 @@ struct TwoOOQsTwoDependentWalkers : public HelloWorldTest<OOQFixtureFactory>,
         ClHardwareParse::parseCommands<FamilyType>(*pCmdQ);
         ClHardwareParse::parseCommands<FamilyType>(*pCmdQ2);
 
-        Event *E1 = castToObject<Event>(event1);
-        ASSERT_NE(nullptr, E1);
-        Event *E2 = castToObject<Event>(event2);
-        ASSERT_NE(nullptr, E2);
-        delete E1;
-        delete E2;
+        Event *e1 = castToObject<Event>(event1);
+        ASSERT_NE(nullptr, e1);
+        Event *e2 = castToObject<Event>(event2);
+        ASSERT_NE(nullptr, e2);
+        delete e1;
+        delete e2;
 
         typedef typename FamilyType::WALKER_TYPE GPGPU_WALKER;
         itorWalker1 = find<GPGPU_WALKER *>(cmdList.begin(), cmdList.end());
@@ -127,7 +127,7 @@ HWTEST_F(TwoOOQsTwoDependentWalkers, GivenTwoCommandQueuesWhenEnqueuingKernelThe
     EXPECT_NE(itorWalker1, itorWalker2);
 }
 
-HWTEST_F(TwoOOQsTwoDependentWalkers, GivenTwoCommandQueuesWhenEnqueuingKernelThenOnePipelineSelectExists) {
+HWTEST2_F(TwoOOQsTwoDependentWalkers, GivenTwoCommandQueuesWhenEnqueuingKernelThenOnePipelineSelectExists, IsAtMostXeHpcCore) {
     parseWalkers<FamilyType>();
     int numCommands = getNumberOfPipelineSelectsThatEnablePipelineSelect<FamilyType>();
     EXPECT_EQ(1, numCommands);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,7 +32,7 @@ constexpr uint64_t offsetForNoSubDevices = 0x60;
 constexpr uint8_t computeIndexForNoSubDevices = 9;
 constexpr uint8_t globalIndexForNoSubDevices = 3;
 const std::string baseTelemSysFS("/sys/class/intel_pmt");
-std::string rootPciPathOfGpuDeviceInTemperature = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0";
+std::string gpuUpstreamPortPathInTemperature = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0";
 const std::string realPathTelem1 = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0/0000:8b:02.0/0000:8e:00.1/pmt_telemetry.1.auto/intel_pmt/telem1";
 const std::string realPathTelem2 = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0/0000:8b:02.0/0000:8e:00.1/pmt_telemetry.1.auto/intel_pmt/telem2";
 const std::string realPathTelem3 = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0/0000:8b:02.0/0000:8e:00.1/pmt_telemetry.1.auto/intel_pmt/telem3";
@@ -61,7 +61,7 @@ struct Mock<TemperaturePmt> : public TemperaturePmt {
     }
 
     void mockedInit(FsAccess *pFsAccess) {
-        if (ZE_RESULT_SUCCESS != PlatformMonitoringTech::enumerateRootTelemIndex(pFsAccess, rootPciPathOfGpuDeviceInTemperature)) {
+        if (ZE_RESULT_SUCCESS != PlatformMonitoringTech::enumerateRootTelemIndex(pFsAccess, gpuUpstreamPortPathInTemperature)) {
             return;
         }
         telemetryDeviceEntry = "/sys/class/intel_pmt/telem2/telem";
@@ -72,7 +72,12 @@ class TemperatureFsAccess : public FsAccess {};
 
 template <>
 struct Mock<TemperatureFsAccess> : public TemperatureFsAccess {
-    ze_result_t listDirectorySuccess(const std::string directory, std::vector<std::string> &listOfTelemNodes) {
+    ze_result_t mockErrorListDirectory = ZE_RESULT_SUCCESS;
+    ze_result_t mockErrorGetRealPath = ZE_RESULT_SUCCESS;
+    ze_result_t listDirectory(const std::string directory, std::vector<std::string> &listOfTelemNodes) override {
+        if (mockErrorListDirectory != ZE_RESULT_SUCCESS) {
+            return mockErrorListDirectory;
+        }
         if (directory.compare(baseTelemSysFS) == 0) {
             listOfTelemNodes.push_back("telem1");
             listOfTelemNodes.push_back("telem2");
@@ -84,10 +89,10 @@ struct Mock<TemperatureFsAccess> : public TemperatureFsAccess {
         return ZE_RESULT_ERROR_NOT_AVAILABLE;
     }
 
-    ze_result_t listDirectoryFailure(const std::string directory, std::vector<std::string> &events) {
-        return ZE_RESULT_ERROR_NOT_AVAILABLE;
-    }
-    ze_result_t getRealPathSuccess(const std::string path, std::string &buf) {
+    ze_result_t getRealPath(const std::string path, std::string &buf) override {
+        if (mockErrorGetRealPath != ZE_RESULT_SUCCESS) {
+            return mockErrorGetRealPath;
+        }
         if (path.compare(sysfsPahTelem1) == 0) {
             buf = realPathTelem1;
         } else if (path.compare(sysfsPahTelem2) == 0) {
@@ -101,16 +106,9 @@ struct Mock<TemperatureFsAccess> : public TemperatureFsAccess {
         } else {
             return ZE_RESULT_ERROR_NOT_AVAILABLE;
         }
-
         return ZE_RESULT_SUCCESS;
     }
 
-    ze_result_t getRealPathFailure(const std::string path, std::string &buf) {
-        return ZE_RESULT_ERROR_NOT_AVAILABLE;
-    }
-
-    MOCK_METHOD(ze_result_t, listDirectory, (const std::string path, std::vector<std::string> &list), (override));
-    MOCK_METHOD(ze_result_t, getRealPath, (const std::string path, std::string &buf), (override));
     Mock<TemperatureFsAccess>() = default;
 };
 

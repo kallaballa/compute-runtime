@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 
 #include "shared/source/os_interface/windows/sys_calls.h"
 #include "shared/test/common/helpers/variable_backup.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 namespace NEO {
 
@@ -70,6 +70,14 @@ TEST_F(RegistryReaderTest, givenRegistryReaderWhenEnvironmentIntVariableExistsTh
     EXPECT_EQ(1234, registryReader.getSetting(envVar, value));
 }
 
+TEST_F(RegistryReaderTest, givenRegistryReaderWhenEnvironmentInt64VariableExistsThenReturnCorrectValue) {
+    const char *envVar = "TestedEnvironmentInt64Variable";
+    int64_t expectedValue = 9223372036854775807;
+    int64_t defaultValue = 0;
+    TestedRegistryReader registryReader("");
+    EXPECT_EQ(expectedValue, registryReader.getSetting(envVar, defaultValue));
+}
+
 struct DebugReaderWithRegistryAndEnvTest : ::testing::Test {
     VariableBackup<uint32_t> openRegCountBackup{&SysCalls::regOpenKeySuccessCount};
     VariableBackup<uint32_t> queryRegCountBackup{&SysCalls::regQueryValueSuccessCount};
@@ -80,28 +88,28 @@ TEST_F(DebugReaderWithRegistryAndEnvTest, givenIntDebugKeyWhenReadFromRegistrySu
     SysCalls::regOpenKeySuccessCount = 1u;
     SysCalls::regQueryValueSuccessCount = 1u;
 
-    EXPECT_EQ(1, registryReader.getSetting("settingSourceInt", 0));
+    EXPECT_EQ(1u, registryReader.getSetting("settingSourceInt", 0));
 }
 
 TEST_F(DebugReaderWithRegistryAndEnvTest, givenInt64DebugKeyWhenReadFromRegistrySucceedsThenReturnObtainedValue) {
     SysCalls::regOpenKeySuccessCount = 1u;
     SysCalls::regQueryValueSuccessCount = 1u;
 
-    EXPECT_EQ(0xffffffffeeeeeeee, registryReader.getSetting("settingSourceInt64", 0));
+    EXPECT_EQ(0xeeeeeeee, registryReader.getSetting("settingSourceInt64", 0));
 }
 
 TEST_F(DebugReaderWithRegistryAndEnvTest, givenIntDebugKeyWhenQueryValueFailsThenObtainValueFromEnv) {
     SysCalls::regOpenKeySuccessCount = 1u;
     SysCalls::regQueryValueSuccessCount = 0u;
 
-    EXPECT_EQ(2, registryReader.getSetting("settingSourceInt", 0));
+    EXPECT_EQ(2u, registryReader.getSetting("settingSourceInt", 0));
 }
 
 TEST_F(DebugReaderWithRegistryAndEnvTest, givenIntDebugKeyWhenOpenKeyFailsThenObtainValueFromEnv) {
     SysCalls::regOpenKeySuccessCount = 0u;
     SysCalls::regQueryValueSuccessCount = 0u;
 
-    EXPECT_EQ(2, registryReader.getSetting("settingSourceInt", 0));
+    EXPECT_EQ(2u, registryReader.getSetting("settingSourceInt", 0));
 }
 
 TEST_F(DebugReaderWithRegistryAndEnvTest, givenStringDebugKeyWhenReadFromRegistrySucceedsThenReturnObtainedValue) {

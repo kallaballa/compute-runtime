@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/source/kernel/kernel_arg_descriptor_extended_device_side_enqueue.h"
+#pragma once
+
 #include "shared/source/kernel/kernel_arg_descriptor_extended_vme.h"
 #include "shared/source/program/kernel_info.h"
 
@@ -13,6 +14,7 @@
 #include "patch_list.h"
 
 #include <array>
+
 namespace NEO {
 
 class MockKernelInfo : public KernelInfo {
@@ -49,8 +51,6 @@ class MockKernelInfo : public KernelInfo {
 
     void addExtendedMetadata(uint32_t index, const std::string &argName = "", const std::string &type = "", const std::string &accessQualifier = "", const std::string &addressQualifier = "", const std::string &typeQualifiers = "");
 
-    void addExtendedDeviceSideEnqueueDescriptor(uint32_t index, uint32_t objectId);
-
     inline void addToPrintfStringsMap(uint32_t index, const std::string &string) {
         kernelDescriptor.kernelAttributes.flags.usesStringMapForPrintf = true;
         kernelDescriptor.kernelMetadata.printfStringsMap.insert(std::make_pair(index, string));
@@ -64,7 +64,6 @@ class MockKernelInfo : public KernelInfo {
     void setSyncBuffer(uint8_t pointerSize, CrossThreadDataOffset stateless, SurfaceStateHeapOffset bindful = undefined<CrossThreadDataOffset>);
     void setPrivateMemory(uint32_t perThreadPrivateMemorySize, bool isSimtThread, uint8_t pointerSize, CrossThreadDataOffset stateless, SurfaceStateHeapOffset bindful = undefined<CrossThreadDataOffset>);
     void setSamplerTable(DynamicStateHeapOffset borderColor, uint8_t numSamplers, DynamicStateHeapOffset tableOffset);
-    void setDeviceSideEnqueueBlockInterfaceDescriptorOffset(uint32_t offset);
     void setPerThreadScratchSize(uint32_t perThreadScratchSize, uint32_t slot);
     void setLocalIds(const std::array<uint8_t, 3> &localIds);
 

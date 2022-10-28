@@ -5,41 +5,98 @@
  *
  */
 
+#pragma once
+
 #include "shared/offline_compiler/source/ocloc_arg_helper.h"
 #include "shared/source/helpers/string.h"
 
+#include "gtest/gtest.h"
+
 #include <algorithm>
 #include <map>
+#include <optional>
 #include <string>
 
 class MockOclocArgHelper : public OclocArgHelper {
   public:
+    using OclocArgHelper::deviceProductTable;
+    using OclocArgHelper::hasOutput;
+    using OclocArgHelper::headers;
+    using OclocArgHelper::inputs;
+    using OclocArgHelper::messagePrinter;
+
+    using OclocArgHelper::findSourceFile;
+
     using FileName = std::string;
     using FileData = std::string;
     using FilesMap = std::map<FileName, FileData>;
-    using OclocArgHelper::deviceProductTable;
+
     FilesMap &filesMap;
     bool interceptOutput{false};
-    bool shouldReturnReadingError{false};
+    bool shouldLoadDataFromFileReturnZeroSize{false};
     FilesMap interceptedFiles;
+    std::vector<std::string> createdFiles{};
+    bool callBaseFileExists = false;
+    bool callBaseReadBinaryFile = false;
+    bool callBaseLoadDataFromFile = false;
+    bool callBaseSaveOutput = false;
+    bool callBaseReadFileToVectorOfStrings = false;
+    bool shouldReturnEmptyVectorOfStrings = false;
 
-    MockOclocArgHelper(FilesMap &filesMap) : OclocArgHelper(
-                                                 0, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
+    MockOclocArgHelper(FilesMap &filesMap) : OclocArgHelper(0, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr),
                                              filesMap(filesMap){};
 
-  protected:
-    bool fileExists(const std::string &filename) const override {
-        return filesMap.find(filename) != filesMap.end();
+    ~MockOclocArgHelper() override {
+        cleanUpOutput();
+    }
+
+    void setAllCallBase(bool value) {
+        callBaseFileExists = value;
+        callBaseReadBinaryFile = value;
+        callBaseLoadDataFromFile = value;
+        callBaseSaveOutput = value;
+        callBaseReadFileToVectorOfStrings = value;
+    }
+
+    void readFileToVectorOfStrings(const std::string &filename, std::vector<std::string> &lines) override {
+        if (callBaseReadFileToVectorOfStrings) {
+            return OclocArgHelper::readFileToVectorOfStrings(filename, lines);
+        }
+
+        if (shouldReturnEmptyVectorOfStrings) {
+            lines.clear();
+        } else {
+            auto ss = std::stringstream(filesMap[filename]);
+            for (std::string line; std::getline(ss, line);) {
+                lines.push_back(line);
+            }
+        }
     }
 
     std::vector<char> readBinaryFile(const std::string &filename) override {
+        if (callBaseReadBinaryFile) {
+            return OclocArgHelper::readBinaryFile(filename);
+        }
         auto file = filesMap[filename];
         return std::vector<char>(file.begin(), file.end());
     }
 
+  protected:
+    bool fileExists(const std::string &filename) const override {
+        if (callBaseFileExists) {
+            return OclocArgHelper::fileExists(filename);
+        }
+        return filesMap.find(filename) != filesMap.end();
+    }
+
     std::unique_ptr<char[]> loadDataFromFile(const std::string &filename, size_t &retSize) override {
-        if (shouldReturnReadingError) {
-            return nullptr;
+        if (callBaseLoadDataFromFile) {
+            return OclocArgHelper::loadDataFromFile(filename, retSize);
+        }
+
+        if (shouldLoadDataFromFileReturnZeroSize) {
+            retSize = 0;
+            return {};
         }
 
         if (!fileExists(filename)) {
@@ -47,10 +104,12 @@ class MockOclocArgHelper : public OclocArgHelper {
         }
 
         const auto &file = filesMap[filename];
-        std::unique_ptr<char[]> result{new char[file.size()]};
 
+        std::unique_ptr<char[]> result{new char[file.size() + 1]};
         std::copy(file.begin(), file.end(), result.get());
-        retSize = file.size();
+        result[file.size()] = '\0';
+
+        retSize = file.size() + 1;
 
         return result;
     }
@@ -62,7 +121,21 @@ class MockOclocArgHelper : public OclocArgHelper {
 
             memcpy_s(fileContent.data(), fileContent.size(), pData, dataSize);
         } else {
+            if (callBaseSaveOutput) {
+                createdFiles.push_back(filename.c_str());
+            }
             OclocArgHelper::saveOutput(filename, pData, dataSize);
+        }
+    }
+
+    void cleanUpOutput() {
+        for (const auto &fileName : createdFiles) {
+            int retVal = remove(fileName.c_str());
+            EXPECT_EQ(0, retVal);
+            if (retVal != 0) {
+                auto errMsg = "Error deleting file: " + fileName;
+                perror(errMsg.c_str());
+            }
         }
     }
 };

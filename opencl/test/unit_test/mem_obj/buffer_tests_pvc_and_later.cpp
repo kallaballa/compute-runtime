@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,8 +9,8 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/test_macros/hw_test.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/cl_device/cl_device.h"
@@ -51,7 +51,8 @@ HWTEST2_F(PvcAndLaterBufferTests, WhenAllocatingBufferThenGpuAddressIsFromHeapEx
     auto graphicsAllocation = buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex());
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    auto gpuAddress = GmmHelper::decanonize(graphicsAllocation->getGpuAddress());
+    auto gmmHelper = context.getDevice(0)->getGmmHelper();
+    auto gpuAddress = gmmHelper->decanonize(graphicsAllocation->getGpuAddress());
     auto extendedHeapBase = context.memoryManager->getGfxPartition(0)->getHeapBase(HeapIndex::HEAP_EXTENDED);
     auto extendedHeapLimit = context.memoryManager->getGfxPartition(0)->getHeapLimit(HeapIndex::HEAP_EXTENDED);
 
@@ -91,7 +92,8 @@ HWTEST2_F(PvcAndLaterBufferTests, WhenAllocatingRtBufferThenGpuAddressFromHeapSt
     auto graphicsAllocation = rtBuffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex());
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    auto gpuAddress = GmmHelper::decanonize(graphicsAllocation->getGpuAddress());
+    auto gmmHelper = context.getDevice(0)->getGmmHelper();
+    auto gpuAddress = gmmHelper->decanonize(graphicsAllocation->getGpuAddress());
     auto standard64KbHeapBase = context.memoryManager->getGfxPartition(0)->getHeapBase(HeapIndex::HEAP_STANDARD64KB);
     auto standard64KbHeapLimit = context.memoryManager->getGfxPartition(0)->getHeapLimit(HeapIndex::HEAP_STANDARD64KB);
 

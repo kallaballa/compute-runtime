@@ -14,13 +14,16 @@
 #include "shared/test/common/libult/ult_command_stream_receiver.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+
+#include "hw_cmds_xe_hpc_core_base.h"
 
 using namespace NEO;
 
@@ -37,7 +40,7 @@ struct BlitXeHpcCoreTests : public ::testing::Test {
         clDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     }
 
-    uint32_t flushBcsTask(CommandStreamReceiver *csr, const BlitProperties &blitProperties, bool blocking, Device &device) {
+    std::optional<uint32_t> flushBcsTask(CommandStreamReceiver *csr, const BlitProperties &blitProperties, bool blocking, Device &device) {
         BlitPropertiesContainer blitPropertiesContainer;
         blitPropertiesContainer.push_back(blitProperties);
 
@@ -128,6 +131,36 @@ XE_HPC_CORETEST_F(BlitXeHpcCoreTests, givenBufferWhenProgrammingBltCommandThenSe
     auto mocsL3enabled = 0x10u;
     EXPECT_EQ(mocsL3enabled, bltCmd->getDestinationMOCS());
     EXPECT_EQ(mocsL3enabled, bltCmd->getSourceMOCS());
+}
+
+XE_HPC_CORETEST_F(BlitXeHpcCoreTests, givenTransferLargerThenHalfOfL3WhenItIsProgrammedThenL3IsDisabled) {
+    using MEM_COPY = typename FamilyType::MEM_COPY;
+
+    auto &bcsEngine = clDevice->getEngine(aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular);
+    auto csr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsEngine.commandStreamReceiver);
+    MockContext context(clDevice.get());
+    MockGraphicsAllocation clearColorAlloc;
+
+    cl_int retVal = CL_SUCCESS;
+    auto buffer = clUniquePtr<Buffer>(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
+    size_t transferSize = static_cast<size_t>(clDevice->getHardwareInfo().gtSystemInfo.L3CacheSizeInKb * KB / 2 + 1);
+
+    auto blitProperties = BlitProperties::constructPropertiesForCopy(buffer->getGraphicsAllocation(clDevice->getRootDeviceIndex()),
+                                                                     buffer->getGraphicsAllocation(clDevice->getRootDeviceIndex()),
+                                                                     0, 0, {transferSize, 1, 1}, 0, 0, 0, 0, &clearColorAlloc);
+
+    flushBcsTask(csr, blitProperties, true, clDevice->getDevice());
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(csr->commandStream);
+
+    auto itorBltCmd = find<MEM_COPY *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+    ASSERT_NE(hwParser.cmdList.end(), itorBltCmd);
+    MEM_COPY *bltCmd = (MEM_COPY *)*itorBltCmd;
+
+    auto mocsL3disabled = 0x0u;
+    EXPECT_EQ(mocsL3disabled, bltCmd->getDestinationMOCS());
+    EXPECT_EQ(mocsL3disabled, bltCmd->getSourceMOCS());
 }
 
 XE_HPC_CORETEST_F(BlitXeHpcCoreTests, givenBufferWhenProgrammingBltCommandThenSetMocsToValueOfDebugKey) {

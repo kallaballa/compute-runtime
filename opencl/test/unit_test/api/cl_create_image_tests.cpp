@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,7 +28,7 @@ struct clCreateImageTests : public ApiFixture<>,
                             public T {
 
     void SetUp() override {
-        ApiFixture::SetUp();
+        ApiFixture::setUp();
 
         // clang-format off
         imageFormat.image_channel_order     = CL_RGBA;
@@ -48,7 +48,7 @@ struct clCreateImageTests : public ApiFixture<>,
     }
 
     void TearDown() override {
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
 
     cl_image_format imageFormat;
@@ -1398,8 +1398,8 @@ TEST_F(clCreateImageWithMultiDeviceContextTests, GivenContextdWithMultiDeviceFai
     REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
 
     {
-        static_cast<MockMemoryManager *>(context.get()->getMemoryManager())->successAllocatedGraphicsMemoryIndex = 0u;
-        static_cast<MockMemoryManager *>(context.get()->getMemoryManager())->maxSuccessAllocatedGraphicsMemoryIndex = 0u;
+        static_cast<MockMemoryManager *>(context->getMemoryManager())->successAllocatedGraphicsMemoryIndex = 0u;
+        static_cast<MockMemoryManager *>(context->getMemoryManager())->maxSuccessAllocatedGraphicsMemoryIndex = 0u;
 
         std::unique_ptr<Image> image(ImageHelper<ImageWithoutHostPtr>::create(context.get()));
 
@@ -1407,8 +1407,8 @@ TEST_F(clCreateImageWithMultiDeviceContextTests, GivenContextdWithMultiDeviceFai
     }
 
     {
-        static_cast<MockMemoryManager *>(context.get()->getMemoryManager())->successAllocatedGraphicsMemoryIndex = 0u;
-        static_cast<MockMemoryManager *>(context.get()->getMemoryManager())->maxSuccessAllocatedGraphicsMemoryIndex = 1u;
+        static_cast<MockMemoryManager *>(context->getMemoryManager())->successAllocatedGraphicsMemoryIndex = 0u;
+        static_cast<MockMemoryManager *>(context->getMemoryManager())->maxSuccessAllocatedGraphicsMemoryIndex = 1u;
 
         std::unique_ptr<Image> image(ImageHelper<ImageWithoutHostPtr>::create(context.get()));
 

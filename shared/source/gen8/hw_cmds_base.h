@@ -17,13 +17,51 @@
 //forward declaration for parsing logic
 template <class T>
 struct CmdParse;
-namespace NEO {
 
-struct GEN8 {
+namespace NEO {
+class LogicalStateHelper;
+struct Gen8 {
 #include "shared/source/generated/gen8/hw_cmds_generated_gen8.inl"
 
     static constexpr bool supportsSampler = true;
     static constexpr bool isUsingGenericMediaStateClear = true;
+    static constexpr bool isUsingMiMemFence = false;
+
+    struct FrontEndStateSupport {
+        static constexpr bool scratchSize = true;
+        static constexpr bool privateScratchSize = false;
+        static constexpr bool computeDispatchAllWalker = false;
+        static constexpr bool disableEuFusion = false;
+        static constexpr bool disableOverdispatch = false;
+        static constexpr bool singleSliceDispatchCcsMode = false;
+    };
+
+    struct StateComputeModeStateSupport {
+        static constexpr bool threadArbitrationPolicy = false;
+        static constexpr bool coherencyRequired = true;
+        static constexpr bool largeGrfMode = false;
+        static constexpr bool zPassAsyncComputeThreadLimit = false;
+        static constexpr bool pixelAsyncComputeThreadLimit = false;
+        static constexpr bool devicePreemptionMode = false;
+    };
+
+    struct StateBaseAddressStateSupport {
+        static constexpr bool globalAtomics = false;
+        static constexpr bool statelessMocs = true;
+    };
+
+    struct PipelineSelectStateSupport {
+        static constexpr bool modeSelected = true;
+        static constexpr bool mediaSamplerDopClockGate = false;
+        static constexpr bool systolicMode = false;
+    };
+
+    struct PreemptionDebugSupport {
+        static constexpr bool preemptionMode = true;
+        static constexpr bool stateSip = true;
+        static constexpr bool csrSurface = false;
+    };
+
     struct DataPortBindlessSurfaceExtendedMessageDescriptor {
         union {
             struct {
@@ -49,15 +87,16 @@ struct GEN8 {
 
     static_assert(sizeof(DataPortBindlessSurfaceExtendedMessageDescriptor) == sizeof(DataPortBindlessSurfaceExtendedMessageDescriptor::packed), "");
 };
-struct BDWFamily : public GEN8 {
-    using PARSE = CmdParse<BDWFamily>;
-    using GfxFamily = BDWFamily;
+struct Gen8Family : public Gen8 {
+    using PARSE = CmdParse<Gen8Family>;
+    using GfxFamily = Gen8Family;
     using WALKER_TYPE = GPGPU_WALKER;
     using VFE_STATE_TYPE = MEDIA_VFE_STATE;
     using XY_BLOCK_COPY_BLT = typename GfxFamily::XY_SRC_COPY_BLT;
     using XY_COPY_BLT = typename GfxFamily::XY_SRC_COPY_BLT;
     using MI_STORE_REGISTER_MEM_CMD = typename GfxFamily::MI_STORE_REGISTER_MEM;
     using TimestampPacketType = uint32_t;
+    using LogicalStateHelperHw = LogicalStateHelper;
     static const GPGPU_WALKER cmdInitGpgpuWalker;
     static const INTERFACE_DESCRIPTOR_DATA cmdInitInterfaceDescriptorData;
     static const MEDIA_INTERFACE_DESCRIPTOR_LOAD cmdInitMediaInterfaceDescriptorLoad;

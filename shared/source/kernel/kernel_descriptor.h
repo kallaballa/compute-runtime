@@ -7,14 +7,17 @@
 
 #pragma once
 
+#include "shared/source/command_stream/thread_arbitration_policy.h"
+#include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/kernel/debug_data.h"
+#include "shared/source/kernel/grf_config.h"
 #include "shared/source/kernel/kernel_arg_descriptor.h"
 #include "shared/source/kernel/kernel_arg_metadata.h"
-#include "shared/source/utilities/arrayref.h"
 #include "shared/source/utilities/stackvec.h"
 
+#include <array>
 #include <cinttypes>
 #include <cstddef>
 #include <limits>
@@ -26,10 +29,6 @@ namespace NEO {
 
 using StringMap = std::unordered_map<uint32_t, std::string>;
 using InstructionsSegmentOffset = uint16_t;
-
-struct ExtendedInfoBase {
-    virtual ~ExtendedInfoBase() = default;
-};
 
 struct KernelDescriptor {
     enum AddressingMode : uint8_t {
@@ -43,7 +42,6 @@ struct KernelDescriptor {
 
     KernelDescriptor() = default;
     virtual ~KernelDescriptor() = default;
-    virtual bool hasRTCalls() const;
 
     void updateCrossThreadDataSize() {
         uint32_t crossThreadDataSize = 0;
@@ -143,18 +141,18 @@ struct KernelDescriptor {
     }
 
     struct KernelAttributes {
-        KernelAttributes() { flags.packed = 0U; }
-
         uint32_t slmInlineSize = 0U;
         uint32_t perThreadScratchSize[2] = {0U, 0U};
         uint32_t perHwThreadPrivateMemorySize = 0U;
         uint32_t perThreadSystemThreadSurfaceSize = 0U;
+        uint32_t numThreadsRequired = 0u;
+        ThreadArbitrationPolicy threadArbitrationPolicy = NotPresent;
         uint16_t requiredWorkgroupSize[3] = {0U, 0U, 0U};
         uint16_t crossThreadDataSize = 0U;
         uint16_t inlineDataPayloadSize = 0U;
         uint16_t perThreadDataSize = 0U;
         uint16_t numArgsToPatch = 0U;
-        uint16_t numGrfRequired = 0U;
+        uint16_t numGrfRequired = GrfConfig::DefaultGrfNumber;
         uint8_t barrierCount = 0u;
         bool hasNonKernelArgLoad = true;
         bool hasNonKernelArgStore = true;
@@ -163,6 +161,8 @@ struct KernelDescriptor {
         AddressingMode bufferAddressingMode = BindfulAndStateless;
         AddressingMode imageAddressingMode = Bindful;
         AddressingMode samplerAddressingMode = Bindful;
+
+        DeviceBinaryFormat binaryFormat = DeviceBinaryFormat::Unknown;
 
         uint8_t workgroupWalkOrder[3] = {0, 1, 2};
         uint8_t workgroupDimensionsOrder[3] = {0, 1, 2};
@@ -182,14 +182,16 @@ struct KernelDescriptor {
 
         union {
             struct {
-                bool usesSpecialPipelineSelectMode : 1;
+                // 0
+                bool usesSystolicPipelineSelectMode : 1;
                 bool usesStringMapForPrintf : 1;
                 bool usesPrintf : 1;
                 bool usesFencesForReadWriteImages : 1;
-                bool usesFlattenedLocalIds;
+                bool usesFlattenedLocalIds : 1;
                 bool usesPrivateMemory : 1;
                 bool usesVme : 1;
                 bool usesImages : 1;
+                // 1
                 bool usesSamplers : 1;
                 bool usesSyncBuffer : 1;
                 bool useGlobalAtomics : 1;
@@ -197,15 +199,27 @@ struct KernelDescriptor {
                 bool passInlineData : 1;
                 bool perThreadDataHeaderIsPresent : 1;
                 bool perThreadDataUnusedGrfIsPresent : 1;
+                bool requiresDisabledEUFusion : 1;
+                // 2
                 bool requiresDisabledMidThreadPreemption : 1;
                 bool requiresSubgroupIndependentForwardProgress : 1;
                 bool requiresWorkgroupWalkOrder : 1;
                 bool requiresImplicitArgs : 1;
                 bool useStackCalls : 1;
+                bool hasRTCalls : 1;
+                bool isInvalid : 1;
+                bool reserved : 1;
             };
-            uint32_t packed;
-        } flags;
+            std::array<bool, 3> packed;
+        } flags = {};
         static_assert(sizeof(KernelAttributes::flags) == sizeof(KernelAttributes::flags.packed), "");
+
+        bool usesStringMap() const {
+            if (binaryFormat == DeviceBinaryFormat::Patchtokens) {
+                return flags.usesStringMapForPrintf || flags.requiresImplicitArgs;
+            }
+            return false;
+        }
     } kernelAttributes;
 
     struct {
@@ -256,6 +270,7 @@ struct KernelDescriptor {
             CrossThreadDataOffset preferredWkgMultiple = undefined<CrossThreadDataOffset>;
             CrossThreadDataOffset localMemoryStatelessWindowSize = undefined<CrossThreadDataOffset>;
             CrossThreadDataOffset localMemoryStatelessWindowStartAddres = undefined<CrossThreadDataOffset>;
+            CrossThreadDataOffset implicitArgsBuffer = undefined<CrossThreadDataOffset>;
         } implicitArgs;
 
         std::vector<std::unique_ptr<ArgDescriptorExtended>> explicitArgsExtendedDescriptors;
@@ -263,12 +278,35 @@ struct KernelDescriptor {
 
     std::vector<ArgTypeMetadataExtended> explicitArgsExtendedMetadata;
 
+    struct InlineSampler {
+        enum class AddrMode : uint8_t {
+            None,
+            Repeat,
+            ClampEdge,
+            ClampBorder,
+            Mirror
+        };
+        enum class FilterMode : uint8_t {
+            Nearest,
+            Linear
+        };
+        static constexpr size_t borderColorStateSize = 64U;
+        static constexpr size_t samplerStateSize = 16U;
+
+        uint32_t samplerIndex;
+        bool isNormalized;
+        AddrMode addrMode;
+        FilterMode filterMode;
+        constexpr uint32_t getSamplerBindfulOffset() const {
+            return borderColorStateSize + samplerStateSize * samplerIndex;
+        }
+    };
+    std::vector<InlineSampler> inlineSamplers;
+
     struct {
         std::string kernelName;
         std::string kernelLanguageAttributes;
         StringMap printfStringsMap;
-        std::vector<std::pair<uint32_t, uint32_t>> deviceSideEnqueueChildrenKernelsIdOffset;
-        uint32_t deviceSideEnqueueBlockInterfaceDescriptorOffset = 0U;
 
         struct ByValueArgument {
             ArgDescValue::Element byValueElement;
@@ -287,7 +325,6 @@ struct KernelDescriptor {
     } external;
 
     std::vector<uint8_t> generatedHeaps;
-    std::unique_ptr<ExtendedInfoBase> extendedInfo;
 };
 
 } // namespace NEO

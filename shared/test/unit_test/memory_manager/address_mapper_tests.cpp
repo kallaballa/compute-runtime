@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,17 +17,17 @@ using namespace NEO;
 
 class AddressMapperFixture {
   public:
-    void SetUp() {
+    void setUp() {
         mapper = new AddressMapper();
     }
 
-    void TearDown() {
+    void tearDown() {
         delete mapper;
     }
     AddressMapper *mapper;
 };
 
-typedef Test<AddressMapperFixture> AddressMapperTests;
+using AddressMapperTests = Test<AddressMapperFixture>;
 
 TEST_F(AddressMapperTests, GivenAlignedPointersWhenMappingThenPointersAreAligned) {
     uint32_t m1 = mapper->map((void *)0x1000, MemoryConstants::pageSize);

@@ -16,8 +16,6 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/cpu_info.h"
 
-#include "hw_cmds.h"
-
 #include <cstring>
 
 namespace NEO {
@@ -74,20 +72,6 @@ int HwInfoConfig::configureHwInfoDrm(const HardwareInfo *inHwInfo, HardwareInfo 
     auto gtSystemInfo = &outHwInfo->gtSystemInfo;
     auto featureTable = &outHwInfo->featureTable;
 
-    int val = 0;
-    ret = drm->getDeviceID(val);
-    if (ret != 0 || val == 0) {
-        *outHwInfo = {};
-        return (ret == 0) ? -1 : ret;
-    }
-    platform->usDeviceID = static_cast<unsigned short>(val);
-    ret = drm->getDeviceRevID(val);
-    if (ret != 0) {
-        *outHwInfo = {};
-        return ret;
-    }
-    platform->usRevId = static_cast<unsigned short>(val);
-
     Drm::QueryTopologyData topologyData = {};
 
     bool status = drm->queryTopology(*outHwInfo, topologyData);
@@ -126,6 +110,7 @@ int HwInfoConfig::configureHwInfoDrm(const HardwareInfo *inHwInfo, HardwareInfo 
     gtSystemInfo->MaxSubSlicesSupported = std::max(static_cast<uint32_t>(topologyData.maxSubSliceCount * topologyData.maxSliceCount), gtSystemInfo->MaxSubSlicesSupported);
     gtSystemInfo->MaxSlicesSupported = topologyData.maxSliceCount;
 
+    gtSystemInfo->IsDynamicallyPopulated = true;
     for (uint32_t slice = 0; slice < gtSystemInfo->SliceCount; slice++) {
         gtSystemInfo->SliceInfo[slice].Enabled = true;
     }
@@ -182,6 +167,10 @@ int HwInfoConfig::configureHwInfoDrm(const HardwareInfo *inHwInfo, HardwareInfo 
     KmdNotifyHelper::overrideFromDebugVariable(DebugManager.flags.OverrideDelayQuickKmdSleepForSporadicWaitsMicroseconds.get(), kmdNotifyProperties.delayQuickKmdSleepForSporadicWaitsMicroseconds);
     KmdNotifyHelper::overrideFromDebugVariable(DebugManager.flags.OverrideEnableQuickKmdSleepForDirectSubmission.get(), kmdNotifyProperties.enableQuickKmdSleepForDirectSubmission);
     KmdNotifyHelper::overrideFromDebugVariable(DebugManager.flags.OverrideDelayQuickKmdSleepForDirectSubmissionMicroseconds.get(), kmdNotifyProperties.delayQuickKmdSleepForDirectSubmissionMicroseconds);
+
+    if (DebugManager.flags.ForceImagesSupport.get() != -1) {
+        outHwInfo->capabilityTable.supportsImages = DebugManager.flags.ForceImagesSupport.get();
+    }
 
     return 0;
 }

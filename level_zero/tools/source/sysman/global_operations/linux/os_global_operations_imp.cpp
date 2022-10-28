@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #include "level_zero/tools/source/sysman/global_operations/linux/os_global_operations_imp.h"
 
 #include "shared/source/os_interface/device_factory.h"
+#include "shared/source/os_interface/linux/pci_path.h"
 
 #include "level_zero/core/source/device/device_imp.h"
 #include "level_zero/tools/source/sysman/global_operations/global_operations_imp.h"
@@ -16,6 +17,7 @@
 #include <level_zero/zet_api.h>
 
 #include <chrono>
+#include <cstring>
 #include <time.h>
 
 namespace L0 {
@@ -40,8 +42,56 @@ static const std::map<int, zes_engine_type_flags_t> engineMap = {
     {3, ZES_ENGINE_TYPE_FLAG_MEDIA},
     {4, ZES_ENGINE_TYPE_FLAG_COMPUTE}};
 
-void LinuxGlobalOperationsImp::getSerialNumber(char (&serialNumber)[ZES_STRING_PROPERTY_SIZE]) {
-    std::strncpy(serialNumber, unknown.c_str(), ZES_STRING_PROPERTY_SIZE);
+bool LinuxGlobalOperationsImp::readSerialNumber(std::string_view telemDir, std::array<char, NEO::PmtUtil::guidStringSize> &guidString, const uint64_t offset, char (&serialNumber)[ZES_STRING_PROPERTY_SIZE]) {
+    std::map<std::string, uint64_t> keyOffsetMap;
+    if (ZE_RESULT_SUCCESS == PlatformMonitoringTech::getKeyOffsetMap(guidString.data(), keyOffsetMap)) {
+        auto ppinOffset = keyOffsetMap.find("PPIN");
+        if (ppinOffset != keyOffsetMap.end()) {
+            uint64_t value;
+            ssize_t bytesRead = NEO::PmtUtil::readTelem(telemDir.data(), sizeof(uint64_t), ppinOffset->second + offset, &value);
+            if (bytesRead == sizeof(uint64_t)) {
+                std::ostringstream serialNumberString;
+                serialNumberString << std::hex << std::showbase << value;
+                memcpy_s(serialNumber, ZES_STRING_PROPERTY_SIZE, serialNumberString.str().c_str(), serialNumberString.str().size());
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool LinuxGlobalOperationsImp::getSerialNumber(char (&serialNumber)[ZES_STRING_PROPERTY_SIZE]) {
+    auto pDrm = &pLinuxSysmanImp->getDrm();
+    std::optional<std::string> rootPath = NEO::getPciRootPath(pDrm->getFileDescriptor());
+    if (!rootPath.has_value()) {
+        return false;
+    }
+
+    std::map<uint32_t, std::string> telemPciPath;
+    NEO::PmtUtil::getTelemNodesInPciPath(rootPath.value(), telemPciPath);
+
+    if (telemPciPath.size() < pDevice->getNEODevice()->getNumSubDevices() + 1) {
+        return false;
+    }
+
+    auto iterator = telemPciPath.begin();
+    std::string telemDir = iterator->second;
+
+    std::array<char, NEO::PmtUtil::guidStringSize> guidString;
+    if (!NEO::PmtUtil::readGuid(telemDir, guidString)) {
+        return false;
+    }
+
+    uint64_t offset = ULONG_MAX;
+    if (!NEO::PmtUtil::readOffset(telemDir, offset)) {
+        return false;
+    }
+
+    if (!LinuxGlobalOperationsImp::readSerialNumber(telemDir, guidString, offset, serialNumber)) {
+        return false;
+    }
+
+    return true;
 }
 
 Device *LinuxGlobalOperationsImp::getDevice() {
@@ -101,82 +151,19 @@ void LinuxGlobalOperationsImp::getDriverVersion(char (&driverVersion)[ZES_STRING
     return;
 }
 
-static void getPidFdsForOpenDevice(ProcfsAccess *pProcfsAccess, SysfsAccess *pSysfsAccess, const ::pid_t pid, std::vector<int> &deviceFds) {
-    // Return a list of all the file descriptors of this process that point to this device
-    std::vector<int> fds;
-    deviceFds.clear();
-    if (ZE_RESULT_SUCCESS != pProcfsAccess->getFileDescriptors(pid, fds)) {
-        // Process exited. Not an error. Just ignore.
-        return;
-    }
-    for (auto &&fd : fds) {
-        std::string file;
-        if (pProcfsAccess->getFileName(pid, fd, file) != ZE_RESULT_SUCCESS) {
-            // Process closed this file. Not an error. Just ignore.
-            continue;
-        }
-        if (pSysfsAccess->isMyDeviceFile(file)) {
-            deviceFds.push_back(fd);
-        }
-    }
-}
-
-void LinuxGlobalOperationsImp::releaseSysmanDeviceResources() {
-    pLinuxSysmanImp->getSysmanDeviceImp()->pEngineHandleContext->releaseEngines();
-    pLinuxSysmanImp->getSysmanDeviceImp()->pRasHandleContext->releaseRasHandles();
-    pLinuxSysmanImp->getSysmanDeviceImp()->pDiagnosticsHandleContext->releaseDiagnosticsHandles();
-    pLinuxSysmanImp->getSysmanDeviceImp()->pFirmwareHandleContext->releaseFwHandles();
-    pLinuxSysmanImp->releasePmtObject();
-    pLinuxSysmanImp->releaseFwUtilInterface();
-    pLinuxSysmanImp->releaseLocalDrmHandle();
-}
-
-void LinuxGlobalOperationsImp::releaseDeviceResources() {
-    releaseSysmanDeviceResources();
-    auto device = static_cast<DeviceImp *>(getDevice());
-    device->releaseResources();
-    executionEnvironment->memoryManager->releaseDeviceSpecificMemResources(rootDeviceIndex);
-    executionEnvironment->releaseRootDeviceEnvironmentResources(executionEnvironment->rootDeviceEnvironments[rootDeviceIndex].get());
-    executionEnvironment->rootDeviceEnvironments[rootDeviceIndex].reset();
-}
-
-void LinuxGlobalOperationsImp::reInitSysmanDeviceResources() {
-    pLinuxSysmanImp->getSysmanDeviceImp()->updateSubDeviceHandlesLocally();
-    pLinuxSysmanImp->createPmtHandles();
-    pLinuxSysmanImp->getSysmanDeviceImp()->pRasHandleContext->init(pLinuxSysmanImp->getSysmanDeviceImp()->deviceHandles);
-    pLinuxSysmanImp->getSysmanDeviceImp()->pEngineHandleContext->init();
-    pLinuxSysmanImp->getSysmanDeviceImp()->pDiagnosticsHandleContext->init(pLinuxSysmanImp->getSysmanDeviceImp()->deviceHandles);
-    pLinuxSysmanImp->getSysmanDeviceImp()->pFirmwareHandleContext->init();
-}
-
-ze_result_t LinuxGlobalOperationsImp::initDevice() {
-    ze_result_t result = ZE_RESULT_SUCCESS;
-    auto device = static_cast<DeviceImp *>(getDevice());
-
-    auto neoDevice = NEO::DeviceFactory::createDevice(*executionEnvironment, devicePciBdf, rootDeviceIndex);
-    if (neoDevice == nullptr) {
-        return ZE_RESULT_ERROR_DEVICE_LOST;
-    }
-    static_cast<L0::DriverHandleImp *>(device->getDriverHandle())->updateRootDeviceBitFields(neoDevice);
-    static_cast<L0::DriverHandleImp *>(device->getDriverHandle())->enableRootDeviceDebugger(neoDevice);
-    Device::deviceReinit(device->getDriverHandle(), device, neoDevice, &result);
-    reInitSysmanDeviceResources();
-    return ZE_RESULT_SUCCESS;
-}
-
 ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
+    if (!pSysfsAccess->isRootUser()) {
+        return ZE_RESULT_ERROR_INSUFFICIENT_PERMISSIONS;
+    }
+    ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
+    pDevice->getProperties(&deviceProperties);
+    auto devicePtr = static_cast<DeviceImp *>(pDevice);
+    NEO::ExecutionEnvironment *executionEnvironment = devicePtr->getNEODevice()->getExecutionEnvironment();
+    auto restorer = std::make_unique<L0::ExecutionEnvironmentRefCountRestore>(executionEnvironment);
+    pLinuxSysmanImp->releaseDeviceResources();
     std::string resetPath;
     std::string resetName;
     ze_result_t result = ZE_RESULT_SUCCESS;
-
-    pSysfsAccess->getRealPath(functionLevelReset, resetPath);
-    // Must run as root. Verify permission to perform reset.
-    result = pFsAccess->canWrite(resetPath);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-    pSysfsAccess->getRealPath(deviceDir, resetName);
-    resetName = pFsAccess->getBaseName(resetName);
 
     ::pid_t myPid = pProcfsAccess->myProcessId();
     std::vector<int> myPidFds;
@@ -188,7 +175,7 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
     }
     for (auto &&pid : processes) {
         std::vector<int> fds;
-        getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
+        pLinuxSysmanImp->getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
         if (pid == myPid) {
             // L0 is expected to have this file open.
             // Keep list of fds. Close before unbind.
@@ -204,8 +191,23 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
         }
     }
 
-    ExecutionEnvironmentRefCountRestore restorer(executionEnvironment);
-    releaseDeviceResources();
+    pSysfsAccess->getRealPath(deviceDir, resetName);
+    resetName = pFsAccess->getBaseName(resetName);
+
+    if (!(deviceProperties.flags & ZE_DEVICE_PROPERTY_FLAG_INTEGRATED)) {
+        result = pSysfsAccess->unbindDevice(resetName);
+        if (ZE_RESULT_SUCCESS != result) {
+            return result;
+        }
+        result = pLinuxSysmanImp->osWarmReset();
+        if (ZE_RESULT_SUCCESS == result) {
+            return pLinuxSysmanImp->initDevice();
+        }
+        return result;
+    }
+
+    pSysfsAccess->getRealPath(functionLevelReset, resetPath);
+
     for (auto &&fd : myPidFds) {
         // Close open filedescriptors to the device
         // before unbinding device.
@@ -232,9 +234,8 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
     deviceUsingPids.clear();
     for (auto &&pid : processes) {
         std::vector<int> fds;
-        getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
+        pLinuxSysmanImp->getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
         if (!fds.empty()) {
-
             // Kill all processes that have the device open.
             pProcfsAccess->kill(pid);
             deviceUsingPids.push_back(pid);
@@ -249,9 +250,9 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
     for (auto &&pid : deviceUsingPids) {
         while (pProcfsAccess->isAlive(pid)) {
             if (std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() > resetTimeout) {
+
                 return ZE_RESULT_ERROR_HANDLE_OBJECT_IN_USE;
             }
-
             struct ::timespec timeout = {.tv_sec = 0, .tv_nsec = 1000};
             ::nanosleep(&timeout, NULL);
             end = std::chrono::steady_clock::now();
@@ -270,7 +271,7 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
         return result;
     }
 
-    return initDevice();
+    return pLinuxSysmanImp->initDevice();
 }
 
 // Processes in the form of clients are present in sysfs like this:
@@ -451,7 +452,6 @@ LinuxGlobalOperationsImp::LinuxGlobalOperationsImp(OsSysman *pOsSysman) {
     pDevice = pLinuxSysmanImp->getDeviceHandle();
     auto device = static_cast<DeviceImp *>(pDevice);
     devicePciBdf = device->getNEODevice()->getRootDeviceEnvironment().osInterface->getDriverModel()->as<NEO::Drm>()->getPciPath();
-    executionEnvironment = device->getNEODevice()->getExecutionEnvironment();
     rootDeviceIndex = device->getNEODevice()->getRootDeviceIndex();
 }
 

@@ -1,19 +1,21 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/gen8/aub_mapper.h"
+#include "shared/source/gen8/hw_cmds_base.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.inl"
 #include "shared/source/helpers/hw_helper_base.inl"
 #include "shared/source/helpers/hw_helper_bdw_and_later.inl"
 #include "shared/source/helpers/hw_helper_bdw_to_icllp.inl"
+#include "shared/source/helpers/logical_state_helper.inl"
 
 namespace NEO {
-typedef BDWFamily Family;
+typedef Gen8Family Family;
 
 static uint32_t slmSizeId[] = {0, 1, 2, 4, 4, 8, 8, 8, 8, 16, 16, 16, 16, 16, 16, 16};
 
@@ -52,31 +54,29 @@ uint64_t HwHelperHw<Family>::getMaxMemAllocSize() const {
 }
 
 template <>
-bool HwHelperHw<Family>::isStatelesToStatefullWithOffsetSupported() const {
+bool HwHelperHw<Family>::isStatelessToStatefulWithOffsetSupported() const {
     return false;
 }
 
 template <>
-void MemorySynchronizationCommands<Family>::addPipeControl(LinearStream &commandStream, PipeControlArgs &args) {
+void MemorySynchronizationCommands<Family>::addSingleBarrier(LinearStream &commandStream, PipeControlArgs &args) {
     Family::PIPE_CONTROL cmd = Family::cmdInitPipeControl;
-    args.dcFlushEnable = true;
-    MemorySynchronizationCommands<Family>::setPipeControl(cmd, args);
+    MemorySynchronizationCommands<Family>::setSingleBarrier(&cmd, args);
+
+    cmd.setDcFlushEnable(true);
+
+    if (DebugManager.flags.DoNotFlushCaches.get()) {
+        cmd.setDcFlushEnable(false);
+    }
+
     Family::PIPE_CONTROL *cmdBuffer = commandStream.getSpaceForCmd<Family::PIPE_CONTROL>();
     *cmdBuffer = cmd;
-}
-
-template <>
-void MemorySynchronizationCommands<Family>::addPipeControlWithCSStallOnly(LinearStream &commandStream) {
-    using PIPE_CONTROL = typename Family::PIPE_CONTROL;
-    PIPE_CONTROL cmd = Family::cmdInitPipeControl;
-    cmd.setCommandStreamerStallEnable(true);
-    cmd.setDcFlushEnable(true);
-    auto pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
-    *pipeControl = cmd;
 }
 
 template class HwHelperHw<Family>;
 template class FlatBatchBufferHelperHw<Family>;
 template struct MemorySynchronizationCommands<Family>;
 template struct LriHelper<Family>;
+
+template LogicalStateHelper *LogicalStateHelper::create<Family>();
 } // namespace NEO

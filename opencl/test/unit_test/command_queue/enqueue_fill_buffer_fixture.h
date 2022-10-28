@@ -1,12 +1,11 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "opencl/test/unit_test/command_queue/command_enqueue_fixture.h"
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
@@ -16,19 +15,19 @@ namespace NEO {
 
 struct EnqueueFillBufferFixture : public CommandEnqueueFixture {
 
-    void SetUp() override {
-        CommandEnqueueFixture::SetUp();
+    void setUp() {
+        CommandEnqueueFixture::setUp();
 
         BufferDefaults::context = new MockContext;
 
         buffer = BufferHelper<>::create();
     }
 
-    void TearDown() override {
+    void tearDown() {
         delete buffer;
         delete BufferDefaults::context;
 
-        CommandEnqueueFixture::TearDown();
+        CommandEnqueueFixture::tearDown();
     }
 
     template <typename FamilyType>

@@ -5,7 +5,6 @@
  *
  */
 
-#include "shared/source/helpers/state_compute_mode_helper.h"
 #include "shared/source/kernel/grf_config.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
@@ -14,20 +13,19 @@
 
 using namespace NEO;
 
-using ThreadArbitrationPvc = ::testing::Test;
-PVCTEST_F(ThreadArbitrationPvc, givenPvcWhenCallgetDefaultThreadArbitrationPolicyThenAgeBasedisReturned) {
-    EXPECT_EQ(ThreadArbitrationPolicy::AgeBased, HwHelperHw<FamilyType>::get().getDefaultThreadArbitrationPolicy());
+using ThreadArbitrationXeHpc = ::testing::Test;
+HWTEST2_F(ThreadArbitrationXeHpc, givenXeHpcWhenCallgetDefaultThreadArbitrationPolicyThenAgeBasedisReturned, IsXeHpcCore) {
+    EXPECT_EQ(ThreadArbitrationPolicy::RoundRobinAfterDependency, HwHelperHw<FamilyType>::get().getDefaultThreadArbitrationPolicy());
 }
 
-using PvcComputeModeRequirements = ComputeModeRequirements;
+using XeHpcComputeModeRequirements = ComputeModeRequirements;
 
-PVCTEST_F(PvcComputeModeRequirements, givenNewRequiredThreadArbitrationPolicyWhenComputeModeIsProgrammedThenStateComputeIsProgrammedAgain) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenNewRequiredThreadArbitrationPolicyWhenComputeModeIsProgrammedThenStateComputeIsProgrammedAgain, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     using EU_THREAD_SCHEDULING_MODE_OVERRIDE = typename STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE;
 
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     char buff[1024] = {0};
     LinearStream stream(buff, 1024);
     auto &hwHelper = NEO::HwHelper::get(device->getHardwareInfo().platform.eRenderCoreFamily);
@@ -43,14 +41,14 @@ PVCTEST_F(PvcComputeModeRequirements, givenNewRequiredThreadArbitrationPolicyWhe
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 
-    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
+    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
     EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
 
-    EXPECT_EQ(expectedEuThreadSchedulingMode, static_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)))->getEuThreadSchedulingModeOverride());
+    EXPECT_EQ(expectedEuThreadSchedulingMode, static_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase())->getEuThreadSchedulingModeOverride());
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenRequiredThreadArbitrationPolicyAlreadySetWhenComputeModeIsProgrammedThenStateComputeIsNotProgrammedAgain) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenRequiredThreadArbitrationPolicyAlreadySetWhenComputeModeIsProgrammedThenStateComputeIsNotProgrammedAgain, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
 
     auto cmdsSize = 0u;
@@ -70,78 +68,74 @@ PVCTEST_F(PvcComputeModeRequirements, givenRequiredThreadArbitrationPolicyAlread
     EXPECT_NE(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_ROUND_ROBIN, static_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase())->getEuThreadSchedulingModeOverride());
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenCoherencyWithoutSharedHandlesWhenCommandSizeIsCalculatedThenCorrectCommandSizeIsReturned) {
+HWTEST2_F(XeHpcComputeModeRequirements, givenCoherencyWithoutSharedHandlesWhenCommandSizeIsCalculatedThenCorrectCommandSizeIsReturned, IsXeHpcCore) {
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    SetUpImpl<FamilyType>();
+    setUpImpl<FamilyType>();
 
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
 
     overrideComputeModeRequest<FamilyType>(false, false, false, false);
-    auto retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
-    EXPECT_EQ(0u, retSize);
+    EXPECT_FALSE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
 
     overrideComputeModeRequest<FamilyType>(false, false, false, true);
-    retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    auto retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
     EXPECT_EQ(cmdsSize, retSize);
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenNumGrfRequiredChangedWhenCommandSizeIsCalculatedThenCorrectCommandSizeIsReturned) {
+HWTEST2_F(XeHpcComputeModeRequirements, givenNumGrfRequiredChangedWhenCommandSizeIsCalculatedThenCorrectCommandSizeIsReturned, IsXeHpcCore) {
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    SetUpImpl<FamilyType>();
+    setUpImpl<FamilyType>();
 
     auto numGrfRequired = 128u;
     auto numGrfRequiredChanged = false;
     overrideComputeModeRequest<FamilyType>(false, false, false, numGrfRequiredChanged, numGrfRequired);
-    EXPECT_EQ(0u, getCsrHw<FamilyType>()->getCmdSizeForComputeMode());
+    EXPECT_FALSE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
 
     numGrfRequiredChanged = true;
     overrideComputeModeRequest<FamilyType>(false, false, false, numGrfRequiredChanged, numGrfRequired);
-    EXPECT_EQ(sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL), getCsrHw<FamilyType>()->getCmdSizeForComputeMode());
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+    EXPECT_EQ(sizeof(STATE_COMPUTE_MODE), getCsrHw<FamilyType>()->getCmdSizeForComputeMode());
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfModeDoesntChangeButRequiredThreadArbitrationPolicyIsNewThenSCMIsReloaded) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfModeDoesntChangeButRequiredThreadArbitrationPolicyIsNewThenSCMIsReloaded, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
     char buff[1024];
     LinearStream stream(buff, 1024);
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
 
     overrideComputeModeRequest<FamilyType>(false, false, false, true);
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfModeChangedThenSCMIsReloadedAndLargeGrfModeProgrammed) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfModeChangedThenSCMIsReloadedAndLargeGrfModeProgrammed, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
     char buff[1024];
     LinearStream stream(buff, 1024);
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     uint32_t numGrfRequired = GrfConfig::LargeGrfNumber;
 
     overrideComputeModeRequest<FamilyType>(false, false, false, true, numGrfRequired);
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 
-    EXPECT_TRUE(static_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)))->getLargeGrfMode());
+    EXPECT_TRUE(static_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase())->getLargeGrfMode());
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfRequiredChangedButValueIsDefaultThenSCMIsReloadedButLargeGrfModeNotProgrammed) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfRequiredChangedButValueIsDefaultThenSCMIsReloadedButLargeGrfModeNotProgrammed, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
     char buff[1024];
     LinearStream stream(buff, 1024);
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     uint32_t numGrfRequired = GrfConfig::DefaultGrfNumber;
 
     overrideComputeModeRequest<FamilyType>(false, false, false, true, numGrfRequired);
@@ -150,10 +144,11 @@ PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfReq
     EXPECT_FALSE(static_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase())->getLargeGrfMode());
 }
 
-PVCTEST_F(PvcComputeModeRequirements, giventhreadArbitrationPolicyWithoutSharedHandlesWhenFlushTaskCalledThenProgramCmdOnlyIfChanged) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, giventhreadArbitrationPolicyWithoutSharedHandlesWhenFlushTaskCalledThenProgramCmdOnlyIfChanged, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    auto &hwInfoConfig = *HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
 
     auto startOffset = getCsrHw<FamilyType>()->commandStream.getUsed();
 
@@ -165,7 +160,7 @@ PVCTEST_F(PvcComputeModeRequirements, giventhreadArbitrationPolicyWithoutSharedH
             getCsrHw<FamilyType>()->streamProperties.stateComputeMode.threadArbitrationPolicy.value = -1;
         }
         startOffset = getCsrHw<FamilyType>()->commandStream.getUsed();
-        csr->flushTask(stream, 0, stream, stream, stream, 0, flags, *device);
+        csr->flushTask(stream, 0, &stream, &stream, &stream, 0, flags, *device);
     };
 
     auto findCmd = [&](bool expectToBeProgrammed) {
@@ -173,14 +168,12 @@ PVCTEST_F(PvcComputeModeRequirements, giventhreadArbitrationPolicyWithoutSharedH
         hwParser.parseCommands<FamilyType>(getCsrHw<FamilyType>()->commandStream, startOffset);
         bool foundOne = false;
 
-        uint32_t expectedCoherentMask = FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask |
-                                        FamilyType::stateComputeModeLargeGrfModeMask |
-                                        FamilyType::stateComputeModeForceNonCoherentMask;
+        uint32_t expectedMask = FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask;
 
         for (auto it = hwParser.cmdList.begin(); it != hwParser.cmdList.end(); it++) {
             auto cmd = genCmdCast<STATE_COMPUTE_MODE *>(*it);
             if (cmd) {
-                EXPECT_EQ(expectedCoherentMask, cmd->getMaskBits());
+                EXPECT_EQ(expectedMask, cmd->getMaskBits());
                 EXPECT_FALSE(foundOne);
                 foundOne = true;
                 auto pc = genCmdCast<PIPE_CONTROL *>(*(++it));
@@ -191,22 +184,58 @@ PVCTEST_F(PvcComputeModeRequirements, giventhreadArbitrationPolicyWithoutSharedH
     };
 
     getCsrHw<FamilyType>()->streamProperties.stateComputeMode.setProperties(flags.requiresCoherency, flags.numGrfRequired,
-                                                                            flags.threadArbitrationPolicy);
+                                                                            flags.threadArbitrationPolicy, PreemptionMode::Disabled, *defaultHwInfo);
 
     flushTask(true);
-    findCmd(true); // first time
+    findCmd(hwInfoConfig.isThreadArbitrationPolicyReportedWithScm()); // first time
 
     flushTask(false);
     findCmd(false); // not changed
 
     flushTask(true);
-    findCmd(true); // changed
+    findCmd(hwInfoConfig.isThreadArbitrationPolicyReportedWithScm()); // changed
 
     csr->getMemoryManager()->freeGraphicsMemory(graphicAlloc);
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenCoherencyWithoutSharedHandlesWhenComputeModeIsProgrammedThenCorrectCommandsAreAdded) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenCoherencyWithoutSharedHandlesWhenComputeModeIsProgrammedThenCorrectCommandsAreAdded, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
+    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
+
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
+    char buff[1024] = {0};
+    LinearStream stream(buff, 1024);
+
+    auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
+    expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
+    expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
+                               FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
+
+    overrideComputeModeRequest<FamilyType>(true, false, false, true, true);
+    getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
+    EXPECT_EQ(cmdsSize, stream.getUsed());
+
+    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
+    EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+
+    auto startOffset = stream.getUsed();
+
+    overrideComputeModeRequest<FamilyType>(true, true, false, true, true);
+    getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
+    EXPECT_EQ(cmdsSize * 2, stream.getUsed());
+
+    expectedScmCmd = FamilyType::cmdInitStateComputeMode;
+    expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_DISABLED);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
+    expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
+                               FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
+    scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), startOffset));
+    EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+}
+
+HWTEST2_F(XeHpcComputeModeRequirements, givenCoherencyWithSharedHandlesWhenComputeModeIsProgrammedThenCorrectCommandsAreAdded, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
@@ -216,44 +245,7 @@ PVCTEST_F(PvcComputeModeRequirements, givenCoherencyWithoutSharedHandlesWhenComp
 
     auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
-    expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
-                               FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
-
-    overrideComputeModeRequest<FamilyType>(true, false, false, true, true);
-    getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
-    EXPECT_EQ(cmdsSize, stream.getUsed());
-
-    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
-    EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
-
-    auto startOffset = stream.getUsed() + sizeof(PIPE_CONTROL);
-
-    overrideComputeModeRequest<FamilyType>(true, true, false, true, true);
-    getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
-    EXPECT_EQ(cmdsSize * 2, stream.getUsed());
-
-    expectedScmCmd = FamilyType::cmdInitStateComputeMode;
-    expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_DISABLED);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
-    expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
-                               FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
-    scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), startOffset));
-    EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
-}
-
-PVCTEST_F(PvcComputeModeRequirements, givenCoherencyWithSharedHandlesWhenComputeModeIsProgrammedThenCorrectCommandsAreAdded) {
-    SetUpImpl<FamilyType>();
-    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + 2 * sizeof(PIPE_CONTROL);
-    char buff[1024] = {0};
-    LinearStream stream(buff, 1024);
-
-    auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
-    expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
 
@@ -263,10 +255,10 @@ PVCTEST_F(PvcComputeModeRequirements, givenCoherencyWithSharedHandlesWhenCompute
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 
-    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
+    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
     EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
 
-    auto pcCmd = reinterpret_cast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL) + sizeof(STATE_COMPUTE_MODE)));
+    auto pcCmd = reinterpret_cast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), sizeof(STATE_COMPUTE_MODE)));
     EXPECT_TRUE(memcmp(&expectedPcCmd, pcCmd, sizeof(PIPE_CONTROL)) == 0);
 
     auto startOffset = stream.getUsed();
@@ -277,29 +269,28 @@ PVCTEST_F(PvcComputeModeRequirements, givenCoherencyWithSharedHandlesWhenCompute
 
     expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_DISABLED);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
-    scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL) + startOffset));
+    scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), startOffset));
     EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
 
-    pcCmd = reinterpret_cast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL) + startOffset + sizeof(STATE_COMPUTE_MODE)));
+    pcCmd = reinterpret_cast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), startOffset + sizeof(STATE_COMPUTE_MODE)));
     EXPECT_TRUE(memcmp(&expectedPcCmd, pcCmd, sizeof(PIPE_CONTROL)) == 0);
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfModeChangeIsRequiredThenCorrectCommandsAreAdded) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfModeChangeIsRequiredThenCorrectCommandsAreAdded, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     char buff[1024];
     LinearStream stream(buff, 1024);
 
     auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setLargeGrfMode(true);
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
 
@@ -307,10 +298,9 @@ PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfMod
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 
-    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
-    EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+    EXPECT_TRUE(memcmp(&expectedScmCmd, stream.getCpuBase(), sizeof(STATE_COMPUTE_MODE)) == 0);
 
-    auto startOffset = stream.getUsed() + sizeof(PIPE_CONTROL);
+    auto startOffset = stream.getUsed();
 
     overrideComputeModeRequest<FamilyType>(true, false, false, true, true, 128u);
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
@@ -319,26 +309,26 @@ PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenLargeGrfMod
     expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setLargeGrfMode(false);
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
-    scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), startOffset));
+    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), startOffset));
     EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenRequiredGRFNumberIsLowerThan128ThenSmallGRFModeIsProgrammed) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenComputeModeProgrammingWhenRequiredGRFNumberIsLowerThan128ThenSmallGRFModeIsProgrammed, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     char buff[1024];
     LinearStream stream(buff, 1024);
 
     auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setLargeGrfMode(false);
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
 
@@ -346,23 +336,21 @@ PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingWhenRequiredGRF
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, *defaultHwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 
-    auto scmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
-    EXPECT_TRUE(memcmp(&expectedScmCmd, scmCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+    EXPECT_TRUE(memcmp(&expectedScmCmd, stream.getCpuBase(), sizeof(STATE_COMPUTE_MODE)) == 0);
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingThenCorrectCommandsAreAdded) {
-    SetUpImpl<FamilyType>();
+HWTEST2_F(XeHpcComputeModeRequirements, givenComputeModeProgrammingThenCorrectCommandsAreAdded, IsXeHpcCore) {
+    setUpImpl<FamilyType>();
 
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     char buff[1024] = {0};
     LinearStream stream(buff, 1024);
 
     auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
 
@@ -375,42 +363,29 @@ PVCTEST_F(PvcComputeModeRequirements, givenComputeModeProgrammingThenCorrectComm
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(stream, startOffset);
 
-    auto pipeControlIterator = find<PIPE_CONTROL *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
-    auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*pipeControlIterator);
-
-    EXPECT_TRUE(pipeControlCmd->getHdcPipelineFlush());
-    EXPECT_TRUE(pipeControlCmd->getAmfsFlushEnable());
-    EXPECT_TRUE(pipeControlCmd->getCommandStreamerStallEnable());
-    EXPECT_TRUE(pipeControlCmd->getInstructionCacheInvalidateEnable());
-    EXPECT_TRUE(pipeControlCmd->getTextureCacheInvalidationEnable());
-    EXPECT_TRUE(pipeControlCmd->getUnTypedDataPortCacheFlush());
-    EXPECT_TRUE(pipeControlCmd->getConstantCacheInvalidationEnable());
-    EXPECT_TRUE(pipeControlCmd->getStateCacheInvalidationEnable());
-
-    auto stateComputeModelCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
-    expectedScmCmd.setMaskBits(stateComputeModelCmd->getMaskBits());
-    EXPECT_TRUE(memcmp(&expectedScmCmd, stateComputeModelCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+    auto stateComputeModeCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
+    expectedScmCmd.setMaskBits(stateComputeModeCmd->getMaskBits());
+    EXPECT_TRUE(memcmp(&expectedScmCmd, stateComputeModeCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
 }
 
-PVCTEST_F(PvcComputeModeRequirements, givenProgramPipeControlPriorToNonPipelinedStateCommandThenCorrectCommandsAreAdded) {
+HWTEST2_F(XeHpcComputeModeRequirements, givenProgramExtendedPipeControlPriorToNonPipelinedStateCommandEnabledThenCorrectCommandsAreAdded, IsXeHpcCore) {
     DebugManagerStateRestore dbgRestorer;
-    DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.set(true);
+    DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.set(true);
 
     HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 1;
 
-    SetUpImpl<FamilyType>(&hwInfo);
+    setUpImpl<FamilyType>(&hwInfo);
 
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
     char buff[1024] = {0};
     LinearStream stream(buff, 1024);
 
     auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
     expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
-    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_OLDEST_FIRST);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
     expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
                                FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
 
@@ -418,9 +393,29 @@ PVCTEST_F(PvcComputeModeRequirements, givenProgramPipeControlPriorToNonPipelined
     getCsrHw<FamilyType>()->programComputeMode(stream, flags, hwInfo);
     EXPECT_EQ(cmdsSize, stream.getUsed());
 
+    auto stateComputeModeCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
+    expectedScmCmd.setMaskBits(stateComputeModeCmd->getMaskBits());
+    EXPECT_TRUE(memcmp(&expectedScmCmd, stateComputeModeCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+}
+
+HWTEST2_F(XeHpcComputeModeRequirements, givenProgramExtendedPipeControlPriorToNonPipelinedStateCommandEnabledWhenaddPipeControlBefore3dStateIsCalledThenCorrectCommandsAreAdded, IsXeHpcCore) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.set(true);
+
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 1;
+
+    setUpImpl<FamilyType>(&hwInfo);
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    char buff[1024] = {0};
+    LinearStream stream(buff, 1024);
+    flags.usePerDssBackedBuffer = true;
+    getCsrHw<FamilyType>()->addPipeControlBefore3dState(stream, flags);
+
     auto startOffset = getCsrHw<FamilyType>()->commandStream.getUsed();
 
     HardwareParse hwParser;
+
     hwParser.parseCommands<FamilyType>(stream, startOffset);
 
     auto pipeControlIterator = find<PIPE_CONTROL *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
@@ -434,8 +429,35 @@ PVCTEST_F(PvcComputeModeRequirements, givenProgramPipeControlPriorToNonPipelined
     EXPECT_TRUE(pipeControlCmd->getUnTypedDataPortCacheFlush());
     EXPECT_TRUE(pipeControlCmd->getConstantCacheInvalidationEnable());
     EXPECT_TRUE(pipeControlCmd->getStateCacheInvalidationEnable());
+}
 
-    auto stateComputeModelCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
-    expectedScmCmd.setMaskBits(stateComputeModelCmd->getMaskBits());
-    EXPECT_TRUE(memcmp(&expectedScmCmd, stateComputeModelCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
+HWTEST2_F(XeHpcComputeModeRequirements, GivenSingleCCSEnabledSetupThenCorrectCommandsAreAdded, IsXeHpcCore) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 1;
+
+    setUpImpl<FamilyType>(&hwInfo);
+
+    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
+
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
+    char buff[1024] = {0};
+    LinearStream stream(buff, 1024);
+
+    auto expectedScmCmd = FamilyType::cmdInitStateComputeMode;
+    expectedScmCmd.setForceNonCoherent(STATE_COMPUTE_MODE::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT);
+    expectedScmCmd.setEuThreadSchedulingModeOverride(STATE_COMPUTE_MODE::EU_THREAD_SCHEDULING_MODE_OVERRIDE_STALL_BASED_ROUND_ROBIN);
+    expectedScmCmd.setMaskBits(FamilyType::stateComputeModeForceNonCoherentMask | FamilyType::stateComputeModeLargeGrfModeMask |
+                               FamilyType::stateComputeModeEuThreadSchedulingModeOverrideMask);
+
+    overrideComputeModeRequest<FamilyType>(true, false, false, true, true);
+
+    auto retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_EQ(cmdsSize, retSize);
+
+    getCsrHw<FamilyType>()->programComputeMode(stream, flags, hwInfo);
+    EXPECT_EQ(cmdsSize, stream.getUsed());
+
+    auto stateComputeModeCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
+    expectedScmCmd.setMaskBits(stateComputeModeCmd->getMaskBits());
+    EXPECT_TRUE(memcmp(&expectedScmCmd, stateComputeModeCmd, sizeof(STATE_COMPUTE_MODE)) == 0);
 }

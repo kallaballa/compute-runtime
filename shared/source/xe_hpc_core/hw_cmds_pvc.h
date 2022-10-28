@@ -1,15 +1,20 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "shared/source/xe_hpc_core/hw_cmds_base.h"
+
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
+#include "shared/source/xe_hpc_core/pvc/device_ids_configs_pvc.h"
+
+#include <algorithm>
+
 namespace NEO {
 
-struct PVC : public XE_HPC_COREFamily {
+struct PVC : public XeHpcCoreFamily {
     static const PLATFORM platform;
     static const HardwareInfo hwInfo;
     static const uint64_t defaultHardwareInfoConfig;
@@ -22,16 +27,76 @@ struct PVC : public XE_HPC_COREFamily {
     static const uint32_t maxSubslicesSupported = 64;
     static const uint32_t maxDualSubslicesSupported = 64;
     static const RuntimeCapabilityTable capabilityTable;
+
+    struct FrontEndStateSupport {
+        static constexpr bool scratchSize = true;
+        static constexpr bool privateScratchSize = true;
+        static constexpr bool computeDispatchAllWalker = true;
+        static constexpr bool disableEuFusion = false;
+        static constexpr bool disableOverdispatch = true;
+        static constexpr bool singleSliceDispatchCcsMode = true;
+    };
+
+    struct StateComputeModeStateSupport {
+        static constexpr bool threadArbitrationPolicy = true;
+        static constexpr bool coherencyRequired = true;
+        static constexpr bool largeGrfMode = true;
+        static constexpr bool zPassAsyncComputeThreadLimit = false;
+        static constexpr bool pixelAsyncComputeThreadLimit = false;
+        static constexpr bool devicePreemptionMode = false;
+    };
+
+    struct StateBaseAddressStateSupport {
+        static constexpr bool globalAtomics = false;
+        static constexpr bool statelessMocs = true;
+    };
+
+    struct PipelineSelectStateSupport {
+        static constexpr bool modeSelected = true;
+        static constexpr bool mediaSamplerDopClockGate = false;
+        static constexpr bool systolicMode = true;
+    };
+
+    struct PreemptionDebugSupport {
+        static constexpr bool preemptionMode = true;
+        static constexpr bool stateSip = true;
+        static constexpr bool csrSurface = false;
+    };
+
     static void (*setupHardwareInfo)(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig);
     static void setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo);
-    static void setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, bool setupMultiTile);
+    static void setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable);
+    static void setupHardwareInfoMultiTileBase(HardwareInfo *hwInfo, bool setupMultiTile);
     static void adjustHardwareInfo(HardwareInfo *hwInfo);
+
+    static constexpr uint8_t pvcBaseDieRevMask = 0b111000; // [3:5]
+    static constexpr uint8_t pvcBaseDieA0Masked = 0;       // [3:5] == 0
+
+    static bool isXl(const HardwareInfo &hwInfo) {
+        auto it = std::find(pvcXlDeviceIds.begin(), pvcXlDeviceIds.end(), hwInfo.platform.usDeviceID);
+        return it != pvcXlDeviceIds.end();
+    }
+
+    static bool isXt(const HardwareInfo &hwInfo) {
+        auto it = std::find(pvcXtDeviceIds.begin(), pvcXtDeviceIds.end(), hwInfo.platform.usDeviceID);
+        return it != pvcXtDeviceIds.end();
+    }
+
+    static bool isXlA0(const HardwareInfo &hwInfo) {
+        auto revId = hwInfo.platform.usRevId & pvcSteppingBits;
+        return (revId < 0x3);
+    }
+
+    static bool isAtMostXtA0(const HardwareInfo &hwInfo) {
+        auto revId = hwInfo.platform.usRevId & pvcSteppingBits;
+        return (revId <= 0x3);
+    }
+    static constexpr uint32_t pvcSteppingBits = 0b111;
 };
 
-class PVC_CONFIG : public PVC {
+class PvcHwConfig : public PVC {
   public:
     static void setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable);
-    static void setupHardwareInfoMultiTile(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, bool setupMultiTile);
     static const HardwareInfo hwInfo;
 
   private:

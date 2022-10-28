@@ -13,7 +13,6 @@
 
 #include "engine_node.h"
 
-#include <memory>
 #include <mutex>
 
 namespace NEO {
@@ -35,7 +34,7 @@ class OsContext : public ReferenceTrackedObject<OsContext> {
     uint32_t getNumSupportedDevices() const { return numSupportedDevices; }
     DeviceBitfield getDeviceBitfield() const { return deviceBitfield; }
     PreemptionMode getPreemptionMode() const { return preemptionMode; }
-    aub_stream::EngineType &getEngineType() { return engineType; }
+    const aub_stream::EngineType &getEngineType() const { return engineType; }
     EngineUsage getEngineUsage() { return engineUsage; }
     bool isRegular() const { return engineUsage == EngineUsage::Regular; }
     bool isLowPriority() const { return engineUsage == EngineUsage::LowPriority; }
@@ -47,6 +46,7 @@ class OsContext : public ReferenceTrackedObject<OsContext> {
     bool isDefaultContext() const { return defaultContext; }
     void setDefaultContext(bool value) { defaultContext = value; }
     bool isDirectSubmissionActive() { return directSubmissionActive; }
+    bool isDebuggableContext() { return debuggableContext; }
     void setDirectSubmissionActive() { directSubmissionActive = true; }
 
     bool isDirectSubmissionAvailable(const HardwareInfo &hwInfo, bool &submitOnInit);
@@ -72,6 +72,7 @@ class OsContext : public ReferenceTrackedObject<OsContext> {
     bool directSubmissionActive = false;
     std::once_flag contextInitializedFlag = {};
     bool contextInitialized = false;
+    bool debuggableContext = false;
     bool engineInstancedDevice = false;
     uint8_t powerHintValue = 0;
 };

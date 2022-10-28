@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
-#include "shared/source/gen9/hw_cmds.h"
+#include "shared/source/gen9/hw_cmds_bxt.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
@@ -14,15 +14,6 @@
 namespace NEO {
 
 const char *HwMapper<IGFX_BROXTON>::abbreviation = "bxt";
-
-bool isSimulationBXT(unsigned short deviceId) {
-    switch (deviceId) {
-    case IBXT_A_DEVICE_F0_ID:
-    case IBXT_C_DEVICE_F0_ID:
-        return true;
-    }
-    return false;
-};
 
 const PLATFORM BXT::platform = {
     IGFX_BROXTON,
@@ -44,7 +35,6 @@ const RuntimeCapabilityTable BXT::capabilityTable{
     0,                                             // sharedSystemMemCapabilities
     52.083,                                        // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                     // requiredPreemptionSurfaceSize
-    &isSimulationBXT,                              // isSimulation
     "lp",                                          // platformType
     "",                                            // deviceName
     PreemptionMode::MidThread,                     // defaultPreemptionMode
@@ -84,7 +74,8 @@ const RuntimeCapabilityTable BXT::capabilityTable{
     true,                                          // supportsMediaBlock
     false,                                         // p2pAccessSupported
     false,                                         // p2pAtomicAccessSupported
-    false                                          // fusedEuEnabled
+    false,                                         // fusedEuEnabled
+    false                                          // l0DebuggerSupported;
 };
 
 WorkaroundTable BXT::workaroundTable = {};
@@ -131,21 +122,9 @@ void BXT::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waSamplerCacheFlushBetweenRedescribedSurfaceReads = true;
 }
 
-const HardwareInfo BXT_1x2x6::hwInfo = {
-    &BXT::platform,
-    &BXT::featureTable,
-    &BXT::workaroundTable,
-    &BXT_1x2x6::gtSystemInfo,
-    BXT::capabilityTable,
-};
-GT_SYSTEM_INFO BXT_1x2x6::gtSystemInfo = {0};
-void BXT_1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+void BXT::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * BXT::threadsPerEu;
-    gtSysInfo->SliceCount = 1;
-    gtSysInfo->L3CacheSizeInKb = 384;
-    gtSysInfo->L3BankCount = 1;
-    gtSysInfo->MaxFillRate = 8;
     gtSysInfo->TotalVsThreads = 112;
     gtSysInfo->TotalHsThreads = 112;
     gtSysInfo->TotalDsThreads = 112;
@@ -157,53 +136,59 @@ void BXT_1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAn
     gtSysInfo->MaxSubSlicesSupported = BXT::maxSubslicesSupported;
     gtSysInfo->IsL3HashModeEnabled = false;
     gtSysInfo->IsDynamicallyPopulated = false;
+
     if (setupFeatureTableAndWorkaroundTable) {
         setupFeatureAndWorkaroundTable(hwInfo);
     }
-};
+}
 
-const HardwareInfo BXT_1x3x6::hwInfo = {
+const HardwareInfo BxtHw1x2x6::hwInfo = {
     &BXT::platform,
     &BXT::featureTable,
     &BXT::workaroundTable,
-    &BXT_1x3x6::gtSystemInfo,
+    &BxtHw1x2x6::gtSystemInfo,
     BXT::capabilityTable,
 };
-GT_SYSTEM_INFO BXT_1x3x6::gtSystemInfo = {0};
-void BXT_1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO BxtHw1x2x6::gtSystemInfo = {0};
+void BxtHw1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    BXT::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * BXT::threadsPerEu;
     gtSysInfo->SliceCount = 1;
     gtSysInfo->L3CacheSizeInKb = 384;
     gtSysInfo->L3BankCount = 1;
     gtSysInfo->MaxFillRate = 8;
-    gtSysInfo->TotalVsThreads = 112;
-    gtSysInfo->TotalHsThreads = 112;
-    gtSysInfo->TotalDsThreads = 112;
-    gtSysInfo->TotalGsThreads = 112;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = BXT::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = BXT::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = BXT::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo BXT::hwInfo = BXT_1x3x6::hwInfo;
+const HardwareInfo BxtHw1x3x6::hwInfo = {
+    &BXT::platform,
+    &BXT::featureTable,
+    &BXT::workaroundTable,
+    &BxtHw1x3x6::gtSystemInfo,
+    BXT::capabilityTable,
+};
+GT_SYSTEM_INFO BxtHw1x3x6::gtSystemInfo = {0};
+void BxtHw1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    BXT::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->SliceCount = 1;
+    gtSysInfo->L3CacheSizeInKb = 384;
+    gtSysInfo->L3BankCount = 1;
+    gtSysInfo->MaxFillRate = 8;
+};
+
+const HardwareInfo BXT::hwInfo = BxtHw1x3x6::hwInfo;
 const uint64_t BXT::defaultHardwareInfoConfig = 0x100030006;
 
 void setupBXTHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
     if (hwInfoConfig == 0x100020006) {
-        BXT_1x2x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        BxtHw1x2x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x100030006) {
-        BXT_1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        BxtHw1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x0) {
         // Default config
-        BXT_1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        BxtHw1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else {
         UNRECOVERABLE_IF(true);
     }

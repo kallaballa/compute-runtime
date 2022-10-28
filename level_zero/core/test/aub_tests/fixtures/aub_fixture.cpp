@@ -10,8 +10,10 @@
 #include "shared/source/command_stream/tbx_command_stream_receiver_hw.h"
 #include "shared/source/helpers/api_specific_config.h"
 #include "shared/test/common/mocks/mock_device.h"
-#include "shared/test/unit_test/tests_configuration.h"
+#include "shared/test/common/tests_configuration.h"
 
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
+#include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_cmdlist.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
 
@@ -31,10 +33,10 @@ void AUBFixtureL0::prepareCopyEngines(NEO::MockDevice &device, const std::string
     }
 }
 
-void AUBFixtureL0::SetUp() {
-    SetUp(NEO::defaultHwInfo.get());
+void AUBFixtureL0::setUp() {
+    setUp(NEO::defaultHwInfo.get(), false);
 }
-void AUBFixtureL0::SetUp(const NEO::HardwareInfo *hardwareInfo) {
+void AUBFixtureL0::setUp(const NEO::HardwareInfo *hardwareInfo, bool debuggingEnabled) {
     ASSERT_NE(nullptr, hardwareInfo);
     const auto &hwInfo = *hardwareInfo;
 
@@ -50,7 +52,11 @@ void AUBFixtureL0::SetUp(const NEO::HardwareInfo *hardwareInfo) {
     executionEnvironment = new NEO::ExecutionEnvironment();
     executionEnvironment->prepareRootDeviceEnvironments(1u);
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+    executionEnvironment->rootDeviceEnvironments[0]->initGmm();
 
+    if (debuggingEnabled) {
+        executionEnvironment->setDebuggingEnabled();
+    }
     neoDevice = NEO::MockDevice::createWithExecutionEnvironment<NEO::MockDevice>(&hwInfo, executionEnvironment, 0u);
 
     if (NEO::testMode == NEO::TestMode::AubTestsWithTbx) {
@@ -65,6 +71,9 @@ void AUBFixtureL0::SetUp(const NEO::HardwareInfo *hardwareInfo) {
     NEO::DeviceVector devices;
     devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
     driverHandle = std::make_unique<ult::Mock<DriverHandleImp>>();
+
+    driverHandle->enableProgramDebugging = debuggingEnabled;
+
     driverHandle->initialize(std::move(devices));
 
     device = driverHandle->devices[0];
@@ -76,14 +85,14 @@ void AUBFixtureL0::SetUp(const NEO::HardwareInfo *hardwareInfo) {
     context = static_cast<ContextImp *>(Context::fromHandle(hContext));
 
     ze_result_t returnValue;
-    commandList.reset(ult::whitebox_cast(CommandList::create(hwInfo.platform.eProductFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)));
+    commandList.reset(ult::whiteboxCast(CommandList::create(hwInfo.platform.eProductFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)));
 
     returnValue = ZE_RESULT_ERROR_UNINITIALIZED;
     ze_command_queue_desc_t queueDesc = {};
     pCmdq = CommandQueue::create(hwInfo.platform.eProductFamily, device, csr, &queueDesc, false, false, returnValue);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 }
-void AUBFixtureL0::TearDown() {
+void AUBFixtureL0::tearDown() {
     context->destroy();
     pCmdq->destroy();
 }

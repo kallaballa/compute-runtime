@@ -9,7 +9,7 @@
 #include "shared/source/utilities/software_tags_manager.h"
 #include "shared/test/common/fixtures/device_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 using namespace NEO;
 using namespace SWTags;
@@ -34,7 +34,7 @@ struct VeryLargeTag : public BaseTag {
 struct SoftwareTagsManagerTests : public DeviceFixture, public ::testing::Test {
     void SetUp() override {
         DebugManager.flags.EnableSWTags.set(true);
-        DeviceFixture::SetUp();
+        DeviceFixture::setUp();
 
         tagsManager = pDevice->getRootDeviceEnvironment().tagsManager.get();
 
@@ -44,7 +44,7 @@ struct SoftwareTagsManagerTests : public DeviceFixture, public ::testing::Test {
     }
 
     void TearDown() override {
-        DeviceFixture::TearDown();
+        DeviceFixture::tearDown();
     }
 
     template <typename GfxFamily>
@@ -72,7 +72,7 @@ TEST_F(SoftwareTagsManagerTests, whenSWTagsMangerIsInitializedThenHeapAllocation
     auto memoryMgr = pDevice->getMemoryManager();
     SWTagBXML bxml;
     BXMLHeapInfo bxmlInfo((sizeof(BXMLHeapInfo) + bxml.str.size() + 1) / sizeof(uint32_t));
-    SWTagHeapInfo tagInfo(SWTagsManager::MAX_TAG_HEAP_SIZE / sizeof(uint32_t));
+    SWTagHeapInfo tagInfo(SWTagsManager::maxTagHeapSize / sizeof(uint32_t));
     auto bxmlHeap = tagsManager->getBXMLHeapAllocation();
     auto tagHeap = tagsManager->getSWTagHeapAllocation();
 
@@ -128,16 +128,16 @@ HWTEST_F(SoftwareTagsManagerTests, whenTestTagIsInsertedThenItIsSuccessful) {
     EXPECT_EQ(testCmdStream->getUsed(), 2 * sizeof(MI_NOOP));
 
     void *bufferBase = testCmdStream->getCpuBase();
-    auto marker_noop = reinterpret_cast<MI_NOOP *>(bufferBase);
-    auto offset_noop = reinterpret_cast<MI_NOOP *>(ptrOffset(bufferBase, sizeof(MI_NOOP)));
+    auto markerNoop = reinterpret_cast<MI_NOOP *>(bufferBase);
+    auto offsetNoop = reinterpret_cast<MI_NOOP *>(ptrOffset(bufferBase, sizeof(MI_NOOP)));
 
-    EXPECT_EQ(BaseTag::getMarkerNoopID(static_cast<OpCode>(testOpCode)), marker_noop->getIdentificationNumber());
-    EXPECT_EQ(true, marker_noop->getIdentificationNumberRegisterWriteEnable());
+    EXPECT_EQ(BaseTag::getMarkerNoopID(static_cast<OpCode>(testOpCode)), markerNoop->getIdentificationNumber());
+    EXPECT_EQ(true, markerNoop->getIdentificationNumberRegisterWriteEnable());
 
     uint32_t firstTagOffset = sizeof(SWTagHeapInfo); // SWTagHeapInfo is always on offset 0, first tag is inserted immediately after.
 
-    EXPECT_EQ(BaseTag::getOffsetNoopID(firstTagOffset), offset_noop->getIdentificationNumber());
-    EXPECT_EQ(false, offset_noop->getIdentificationNumberRegisterWriteEnable());
+    EXPECT_EQ(BaseTag::getOffsetNoopID(firstTagOffset), offsetNoop->getIdentificationNumber());
+    EXPECT_EQ(false, offsetNoop->getIdentificationNumberRegisterWriteEnable());
 
     auto memoryMgr = pDevice->getMemoryManager();
     auto tagHeap = tagsManager->getSWTagHeapAllocation();
@@ -160,17 +160,17 @@ HWTEST_F(SoftwareTagsManagerTests, givenSoftwareManagerWithMaxTagsReachedWhenTag
 
     initializeTestCmdStream<FamilyType>();
 
-    EXPECT_TRUE(tagsManager->MAX_TAG_HEAP_SIZE > (tagsManager->MAX_TAG_COUNT + 1) * sizeof(TestTag));
+    EXPECT_TRUE(tagsManager->maxTagHeapSize > (tagsManager->maxTagCount + 1) * sizeof(TestTag));
 
-    for (unsigned int i = 0; i <= tagsManager->MAX_TAG_COUNT; ++i) {
+    for (unsigned int i = 0; i <= tagsManager->maxTagCount; ++i) {
         tagsManager->insertTag<FamilyType, TestTag>(*testCmdStream.get(), *pDevice);
     }
 
-    EXPECT_EQ(testCmdStream->getUsed(), tagsManager->MAX_TAG_COUNT * 2 * sizeof(MI_NOOP));
+    EXPECT_EQ(testCmdStream->getUsed(), tagsManager->maxTagCount * 2 * sizeof(MI_NOOP));
 
     tagsManager->insertTag<FamilyType, TestTag>(*testCmdStream.get(), *pDevice);
 
-    EXPECT_EQ(testCmdStream->getUsed(), tagsManager->MAX_TAG_COUNT * 2 * sizeof(MI_NOOP));
+    EXPECT_EQ(testCmdStream->getUsed(), tagsManager->maxTagCount * 2 * sizeof(MI_NOOP));
 
     freeTestCmdStream();
 }
@@ -183,7 +183,7 @@ HWTEST_F(SoftwareTagsManagerTests, givenSoftwareManagerWithMaxHeapReachedWhenTag
     size_t prevHeapOffset = tagsManager->getCurrentHeapOffset();
 
     uint32_t i = 0;
-    while (tagsManager->getCurrentHeapOffset() + sizeof(VeryLargeTag) <= NEO::SWTagsManager::MAX_TAG_HEAP_SIZE) {
+    while (tagsManager->getCurrentHeapOffset() + sizeof(VeryLargeTag) <= NEO::SWTagsManager::maxTagHeapSize) {
         tagsManager->insertTag<FamilyType, VeryLargeTag>(*testCmdStream.get(), *pDevice);
         i++;
     }

@@ -3648,19 +3648,19 @@ struct XY_BLOCK_COPY_BLT {
         return (TheStructure.Common.DestinationBaseAddress);
     }
 
-    inline void setDestinationXoffset(const uint32_t value) {
+    inline void setDestinationXOffset(const uint32_t value) {
         TheStructure.Common.DestinationXoffset = value;
     }
 
-    inline uint32_t getDestinationXoffset() const {
+    inline uint32_t getDestinationXOffset() const {
         return (TheStructure.Common.DestinationXoffset);
     }
 
-    inline void setDestinationYoffset(const uint32_t value) {
+    inline void setDestinationYOffset(const uint32_t value) {
         TheStructure.Common.DestinationYoffset = value;
     }
 
-    inline uint32_t getDestinationYoffset() const {
+    inline uint32_t getDestinationYOffset() const {
         return (TheStructure.Common.DestinationYoffset);
     }
 
@@ -3744,19 +3744,19 @@ struct XY_BLOCK_COPY_BLT {
         return (TheStructure.Common.SourceBaseAddress);
     }
 
-    inline void setSourceXoffset(const uint32_t value) {
+    inline void setSourceXOffset(const uint32_t value) {
         TheStructure.Common.SourceXoffset = value;
     }
 
-    inline uint32_t getSourceXoffset() const {
+    inline uint32_t getSourceXOffset() const {
         return (TheStructure.Common.SourceXoffset);
     }
 
-    inline void setSourceYoffset(const uint32_t value) {
+    inline void setSourceYOffset(const uint32_t value) {
         TheStructure.Common.SourceYoffset = value;
     }
 
-    inline uint32_t getSourceYoffset() const {
+    inline uint32_t getSourceYOffset() const {
         return (TheStructure.Common.SourceYoffset);
     }
 
@@ -3838,6 +3838,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setDestinationSurfaceHeight(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.DestinationSurfaceHeight = value - 1;
     }
 
@@ -3846,6 +3847,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setDestinationSurfaceWidth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.DestinationSurfaceWidth = value - 1;
     }
 
@@ -3878,6 +3880,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setDestinationSurfaceDepth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x7ff);
         TheStructure.Common.DestinationSurfaceDepth = value - 1;
     }
 
@@ -3934,6 +3937,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setSourceSurfaceHeight(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.SourceSurfaceHeight = value - 1;
     }
 
@@ -3942,6 +3946,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setSourceSurfaceWidth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.SourceSurfaceWidth = value - 1;
     }
 
@@ -3974,6 +3979,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setSourceSurfaceDepth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x7ff);
         TheStructure.Common.SourceSurfaceDepth = value - 1;
     }
 
@@ -5684,6 +5690,17 @@ typedef struct tagMI_ARB_CHECK {
     inline uint32_t getPreFetchDisable() const {
         return TheStructure.Common.Pre_FetchDisable;
     }
+
+    // patched for easier templates usage
+    inline void setPreParserDisable(const uint32_t value) {
+        setPreFetchDisable(value);
+    }
+
+    // patched for easier templates usage
+    inline uint32_t getPreParserDisable() const {
+        return getPreFetchDisable();
+    }
+
     inline void setMaskBits(const uint32_t value) {
         DEBUG_BREAK_IF(value > 0xff00);
         TheStructure.Common.MaskBits = value;
@@ -6787,7 +6804,7 @@ typedef struct tagL3_FLUSH_ADDRESS_RANGE {
     }
 
     inline uint64_t getAddressLow() const {
-        return (TheStructure.Common.AddressLow << ADDRESSLOW_BIT_SHIFT);
+        return (static_cast<uint64_t>(TheStructure.Common.AddressLow) << ADDRESSLOW_BIT_SHIFT);
     }
 
     inline void setAddressHigh(const uint64_t value) {
@@ -6846,7 +6863,7 @@ struct L3_CONTROL_POST_SYNC_DATA {
         TheStructure.Common.Address = value >> ADDRESS_BIT_SHIFT;
     }
     inline uint64_t getAddress() const {
-        return TheStructure.Common.Address << ADDRESS_BIT_SHIFT;
+        return static_cast<uint64_t>(TheStructure.Common.Address) << ADDRESS_BIT_SHIFT;
     }
     inline void setImmediateData(const uint64_t value) {
         TheStructure.Common.ImmediateData = value;

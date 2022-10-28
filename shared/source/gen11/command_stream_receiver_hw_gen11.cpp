@@ -5,34 +5,18 @@
  *
  */
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/command_stream_receiver_hw_bdw_and_later.inl"
 #include "shared/source/command_stream/device_command_stream.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/gen11/hw_cmds_base.h"
 #include "shared/source/gen11/reg_configs.h"
 #include "shared/source/helpers/blit_commands_helper_bdw_and_later.inl"
 #include "shared/source/helpers/populate_factory.h"
 
 namespace NEO {
-typedef ICLFamily Family;
+typedef Gen11Family Family;
 static auto gfxCore = IGFX_GEN11_CORE;
-
-template <>
-size_t CommandStreamReceiverHw<Family>::getCmdSizeForComputeMode() {
-    if (this->streamProperties.stateComputeMode.isDirty()) {
-        return sizeof(typename Family::MI_LOAD_REGISTER_IMM);
-    }
-    return 0;
-}
-
-template <>
-void CommandStreamReceiverHw<Family>::programComputeMode(LinearStream &stream, DispatchFlags &dispatchFlags, const HardwareInfo &hwInfo) {
-    if (this->streamProperties.stateComputeMode.isDirty()) {
-        LriHelper<Family>::program(&stream,
-                                   gen11HdcModeRegister::address,
-                                   DwordBuilder::build(gen11HdcModeRegister::forceNonCoherentEnableBit, true, !dispatchFlags.requiresCoherency),
-                                   false);
-    }
-}
 
 template <>
 void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, DispatchFlags &dispatchFlags) {
@@ -43,7 +27,7 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
         if (dispatchFlags.pipelineSelectArgs.mediaSamplerRequired) {
             if (!lastVmeSubslicesConfig) {
                 PipeControlArgs args;
-                args.dcFlushEnable = MemorySynchronizationCommands<Family>::getDcFlushEnable(true, hwInfo);
+                args.dcFlushEnable = this->dcFlushSupport;
                 args.renderTargetCacheFlushEnable = true;
                 args.instructionCacheInvalidateEnable = true;
                 args.textureCacheInvalidationEnable = true;
@@ -51,7 +35,7 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
                 args.vfCacheInvalidationEnable = true;
                 args.constantCacheInvalidationEnable = true;
                 args.stateCacheInvalidationEnable = true;
-                MemorySynchronizationCommands<Family>::addPipeControl(stream, args);
+                MemorySynchronizationCommands<Family>::addSingleBarrier(stream, args);
 
                 uint32_t numSubslices = hwInfo.gtSystemInfo.SubSliceCount;
                 uint32_t numSubslicesWithVme = numSubslices / 2; // 1 VME unit per DSS
@@ -70,14 +54,14 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
                                            false);
 
                 args = {};
-                MemorySynchronizationCommands<Family>::addPipeControl(stream, args);
+                MemorySynchronizationCommands<Family>::addSingleBarrier(stream, args);
 
                 lastVmeSubslicesConfig = true;
             }
         } else {
             if (lastVmeSubslicesConfig) {
                 PipeControlArgs args;
-                args.dcFlushEnable = MemorySynchronizationCommands<Family>::getDcFlushEnable(true, hwInfo);
+                args.dcFlushEnable = this->dcFlushSupport;
                 args.renderTargetCacheFlushEnable = true;
                 args.instructionCacheInvalidateEnable = true;
                 args.textureCacheInvalidationEnable = true;
@@ -86,10 +70,10 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
                 args.constantCacheInvalidationEnable = true;
                 args.stateCacheInvalidationEnable = true;
                 args.genericMediaStateClear = true;
-                MemorySynchronizationCommands<Family>::addPipeControl(stream, args);
+                MemorySynchronizationCommands<Family>::addSingleBarrier(stream, args);
 
                 args = {};
-                MemorySynchronizationCommands<Family>::addPipeControl(stream, args);
+                MemorySynchronizationCommands<Family>::addSingleBarrier(stream, args);
 
                 // In Gen11-LP, software programs this register as if GT consists of
                 // 2 slices with 4 subslices in each slice. Hardware maps this to the
@@ -111,7 +95,7 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
                                            reg.TheStructure.RawData[0],
                                            false);
 
-                MemorySynchronizationCommands<Family>::addPipeControl(stream, args);
+                MemorySynchronizationCommands<Family>::addSingleBarrier(stream, args);
             }
         }
     }

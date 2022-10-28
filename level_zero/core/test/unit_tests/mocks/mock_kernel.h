@@ -9,6 +9,8 @@
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
 #include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/kernel/kernel_descriptor_from_patchtokens.h"
+#include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/program/kernel_info.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
 
 #include "level_zero/core/source/kernel/kernel_hw.h"
@@ -44,6 +46,8 @@ struct WhiteBox<::L0::Kernel> : public ::L0::KernelImp {
     using ::L0::KernelImp::createPrintfBuffer;
     using ::L0::KernelImp::crossThreadData;
     using ::L0::KernelImp::crossThreadDataSize;
+    using ::L0::KernelImp::dynamicStateHeapData;
+    using ::L0::KernelImp::dynamicStateHeapDataSize;
     using ::L0::KernelImp::groupSize;
     using ::L0::KernelImp::kernelImmData;
     using ::L0::KernelImp::kernelRequiresGenerationOfLocalIdsByRuntime;
@@ -75,6 +79,8 @@ struct WhiteBoxKernelHw : public KernelHw<gfxCoreFamily> {
     using ::L0::KernelImp::createPrintfBuffer;
     using ::L0::KernelImp::crossThreadData;
     using ::L0::KernelImp::crossThreadDataSize;
+    using ::L0::KernelImp::dynamicStateHeapData;
+    using ::L0::KernelImp::dynamicStateHeapDataSize;
     using ::L0::KernelImp::groupSize;
     using ::L0::KernelImp::kernelImmData;
     using ::L0::KernelImp::kernelRequiresGenerationOfLocalIdsByRuntime;
@@ -100,25 +106,36 @@ struct Mock<::L0::Kernel> : public WhiteBox<::L0::Kernel> {
     using BaseClass = WhiteBox<::L0::Kernel>;
     ADDMETHOD_NOBASE(getProperties, ze_result_t, ZE_RESULT_SUCCESS, (ze_kernel_properties_t * pKernelProperties))
 
+    ADDMETHOD(setArgRedescribedImage, ze_result_t, true, ZE_RESULT_SUCCESS,
+              (uint32_t argIndex, ze_image_handle_t argVal),
+              (argIndex, argVal));
+
     Mock() : BaseClass(nullptr) {
         NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens;
         iOpenCL::SKernelBinaryHeaderCommon kernelHeader;
         kernelTokens.header = &kernelHeader;
 
         iOpenCL::SPatchExecutionEnvironment execEnv = {};
+        execEnv.NumGRFRequired = 128;
         execEnv.LargestCompiledSIMDSize = 8;
         kernelTokens.tokens.executionEnvironment = &execEnv;
 
         this->kernelImmData = &immutableData;
 
-        auto allocation = new NEO::GraphicsAllocation(0, NEO::AllocationType::KERNEL_ISA,
-                                                      nullptr, 0, 0, 4096,
-                                                      MemoryPool::System4KBPages);
+        auto allocation = new NEO::GraphicsAllocation(0,
+                                                      NEO::AllocationType::KERNEL_ISA,
+                                                      nullptr,
+                                                      0,
+                                                      0,
+                                                      4096,
+                                                      NEO::MemoryPool::System4KBPages,
+                                                      NEO::MemoryManager::maxOsContextCount);
 
         immutableData.isaGraphicsAllocation.reset(allocation);
 
         NEO::populateKernelDescriptor(descriptor, kernelTokens, 8);
         immutableData.kernelDescriptor = &descriptor;
+        immutableData.kernelInfo = &info;
         crossThreadData.reset(new uint8_t[100]);
     }
     ~Mock() override {
@@ -137,6 +154,7 @@ struct Mock<::L0::Kernel> : public WhiteBox<::L0::Kernel> {
 
     WhiteBox<::L0::KernelImmutableData> immutableData;
     NEO::KernelDescriptor descriptor;
+    NEO::KernelInfo info;
     uint32_t printPrintfOutputCalledTimes = 0;
 };
 

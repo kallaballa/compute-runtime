@@ -17,7 +17,7 @@
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
@@ -104,6 +104,22 @@ TEST_F(DeviceFactoryTest, WhenOverridingUsingDebugManagerThenOverridesAreApplied
               hwInfo->capabilityTable.kmdNotifyProperties.enableQuickKmdSleepForDirectSubmission);
     EXPECT_EQ(refDelayQuickKmdSleepForDirectSubmissionMicroseconds + 15,
               hwInfo->capabilityTable.kmdNotifyProperties.delayQuickKmdSleepForDirectSubmissionMicroseconds);
+}
+
+TEST_F(DeviceFactoryTest, givenDebugFlagSetWhenCreatingDevicesThenForceImagesSupport) {
+    DebugManagerStateRestore stateRestore;
+
+    for (int32_t flag : {0, 1}) {
+        DebugManager.flags.ForceImagesSupport.set(flag);
+
+        MockExecutionEnvironment mockExecutionEnvironment(defaultHwInfo.get());
+
+        auto success = DeviceFactory::prepareDeviceEnvironments(mockExecutionEnvironment);
+        ASSERT_TRUE(success);
+        auto hwInfo = mockExecutionEnvironment.rootDeviceEnvironments[0]->getHardwareInfo();
+
+        EXPECT_EQ(!!flag, hwInfo->capabilityTable.supportsImages);
+    }
 }
 
 TEST_F(DeviceFactoryTest, givenZeAffinityMaskSetWhenCreateDevicesThenProperNumberOfDevicesIsReturned) {
@@ -301,15 +317,6 @@ TEST_F(DeviceFactoryTest, givenInvalidHwConfigStringWhenPreparingDeviceEnvironme
     EXPECT_FALSE(success);
 }
 
-HWTEST_F(DeviceFactoryTest, givenInvalidHwConfigStringWhenPrepareDeviceEnvironmentsForProductFamilyOverrideThenThrowsException) {
-    DebugManagerStateRestore stateRestore;
-    DebugManager.flags.HardwareInfoOverride.set("1x1x1");
-
-    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
-
-    EXPECT_ANY_THROW(DeviceFactory::prepareDeviceEnvironmentsForProductFamilyOverride(executionEnvironment));
-}
-
 TEST_F(DeviceFactoryTest, givenPrepareDeviceEnvironmentsCallWhenItIsDoneThenOsInterfaceIsAllocated) {
     bool success = DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
     EXPECT_TRUE(success);
@@ -324,15 +331,16 @@ TEST(DeviceFactory, givenCreateMultipleRootDevicesWhenCreateDevicesIsCalledThenV
     for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
         hwInfo[i] = *NEO::defaultHwInfo.get();
         executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(&hwInfo[i]);
+        executionEnvironment->rootDeviceEnvironments[i]->initGmm();
     }
-    executionEnvironment->rootDeviceEnvironments[0].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
-    executionEnvironment->rootDeviceEnvironments[1].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
-    executionEnvironment->rootDeviceEnvironments[2].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
-    executionEnvironment->rootDeviceEnvironments[3].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = false;
-    executionEnvironment->rootDeviceEnvironments[4].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = false;
-    executionEnvironment->rootDeviceEnvironments[5].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
-    executionEnvironment->rootDeviceEnvironments[6].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
-    executionEnvironment->rootDeviceEnvironments[7].get()->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = false;
+    executionEnvironment->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
+    executionEnvironment->rootDeviceEnvironments[1]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
+    executionEnvironment->rootDeviceEnvironments[2]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
+    executionEnvironment->rootDeviceEnvironments[3]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = false;
+    executionEnvironment->rootDeviceEnvironments[4]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = false;
+    executionEnvironment->rootDeviceEnvironments[5]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
+    executionEnvironment->rootDeviceEnvironments[6]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = true;
+    executionEnvironment->rootDeviceEnvironments[7]->getMutableHardwareInfo()->capabilityTable.isIntegratedDevice = false;
     auto devices = DeviceFactory::createDevices(*executionEnvironment);
     for (auto iterator = 0u; iterator < 3; iterator++) {
         EXPECT_FALSE(devices[iterator]->getHardwareInfo().capabilityTable.isIntegratedDevice); // Initial entries would be for discrete devices
@@ -358,23 +366,6 @@ TEST(DeviceFactory, givenNonHwModeSelectedWhenIsHwModeSelectedIsCalledThenFalseI
         DebugManager.flags.SetCommandStreamReceiver.set(nonHwMode);
         EXPECT_FALSE(DeviceFactory::isHwModeSelected());
     }
-}
-
-TEST(DiscoverDevices, whenDiscoverDevicesAndForceDeviceIdIsDifferentFromTheExistingDeviceThenReturnNullptr) {
-    DebugManagerStateRestore stateRestore;
-    DebugManager.flags.ForceDeviceId.set("invalid");
-    ExecutionEnvironment executionEnviornment;
-    auto hwDeviceIds = OSInterface::discoverDevices(executionEnviornment);
-    EXPECT_TRUE(hwDeviceIds.empty());
-}
-
-TEST(DiscoverDevices, whenDiscoverDevicesAndForceDeviceIdIsDifferentFromTheExistingDeviceThenPrepareDeviceEnvironmentsReturnsFalse) {
-    DebugManagerStateRestore stateRestore;
-    DebugManager.flags.ForceDeviceId.set("invalid");
-    ExecutionEnvironment executionEnviornment;
-
-    auto result = DeviceFactory::prepareDeviceEnvironments(executionEnviornment);
-    EXPECT_FALSE(result);
 }
 
 TEST(DiscoverDevices, whenDiscoverDevicesAndFilterDifferentFromTheExistingDeviceThenReturnNullptr) {
@@ -405,5 +396,5 @@ TEST_F(UltDeviceFactoryTest, givenExecutionEnvironmentWhenCreatingUltDeviceFacto
 
     EXPECT_EQ(2u, executionEnvironment->rootDeviceEnvironments.size());
     EXPECT_NE(nullptr, executionEnvironment->memoryManager.get());
-    EXPECT_EQ(true, executionEnvironment->memoryManager.get()->isInitialized());
+    EXPECT_EQ(true, executionEnvironment->memoryManager->isInitialized());
 }

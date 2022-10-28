@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -19,18 +19,18 @@ struct MemoryManagementFixture {
     virtual ~MemoryManagementFixture() { MemoryManagement::detailedAllocationLoggingActive = false; };
 
     // Typical Fixture methods
-    virtual void SetUp(void);
-    virtual void TearDown(void);
+    void setUp();
+    void tearDown();
 
     // Helper methods
     void setFailingAllocation(size_t allocation);
-    void clearFailingAllocation(void);
+    void clearFailingAllocation();
 
     ::testing::AssertionResult assertLeak(
         const char *leakExpr,
         size_t leakIndex);
 
-    void checkForLeaks(void);
+    void checkForLeaks();
 
     typedef std::function<void(size_t)> InjectedFunction;
     void injectFailures(InjectedFunction &method, uint32_t maxIndex = 0);

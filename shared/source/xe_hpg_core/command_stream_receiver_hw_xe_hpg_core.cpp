@@ -5,16 +5,16 @@
  *
  */
 
-#include "shared/source/xe_hpg_core/hw_cmds.h"
+#include "shared/source/xe_hpg_core/hw_cmds_xe_hpg_core_base.h"
 #include "shared/source/xe_hpg_core/hw_info.h"
 
-using Family = NEO::XE_HPG_COREFamily;
+using Family = NEO::XeHpgCoreFamily;
 
 #include "shared/source/command_stream/command_stream_receiver_hw_dg2_and_later.inl"
-#include "shared/source/command_stream/command_stream_receiver_hw_tgllp_and_later.inl"
 #include "shared/source/command_stream/command_stream_receiver_hw_xehp_and_later.inl"
 #include "shared/source/helpers/blit_commands_helper_xehp_and_later.inl"
 #include "shared/source/helpers/populate_factory.h"
+#include "shared/source/helpers/state_base_address_xehp_and_later.inl"
 #include "shared/source/os_interface/hw_info_config.h"
 
 namespace NEO {
@@ -40,18 +40,6 @@ MemoryCompressionState CommandStreamReceiverHw<Family>::getMemoryCompressionStat
         memoryCompressionState = auxTranslationRequired ? MemoryCompressionState::Disabled : MemoryCompressionState::Enabled;
     }
     return memoryCompressionState;
-}
-
-template <>
-void CommandStreamReceiverHw<Family>::programAdditionalStateBaseAddress(LinearStream &csr, typename Family::STATE_BASE_ADDRESS &cmd, Device &device) {
-    using STATE_BASE_ADDRESS = Family::STATE_BASE_ADDRESS;
-
-    auto &hwInfo = *device.getRootDeviceEnvironment().getHardwareInfo();
-    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
-    if (hwInfoConfig.isAdditionalStateBaseAddressWARequired(hwInfo)) {
-        auto pCmd = static_cast<STATE_BASE_ADDRESS *>(csr.getSpace(sizeof(STATE_BASE_ADDRESS)));
-        *pCmd = cmd;
-    }
 }
 
 template class CommandStreamReceiverHw<Family>;

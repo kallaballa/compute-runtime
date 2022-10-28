@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -63,16 +63,16 @@ void CommandQueueHwFixture::forceMapBufferOnGpu(Buffer &buffer) {
     buffer.setSharingHandler(new SharingHandler());
     auto gfxAllocation = buffer.getGraphicsAllocation(clDevice->getRootDeviceIndex());
     for (auto handleId = 0u; handleId < gfxAllocation->getNumGmms(); handleId++) {
-        gfxAllocation->setGmm(new MockGmm(clDevice->getGmmClientContext()), handleId);
+        gfxAllocation->setGmm(new MockGmm(clDevice->getGmmHelper()), handleId);
     }
 }
 
-void CommandQueueHwFixture::SetUp() {
+void CommandQueueHwFixture::setUp() {
     ASSERT_NE(nullptr, pCmdQ);
     context = new MockContext();
 }
 
-void CommandQueueHwFixture::SetUp(
+void CommandQueueHwFixture::setUp(
     ClDevice *pDevice,
     cl_command_queue_properties properties) {
     ASSERT_NE(nullptr, pDevice);
@@ -81,7 +81,7 @@ void CommandQueueHwFixture::SetUp(
     ASSERT_NE(nullptr, pCmdQ);
 }
 
-void CommandQueueHwFixture::TearDown() {
+void CommandQueueHwFixture::tearDown() {
     //resolve event dependencies
     if (pCmdQ) {
         auto blocked = pCmdQ->isQueueBlocked();
@@ -109,7 +109,7 @@ CommandQueue *CommandQueueFixture::createCommandQueue(
         internalUsage);
 }
 
-void CommandQueueFixture::SetUp(
+void CommandQueueFixture::setUp(
     Context *context,
     ClDevice *device,
     cl_command_queue_properties properties) {
@@ -120,8 +120,41 @@ void CommandQueueFixture::SetUp(
         false);
 }
 
-void CommandQueueFixture::TearDown() {
+void CommandQueueFixture::tearDown() {
     delete pCmdQ;
     pCmdQ = nullptr;
 }
+
+void OOQueueFixture ::setUp(ClDevice *pDevice, cl_command_queue_properties properties) {
+    ASSERT_NE(nullptr, pDevice);
+    BaseClass::pCmdQ = BaseClass::createCommandQueue(pDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
+    ASSERT_NE(nullptr, BaseClass::pCmdQ);
+}
+
+void CommandQueueHwTest::SetUp() {
+    ClDeviceFixture::setUp();
+    cl_device_id device = pClDevice;
+    ContextFixture::setUp(1, &device);
+    CommandQueueHwFixture::setUp(pClDevice, 0);
+}
+
+void CommandQueueHwTest::TearDown() {
+    CommandQueueHwFixture::tearDown();
+    ContextFixture::tearDown();
+    ClDeviceFixture::tearDown();
+}
+
+void OOQueueHwTest::SetUp() {
+    ClDeviceFixture::setUp();
+    cl_device_id device = pClDevice;
+    ContextFixture::setUp(1, &device);
+    OOQueueFixture::setUp(pClDevice, 0);
+}
+
+void OOQueueHwTest::TearDown() {
+    OOQueueFixture::tearDown();
+    ContextFixture::tearDown();
+    ClDeviceFixture::tearDown();
+}
+
 } // namespace NEO

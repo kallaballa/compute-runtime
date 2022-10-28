@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,8 +10,11 @@
 #include "shared/test/common/helpers/test_files.h"
 #include "shared/test/common/test_macros/test.h"
 
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
+#include "level_zero/core/source/context/context_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/test/aub_tests/fixtures/aub_fixture.h"
-#include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
+#include "level_zero/core/test/unit_tests/mocks/mock_cmdlist.h"
 
 namespace L0 {
 namespace ult {
@@ -21,7 +24,7 @@ struct AUBAppendKernelIndirectL0 : Test<AUBFixtureL0> {
     static ze_module_handle_t createModuleFromFile(const std::string &fileName, ze_context_handle_t context, ze_device_handle_t device) {
         ze_module_handle_t moduleHandle;
         std::string testFile;
-        retrieveBinaryKernelFilenameNoRevision(testFile, fileName + "_", ".bin");
+        retrieveBinaryKernelFilenameApiSpecific(testFile, fileName + "_", ".bin");
 
         size_t size = 0;
         auto src = loadDataFromFile(

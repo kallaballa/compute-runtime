@@ -7,12 +7,13 @@
 
 #include "shared/test/common/mocks/mock_command_stream_receiver.h"
 #include "shared/test/common/mocks/mock_compilers.h"
+#include "shared/test/common/mocks/mock_cpu_page_fault_manager.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_svm_manager.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/page_fault_manager/mock_cpu_page_fault_manager.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
 #include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/source/image/image.h"
@@ -39,7 +40,7 @@ TEST_F(MultiDeviceContextTests,
     ContextImp *contextImp = static_cast<ContextImp *>(Context::fromHandle(hContext));
 
     for (size_t i = 0; i < driverHandle->devices.size(); i++) {
-        EXPECT_NE(contextImp->getDevices().find(driverHandle->devices[i]->toHandle()), contextImp->getDevices().end());
+        EXPECT_NE(contextImp->getDevices().find(driverHandle->devices[i]->getRootDeviceIndex()), contextImp->getDevices().end());
     }
 
     res = L0::Context::fromHandle(hContext)->destroy();
@@ -80,7 +81,7 @@ TEST_F(MultiDeviceContextTests,
 
     ContextImp *contextImp = static_cast<ContextImp *>(Context::fromHandle(hContext));
 
-    uint32_t expectedDeviceCountInContext = 1 + subDeviceCount1 + (subDeviceCount1 * subSubDeviceCount1);
+    uint32_t expectedDeviceCountInContext = 1;
     EXPECT_EQ(contextImp->getDevices().size(), expectedDeviceCountInContext);
 
     EXPECT_FALSE(contextImp->isDeviceDefinedForThisContext(L0::Device::fromHandle(device0)));
@@ -151,9 +152,9 @@ struct SVMAllocsManagerContextMock : public NEO::SVMAllocsManager {
     SVMAllocsManagerContextMock(MemoryManager *memoryManager) : NEO::SVMAllocsManager(memoryManager, false) {}
     void *createHostUnifiedMemoryAllocation(size_t size, const UnifiedMemoryProperties &memoryProperties) override {
         EXPECT_EQ(expectedRootDeviceIndexes.size(), memoryProperties.rootDeviceIndices.size());
-        EXPECT_NE(memoryProperties.rootDeviceIndices.find(expectedRootDeviceIndexes[0]),
+        EXPECT_NE(std::find(memoryProperties.rootDeviceIndices.begin(), memoryProperties.rootDeviceIndices.end(), expectedRootDeviceIndexes[0]),
                   memoryProperties.rootDeviceIndices.end());
-        EXPECT_NE(memoryProperties.rootDeviceIndices.find(expectedRootDeviceIndexes[1]),
+        EXPECT_NE(std::find(memoryProperties.rootDeviceIndices.begin(), memoryProperties.rootDeviceIndices.end(), expectedRootDeviceIndexes[1]),
                   memoryProperties.rootDeviceIndices.end());
         return NEO::SVMAllocsManager::createHostUnifiedMemoryAllocation(size, memoryProperties);
     }
@@ -163,7 +164,7 @@ struct SVMAllocsManagerContextMock : public NEO::SVMAllocsManager {
 
 struct ContextHostAllocTests : public ::testing::Test {
     void SetUp() override {
-        NEO::MockCompilerEnableGuard mock(true);
+
         DebugManager.flags.CreateMultipleRootDevices.set(numRootDevices);
         auto executionEnvironment = new NEO::ExecutionEnvironment;
         auto devices = NEO::DeviceFactory::createDevices(*executionEnvironment);
@@ -242,7 +243,6 @@ TEST_F(ContextGetStatusTest, givenCallToContextGetStatusThenCorrectErrorCodeIsRe
 
     res = context->getStatus();
     EXPECT_EQ(ZE_RESULT_ERROR_DEVICE_LOST, res);
-
     context->destroy();
 }
 
@@ -520,6 +520,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     const ze_command_queue_desc_t desc = {};
     MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0, neoDevice->getDeviceBitfield());
     csr.initializeTagAllocation();
+    csr.createKernelArgsBufferAllocation();
     csr.setupContext(*neoDevice->getDefaultEngine().osContext);
 
     ze_result_t returnValue;
@@ -570,6 +571,7 @@ HWTEST2_F(ContextMakeMemoryResidentAndMigrationTests,
     const ze_command_queue_desc_t desc = {};
     MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0, neoDevice->getDeviceBitfield());
     csr.initializeTagAllocation();
+    csr.createKernelArgsBufferAllocation();
     csr.setupContext(*neoDevice->getDefaultEngine().osContext);
 
     ze_result_t returnValue;
@@ -618,6 +620,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     const ze_command_queue_desc_t desc = {};
     MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0, neoDevice->getDeviceBitfield());
     csr.initializeTagAllocation();
+    csr.createKernelArgsBufferAllocation();
     csr.setupContext(*neoDevice->getDefaultEngine().osContext);
 
     ze_result_t returnValue;
@@ -683,14 +686,14 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
                                                                                result));
     ASSERT_NE(nullptr, commandList0);
 
-    void *dst_buffer = nullptr;
+    void *dstBuffer = nullptr;
     ze_device_mem_alloc_desc_t deviceDesc = {};
     ze_host_mem_alloc_desc_t hostDesc = {};
-    result = context->allocSharedMem(device->toHandle(), &deviceDesc, &hostDesc, 16384u, 4090u, &dst_buffer);
+    result = context->allocSharedMem(device->toHandle(), &deviceDesc, &hostDesc, 16384u, 4090u, &dstBuffer);
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
 
     int one = 1;
-    result = commandList0->appendMemoryFill(dst_buffer, reinterpret_cast<void *>(&one), sizeof(one), 4090u,
+    result = commandList0->appendMemoryFill(dstBuffer, reinterpret_cast<void *>(&one), sizeof(one), 4090u,
                                             nullptr, 0, nullptr);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
@@ -702,7 +705,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
     context->freeMem(ptr);
-    context->freeMem(dst_buffer);
+    context->freeMem(dstBuffer);
 }
 
 HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
@@ -739,7 +742,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     DebugManagerStateRestore restore;
     DebugManager.flags.AllocateSharedAllocationsWithCpuAndGpuStorage.set(true);
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, mockDeviceBitfield}};
 
     NEO::SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
@@ -753,13 +756,13 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     commandContainer.addToResidencyContainer(gpuAllocation);
     commandContainer.addToResidencyContainer(allocation->cpuAllocation);
 
-    void *dst_buffer = nullptr;
+    void *dstBuffer = nullptr;
     ze_host_mem_alloc_desc_t hostDesc = {};
-    result = context->allocHostMem(&hostDesc, 4096u, 0u, &dst_buffer);
+    result = context->allocHostMem(&hostDesc, 4096u, 0u, &dstBuffer);
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
 
     int one = 1;
-    result = commandList0->appendMemoryFill(dst_buffer, reinterpret_cast<void *>(&one), sizeof(one), 4090u,
+    result = commandList0->appendMemoryFill(dstBuffer, reinterpret_cast<void *>(&one), sizeof(one), 4090u,
                                             nullptr, 0, nullptr);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
@@ -767,7 +770,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
 
     context->freeMem(ptr);
     svmManager->freeSVMAlloc(sharedPtr);
-    context->freeMem(dst_buffer);
+    context->freeMem(dstBuffer);
 }
 
 TEST_F(ContextTest, whenGettingDriverThenDriverIsRetrievedSuccessfully) {
@@ -800,12 +803,39 @@ TEST_F(ContextTest, whenCallingVirtualMemInterfacesThenUnsupportedIsReturned) {
     res = contextImp->reserveVirtualMem(pStart, size, &ptr);
     EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, res);
 
-    size_t pagesize = 0u;
-    res = contextImp->queryVirtualMemPageSize(device, size, &pagesize);
-    EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, res);
-
     res = contextImp->freeVirtualMem(ptr, size);
     EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, res);
+
+    res = contextImp->destroy();
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+}
+
+TEST_F(ContextTest, whenCallingQueryVirtualMemPageSizeCorrectAlignmentIsReturned) {
+    ze_context_handle_t hContext;
+    ze_context_desc_t desc = {ZE_STRUCTURE_TYPE_CONTEXT_DESC, nullptr, 0};
+
+    ze_result_t res = driverHandle->createContext(&desc, 0u, nullptr, &hContext);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ContextImp *contextImp = static_cast<ContextImp *>(L0::Context::fromHandle(hContext));
+
+    size_t size = 1024;
+    size_t pagesize = 0u;
+    res = contextImp->queryVirtualMemPageSize(device, size, &pagesize);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_EQ(pagesize, MemoryConstants::pageSize64k);
+
+    size = MemoryConstants::pageSize2Mb - 1000;
+    pagesize = 0u;
+    res = contextImp->queryVirtualMemPageSize(device, size, &pagesize);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_EQ(pagesize, MemoryConstants::pageSize2Mb / 2);
+
+    size = MemoryConstants::pageSize2Mb + 1000;
+    pagesize = 0u;
+    res = contextImp->queryVirtualMemPageSize(device, size, &pagesize);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_EQ(pagesize, MemoryConstants::pageSize2Mb);
 
     res = contextImp->destroy();
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);

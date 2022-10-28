@@ -7,26 +7,21 @@
 
 #pragma once
 
-#include "shared/source/command_stream/preemption_mode.h"
 #include "shared/source/device/device.h"
-#include "shared/source/helpers/hw_helper.h"
-#include "shared/source/helpers/hw_info.h"
-#include "shared/source/os_interface/os_interface.h"
+#include "shared/source/memory_manager/allocation_type.h"
+#include "shared/source/os_interface/hw_info_config.h"
 
-#include "level_zero/core/source/debugger/debugger_l0.h"
-#include "level_zero/core/source/driver/driver.h"
-#include "level_zero/core/source/driver/driver_handle.h"
-#include "level_zero/core/source/module/module.h"
 #include <level_zero/ze_api.h>
 #include <level_zero/zet_api.h>
-
-#include "CL/cl.h"
 
 static_assert(NEO::HwInfoConfig::uuidSize == ZE_MAX_DEVICE_UUID_SIZE);
 
 struct _ze_device_handle_t {};
 namespace NEO {
+class CommandStreamReceiver;
+class DebuggerL0;
 class Device;
+class HwHelper;
 class MemoryManager;
 class SourceLevelDebugger;
 struct DeviceInfo;
@@ -105,7 +100,7 @@ struct Device : _ze_device_handle_t {
     virtual uint32_t getPlatformInfo() const = 0;
     virtual MetricDeviceContext &getMetricDeviceContext() = 0;
     virtual DebugSession *getDebugSession(const zet_debug_config_t &config) = 0;
-    virtual DebugSession *createDebugSession(const zet_debug_config_t &config, ze_result_t &result) = 0;
+    virtual DebugSession *createDebugSession(const zet_debug_config_t &config, ze_result_t &result, bool isRootAttach) = 0;
     virtual void removeDebugSession() = 0;
 
     virtual ze_result_t activateMetricGroupsDeferred(uint32_t count,
@@ -126,13 +121,7 @@ struct Device : _ze_device_handle_t {
     virtual NEO::PreemptionMode getDevicePreemptionMode() const = 0;
     virtual const NEO::DeviceInfo &getDeviceInfo() const = 0;
     NEO::SourceLevelDebugger *getSourceLevelDebugger() { return getNEODevice()->getSourceLevelDebugger(); }
-    DebuggerL0 *getL0Debugger() {
-        auto debugger = getNEODevice()->getDebugger();
-        if (debugger) {
-            return !debugger->isLegacy() ? static_cast<DebuggerL0 *>(debugger) : nullptr;
-        }
-        return nullptr;
-    }
+    NEO::DebuggerL0 *getL0Debugger() { return getNEODevice()->getL0Debugger(); }
 
     virtual NEO::GraphicsAllocation *getDebugSurface() const = 0;
 

@@ -7,12 +7,15 @@
 
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/program/kernel_info.h"
+#include "shared/source/xe_hp_core/hw_cmds.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/hw_helper_tests.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/test/unit_test/mocks/mock_cl_hw_helper.h"
@@ -137,12 +140,12 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, givenRevisionEnumThenProperMaxThreadsF
 XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, givenDisablePipeControlFlagIsDefaultWhenLocalMemoryIsEnabledThenReturnFalseAndDoNotProgramPipeControl) {
     hardwareInfo.featureTable.flags.ftrLocalMemory = true;
 
-    EXPECT_FALSE(MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hardwareInfo));
+    EXPECT_FALSE(MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hardwareInfo));
 
     constexpr size_t bufferSize = 128u;
     uint8_t buffer[bufferSize];
     LinearStream cmdStream(buffer, bufferSize);
-    MemorySynchronizationCommands<FamilyType>::addPipeControlWA(cmdStream, 0x1000, hardwareInfo);
+    MemorySynchronizationCommands<FamilyType>::addBarrierWa(cmdStream, 0x1000, hardwareInfo);
     EXPECT_EQ(0u, cmdStream.getUsed());
 }
 
@@ -151,12 +154,12 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, givenDisablePipeControlFlagIsDisabledW
     DebugManager.flags.DisablePipeControlPrecedingPostSyncCommand.set(0);
 
     hardwareInfo.featureTable.flags.ftrLocalMemory = true;
-    EXPECT_FALSE(MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hardwareInfo));
+    EXPECT_FALSE(MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hardwareInfo));
 
     constexpr size_t bufferSize = 128u;
     uint8_t buffer[bufferSize];
     LinearStream cmdStream(buffer, bufferSize);
-    MemorySynchronizationCommands<FamilyType>::addPipeControlWA(cmdStream, 0x1000, hardwareInfo);
+    MemorySynchronizationCommands<FamilyType>::addBarrierWa(cmdStream, 0x1000, hardwareInfo);
     EXPECT_EQ(0u, cmdStream.getUsed());
 }
 
@@ -166,12 +169,12 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, givenDisablePipeControlFlagIsEnabledWh
     DebugManager.flags.DisablePipeControlPrecedingPostSyncCommand.set(1);
 
     hardwareInfo.featureTable.flags.ftrLocalMemory = true;
-    EXPECT_TRUE(MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hardwareInfo));
+    EXPECT_TRUE(MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hardwareInfo));
 
     constexpr size_t bufferSize = 128u;
     uint8_t buffer[bufferSize];
     LinearStream cmdStream(buffer, bufferSize);
-    MemorySynchronizationCommands<FamilyType>::addPipeControlWA(cmdStream, 0x1000, hardwareInfo);
+    MemorySynchronizationCommands<FamilyType>::addBarrierWa(cmdStream, 0x1000, hardwareInfo);
     EXPECT_EQ(sizeof(PIPE_CONTROL), cmdStream.getUsed());
 }
 
@@ -180,13 +183,18 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, givenDisablePipeControlFlagIsEnabledWh
     DebugManager.flags.DisablePipeControlPrecedingPostSyncCommand.set(1);
 
     hardwareInfo.featureTable.flags.ftrLocalMemory = false;
-    EXPECT_FALSE(MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hardwareInfo));
+    EXPECT_FALSE(MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hardwareInfo));
 
     constexpr size_t bufferSize = 128u;
     uint8_t buffer[bufferSize];
     LinearStream cmdStream(buffer, bufferSize);
-    MemorySynchronizationCommands<FamilyType>::addPipeControlWA(cmdStream, 0x1000, hardwareInfo);
+    MemorySynchronizationCommands<FamilyType>::addBarrierWa(cmdStream, 0x1000, hardwareInfo);
     EXPECT_EQ(0u, cmdStream.getUsed());
+}
+
+XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, givenXeHPAndLaterPlatformWhenCheckAssignEngineRoundRobinSupportedThenReturnFalse) {
+    auto &hwHelper = HwHelperHw<FamilyType>::get();
+    EXPECT_FALSE(hwHelper.isAssignEngineRoundRobinSupported(*defaultHwInfo));
 }
 
 using HwInfoConfigTestXE_HP_CORE = ::testing::Test;
@@ -284,7 +292,6 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE, whenGettingDefaultRevisionThenB0IsRetu
 XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE,
                   givenDebugFlagAndLocalMemoryIsNotAvailableWhenProgrammingPostSyncPipeControlThenExpectNotAddingWaPipeControl) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
 
     DebugManagerStateRestore restore;
     DebugManager.flags.DisablePipeControlPrecedingPostSyncCommand.set(1);
@@ -299,12 +306,12 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE,
     PipeControlArgs args;
     uint64_t gpuAddress = 0xABC0;
     uint64_t immediateValue = 0x10;
-    MemorySynchronizationCommands<FamilyType>::addPipeControlAndProgramPostSyncOperation(cmdStream,
-                                                                                         POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
-                                                                                         gpuAddress,
-                                                                                         immediateValue,
-                                                                                         hardwareInfo,
-                                                                                         args);
+    MemorySynchronizationCommands<FamilyType>::addBarrierWithPostSyncOperation(cmdStream,
+                                                                               PostSyncMode::ImmediateData,
+                                                                               gpuAddress,
+                                                                               immediateValue,
+                                                                               hardwareInfo,
+                                                                               args);
     EXPECT_EQ(sizeof(PIPE_CONTROL), cmdStream.getUsed());
 
     HardwareParse hwParser;
@@ -322,7 +329,6 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE,
 XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE,
                   givenDebugFlagAndLocalMemoryIsAvailableWhenProgrammingPostSyncPipeControlThenExpectAddingWaPipeControl) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
 
     DebugManagerStateRestore restore;
     DebugManager.flags.DisablePipeControlPrecedingPostSyncCommand.set(1);
@@ -337,12 +343,12 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE,
     PipeControlArgs args;
     uint64_t gpuAddress = 0xABC0;
     uint64_t immediateValue = 0x10;
-    MemorySynchronizationCommands<FamilyType>::addPipeControlAndProgramPostSyncOperation(cmdStream,
-                                                                                         POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
-                                                                                         gpuAddress,
-                                                                                         immediateValue,
-                                                                                         hardwareInfo,
-                                                                                         args);
+    MemorySynchronizationCommands<FamilyType>::addBarrierWithPostSyncOperation(cmdStream,
+                                                                               PostSyncMode::ImmediateData,
+                                                                               gpuAddress,
+                                                                               immediateValue,
+                                                                               hardwareInfo,
+                                                                               args);
     EXPECT_EQ(sizeof(PIPE_CONTROL) * 2, cmdStream.getUsed());
 
     HardwareParse hwParser;
@@ -363,4 +369,10 @@ XE_HP_CORE_TEST_F(HwHelperTestXE_HP_CORE,
     pipeControl = reinterpret_cast<PIPE_CONTROL *>(*pipeControlItor);
     EXPECT_EQ(gpuAddress, UnitTestHelper<FamilyType>::getPipeControlPostSyncAddress(*pipeControl));
     EXPECT_EQ(immediateValue, pipeControl->getImmediateData());
+}
+
+using HwHelperTestXeHpCoreAndLater = HwHelperTest;
+HWTEST2_F(HwHelperTestXeHpCoreAndLater, WhenGettingSupportedDeviceFeatureCapabilitiesThenReturnCorrectValue, IsAtLeastXeHpCore) {
+    cl_device_feature_capabilities_intel expectedCapabilities = CL_DEVICE_FEATURE_FLAG_DPAS_INTEL | CL_DEVICE_FEATURE_FLAG_DP4A_INTEL;
+    EXPECT_EQ(expectedCapabilities, ClHwHelper::get(renderCoreFamily).getSupportedDeviceFeatureCapabilities(hardwareInfo));
 }

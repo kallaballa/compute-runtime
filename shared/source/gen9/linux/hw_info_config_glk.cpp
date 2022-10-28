@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/gen9/hw_cmds_glk.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/hw_info_config.inl"
@@ -12,10 +13,15 @@
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/os_interface.h"
 
+#include "platforms.h"
+
 namespace NEO {
+constexpr static auto gfxProduct = IGFX_GEMINILAKE;
+
+#include "shared/source/gen9/glk/os_agnostic_hw_info_config_glk.inl"
 
 template <>
-int HwInfoConfigHw<IGFX_GEMINILAKE>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
+int HwInfoConfigHw<gfxProduct>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
     if (nullptr == osIface) {
         return 0;
     }
@@ -38,7 +44,7 @@ int HwInfoConfigHw<IGFX_GEMINILAKE>::configureHardwareCustom(HardwareInfo *hwInf
         if (retVal == 0 && ((num == 3) || (num == 6) || (num == 9))) {
             gtSystemInfo->EuCountPerPoolMin = static_cast<uint32_t>(num);
         }
-        //in case of failure or not getting right values, fallback to default
+        // in case of failure or not getting right values, fallback to default
         else {
             if (gtSystemInfo->SubSliceCount == 3) {
                 // Native 3x6, PooledEU 2x9
@@ -62,5 +68,5 @@ int HwInfoConfigHw<IGFX_GEMINILAKE>::configureHardwareCustom(HardwareInfo *hwInf
     return 0;
 }
 
-template class HwInfoConfigHw<IGFX_GEMINILAKE>;
+template class HwInfoConfigHw<gfxProduct>;
 } // namespace NEO

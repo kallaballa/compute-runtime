@@ -8,20 +8,17 @@
 #pragma once
 
 #include "shared/source/command_container/command_encoder.h"
-#include "shared/source/gmm_helper/gmm.h"
-#include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/helpers/bindless_heaps_helper.h"
+#include "shared/source/device/device.h"
 #include "shared/source/helpers/cache_policy.h"
-#include "shared/source/helpers/hw_helper.h"
-#include "shared/source/helpers/string.h"
 #include "shared/source/kernel/implicit_args.h"
+#include "shared/source/memory_manager/unified_memory_manager.h"
 
+#include "level_zero/core/source/device/device.h"
+#include "level_zero/core/source/driver/driver_handle.h"
 #include "level_zero/core/source/kernel/kernel_imp.h"
 #include "level_zero/core/source/module/module.h"
 
 #include "igfxfmid.h"
-
-#include <algorithm>
 
 namespace L0 {
 
@@ -34,7 +31,7 @@ struct KernelHw : public KernelImp {
         uint64_t baseAddress = alloc->getGpuAddressToPatch();
         auto sshAlignmentMask = NEO::EncodeSurfaceState<GfxFamily>::getSurfaceBaseAddressAlignmentMask();
 
-        // Remove misalligned bytes, accounted for in in bufferOffset patch token
+        // Remove misaligned bytes, accounted for in bufferOffset patch token
         baseAddress &= sshAlignmentMask;
         auto misalignedSize = ptrDiff(alloc->getGpuAddressToPatch(), baseAddress);
         auto offset = ptrDiff(address, reinterpret_cast<void *>(baseAddress));
@@ -78,7 +75,7 @@ struct KernelHw : public KernelImp {
         if (l3Enabled == false) {
             this->kernelRequiresQueueUncachedMocsCount++;
         }
-
+        auto isDebuggerActive = neoDevice->isDebuggerActive() || neoDevice->getDebugger() != nullptr;
         NEO::EncodeSurfaceStateArgs args;
         args.outMemory = &surfaceState;
         args.graphicsAddress = bufferAddressForSsh;
@@ -90,6 +87,7 @@ struct KernelHw : public KernelImp {
         args.useGlobalAtomics = kernelImmData->getDescriptor().kernelAttributes.flags.useGlobalAtomics;
         args.areMultipleSubDevicesInContext = args.numAvailableDevices > 1;
         args.implicitScaling = device->isImplicitScalingCapable();
+        args.isDebuggerActive = isDebuggerActive;
 
         NEO::EncodeSurfaceState<GfxFamily>::encodeBuffer(args);
         *reinterpret_cast<typename GfxFamily::RENDER_SURFACE_STATE *>(surfaceStateAddress) = surfaceState;

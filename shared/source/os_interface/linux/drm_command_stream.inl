@@ -23,6 +23,7 @@
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
+#include "shared/source/os_interface/linux/drm_wrappers.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/os_interface.h"
 
@@ -37,6 +38,8 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironme
                                                               const DeviceBitfield deviceBitfield,
                                                               gemCloseWorkerMode mode)
     : BaseClass(executionEnvironment, rootDeviceIndex, deviceBitfield), gemCloseWorkerOperationMode(mode) {
+
+    this->completionFenceOffset = Drm::completionFenceOffset;
 
     auto rootDeviceEnvironment = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex].get();
 
@@ -81,6 +84,13 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironme
 }
 
 template <typename GfxFamily>
+inline DrmCommandStreamReceiver<GfxFamily>::~DrmCommandStreamReceiver() {
+    if (this->isUpdateTagFromWaitEnabled()) {
+        this->waitForCompletionWithTimeout(WaitParams{false, false, 0}, this->peekTaskCount());
+    }
+}
+
+template <typename GfxFamily>
 SubmissionStatus DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
     this->printDeviceIndex();
     DrmAllocation *alloc = static_cast<DrmAllocation *>(batchBuffer.commandBufferAllocation);
@@ -106,22 +116,16 @@ SubmissionStatus DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBu
 
     this->printBOsForSubmit(allocationsForResidency, *batchBuffer.commandBufferAllocation);
 
+    if (this->drm->isVmBindAvailable()) {
+        allocationsForResidency.push_back(batchBuffer.commandBufferAllocation);
+    }
+
     MemoryOperationsStatus retVal = memoryOperationsInterface->mergeWithResidencyContainer(this->osContext, allocationsForResidency);
     if (retVal != MemoryOperationsStatus::SUCCESS) {
         if (retVal == MemoryOperationsStatus::OUT_OF_MEMORY) {
             return SubmissionStatus::OUT_OF_MEMORY;
         }
         return SubmissionStatus::FAILED;
-    }
-
-    if (this->drm->isVmBindAvailable()) {
-        retVal = memoryOperationsInterface->makeResidentWithinOsContext(this->osContext, ArrayRef<GraphicsAllocation *>(&batchBuffer.commandBufferAllocation, 1), true);
-        if (retVal != MemoryOperationsStatus::SUCCESS) {
-            if (retVal == MemoryOperationsStatus::OUT_OF_MEMORY) {
-                return SubmissionStatus::OUT_OF_MEMORY;
-            }
-            return SubmissionStatus::FAILED;
-        }
     }
 
     if (this->directSubmission.get()) {
@@ -146,6 +150,14 @@ SubmissionStatus DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBu
     } else {
         this->flushStamp->setStamp(bb->peekHandle());
     }
+
+    auto readBackMode = DebugManager.flags.ReadBackCommandBufferAllocation.get();
+    bool readBackAllowed = ((batchBuffer.commandBufferAllocation->isAllocatedInLocalMemoryPool() && readBackMode == 1) || readBackMode == 2);
+
+    if (readBackAllowed) {
+        readBackAllocation(ptrOffset(batchBuffer.commandBufferAllocation->getUnderlyingBuffer(), batchBuffer.startOffset));
+    }
+
     auto ret = this->flushInternal(batchBuffer, allocationsForResidency);
 
     if (this->gemCloseWorkerOperationMode == gemCloseWorkerMode::gemCloseWorkerActive) {
@@ -153,11 +165,12 @@ SubmissionStatus DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBu
         this->getMemoryManager()->peekGemCloseWorker()->push(bb);
     }
 
-    if (ret) {
-        return SubmissionStatus::FAILED;
-    }
+    return ret;
+}
 
-    return SubmissionStatus::SUCCESS;
+template <typename GfxFamily>
+void DrmCommandStreamReceiver<GfxFamily>::readBackAllocation(void *source) {
+    reserved = *reinterpret_cast<volatile uint32_t *>(source);
 }
 
 template <typename GfxFamily>
@@ -189,9 +202,12 @@ int DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, ui
     BufferObject *bb = alloc->getBO();
     DEBUG_BREAK_IF(!bb);
 
-    auto execFlags = static_cast<OsContextLinux *>(osContext)->getEngineFlag() | I915_EXEC_NO_RELOC;
+    auto osContextLinux = static_cast<OsContextLinux *>(this->osContext);
+    auto execFlags = osContextLinux->getEngineFlag() | drm->getIoctlHelper()->getDrmParamValue(DrmParam::ExecNoReloc);
 
-    // Residency hold all allocation except command buffer, hence + 1
+    // requiredSize determinant:
+    // * vmBind UNAVAILABLE => residency holds all allocations except for the command buffer
+    // * vmBind AVAILABLE   => residency holds command buffer as well
     auto requiredSize = this->residency.size() + 1;
     if (requiredSize > this->execObjectsStorage.size()) {
         this->execObjectsStorage.resize(requiredSize);
@@ -199,8 +215,7 @@ int DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, ui
 
     uint64_t completionGpuAddress = 0;
     uint32_t completionValue = 0;
-    if (this->drm->isVmBindAvailable() &&
-        this->drm->completionFenceSupport()) {
+    if (this->drm->isVmBindAvailable() && this->drm->completionFenceSupport()) {
         completionGpuAddress = getTagAllocation()->getGpuAddress() + (index * this->postSyncWriteOffset) + Drm::completionFenceOffset;
         completionValue = this->latestSentTaskCount;
     }
@@ -222,11 +237,20 @@ int DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, ui
 }
 
 template <typename GfxFamily>
-void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &inputAllocationsForResidency, uint32_t handleId) {
+bool DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &inputAllocationsForResidency, uint32_t handleId) {
+    if (drm->isVmBindAvailable()) {
+        return true;
+    }
+    int ret = 0;
     for (auto &alloc : inputAllocationsForResidency) {
         auto drmAlloc = static_cast<DrmAllocation *>(alloc);
-        drmAlloc->makeBOsResident(osContext, handleId, &this->residency, false);
+        ret = drmAlloc->makeBOsResident(osContext, handleId, &this->residency, false);
+        if (ret != 0) {
+            break;
+        }
     }
+
+    return ret == 0;
 }
 
 template <typename GfxFamily>
@@ -295,5 +319,4 @@ template <typename GfxFamily>
 inline bool DrmCommandStreamReceiver<GfxFamily>::isUserFenceWaitActive() {
     return (this->drm->isVmBindAvailable() && useUserFenceWait);
 }
-
 } // namespace NEO

@@ -9,7 +9,7 @@
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/test/common/libult/ult_command_stream_receiver.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
@@ -66,16 +66,16 @@ class CommandStreamReceiverMock : public UltCommandStreamReceiver<FamilyType> {
 };
 
 struct EnqueueThreadingFixture : public ClDeviceFixture {
-    void SetUp() {
-        ClDeviceFixture::SetUp();
+    void setUp() {
+        ClDeviceFixture::setUp();
         context = new MockContext(pClDevice);
         pCmdQ = nullptr;
     }
 
-    void TearDown() {
+    void tearDown() {
         delete pCmdQ;
         context->release();
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     template <typename FamilyType>
@@ -83,7 +83,7 @@ struct EnqueueThreadingFixture : public ClDeviceFixture {
       public:
         MyCommandQueue(Context *context,
                        ClDevice *device,
-                       const cl_queue_properties *props) : CommandQueueHw<FamilyType>(context, device, props, false), kernel(nullptr) {
+                       const cl_queue_properties *props) : CommandQueueHw<FamilyType>(context, device, props, false) {
         }
 
         static CommandQueue *create(Context *context,
@@ -92,6 +92,9 @@ struct EnqueueThreadingFixture : public ClDeviceFixture {
             const cl_queue_properties properties[3] = {CL_QUEUE_PROPERTIES, props, 0};
             return new MyCommandQueue<FamilyType>(context, device, properties);
         }
+
+        bool validateKernelSystemMemory = false;
+        bool expectedKernelSystemMemory = false;
 
       protected:
         ~MyCommandQueue() override {
@@ -103,10 +106,18 @@ struct EnqueueThreadingFixture : public ClDeviceFixture {
             for (auto &dispatchInfo : multiDispatchInfo) {
                 auto &kernel = *dispatchInfo.getKernel();
                 EXPECT_TRUE(kernel.getMultiDeviceKernel()->hasOwnership());
+
+                if (validateKernelSystemMemory) {
+                    if (expectedKernelSystemMemory) {
+                        EXPECT_TRUE(kernel.getDestinationAllocationInSystemMemory());
+                    } else {
+                        EXPECT_FALSE(kernel.getDestinationAllocationInSystemMemory());
+                    }
+                }
             }
         }
 
-        Kernel *kernel;
+        Kernel *kernel = nullptr;
     };
 
     CommandQueue *pCmdQ;
@@ -349,6 +360,8 @@ HWTEST_F(EnqueueThreadingImage, WhenEnqueuingFillImageThenKernelHasOwnership) {
 HWTEST_F(EnqueueThreading, WhenEnqueuingReadBufferRectThenKernelHasOwnership) {
     createCQ<FamilyType>();
     cl_int retVal;
+    static_cast<MyCommandQueue<FamilyType> *>(pCmdQ)->validateKernelSystemMemory = true;
+    static_cast<MyCommandQueue<FamilyType> *>(pCmdQ)->expectedKernelSystemMemory = true;
 
     std::unique_ptr<Buffer> buffer(Buffer::create(context, CL_MEM_READ_WRITE, 1024u, nullptr, retVal));
     ASSERT_NE(nullptr, buffer.get());
@@ -368,6 +381,8 @@ HWTEST_F(EnqueueThreading, WhenEnqueuingReadBufferRectThenKernelHasOwnership) {
 HWTEST_F(EnqueueThreadingImage, WhenEnqueuingReadImageThenKernelHasOwnership) {
     createCQ<FamilyType>();
     cl_int retVal;
+    static_cast<MyCommandQueue<FamilyType> *>(pCmdQ)->validateKernelSystemMemory = true;
+    static_cast<MyCommandQueue<FamilyType> *>(pCmdQ)->expectedKernelSystemMemory = true;
 
     cl_image_format imageFormat;
     imageFormat.image_channel_data_type = CL_UNORM_INT8;

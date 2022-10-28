@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen11/hw_cmds.h"
 #include "shared/source/helpers/populate_factory.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
@@ -15,7 +16,7 @@
 
 namespace NEO {
 
-using Family = ICLFamily;
+using Family = Gen11Family;
 
 struct EnableOCLGen11 {
     EnableOCLGen11() {

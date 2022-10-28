@@ -12,7 +12,7 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/os_interface/windows/mock_wddm_memory_manager.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
 #include "opencl/test/unit_test/helpers/cl_execution_environment_helper.h"
@@ -78,7 +78,7 @@ struct EnqueueBufferWindowsTest : public ClHardwareParse,
 };
 
 HWTEST_F(EnqueueBufferWindowsTest, givenMisalignedHostPtrWhenEnqueueReadBufferCalledThenStateBaseAddressAddressIsAlignedAndMatchesKernelDispatchInfoParams) {
-    if (executionEnvironment->memoryManager.get()->isLimitedGPU(0)) {
+    if (executionEnvironment->memoryManager->isLimitedGPU(0)) {
         GTEST_SKIP();
     }
     initializeFixture<FamilyType>();
@@ -92,7 +92,7 @@ HWTEST_F(EnqueueBufferWindowsTest, givenMisalignedHostPtrWhenEnqueueReadBufferCa
     buffer->forceDisallowCPUCopy = true;
     auto retVal = cmdQ->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, 4, misalignedPtr, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    ASSERT_NE(0, cmdQ->lastEnqueuedKernels.size());
+    ASSERT_NE(0u, cmdQ->lastEnqueuedKernels.size());
     Kernel *kernel = cmdQ->lastEnqueuedKernels[0];
 
     auto hostPtrAllocation = cmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage()->getTemporaryAllocations().peekHead();
@@ -118,12 +118,12 @@ HWTEST_F(EnqueueBufferWindowsTest, givenMisalignedHostPtrWhenEnqueueReadBufferCa
         if (arg1AsPtr.pointerSize == sizeof(uint64_t)) {
             auto pKernelArg = (uint64_t *)(kernel->getCrossThreadData() + arg1AsPtr.stateless);
             EXPECT_EQ(alignDown(gpuVa, 4), static_cast<uint64_t>(*pKernelArg));
-            EXPECT_EQ(*pKernelArg, surfaceStateDst.getSurfaceBaseAddress());
+            EXPECT_EQ(*pKernelArg, surfaceStateDst->getSurfaceBaseAddress());
 
         } else if (arg1AsPtr.pointerSize == sizeof(uint32_t)) {
             auto pKernelArg = (uint32_t *)(kernel->getCrossThreadData() + arg1AsPtr.stateless);
             EXPECT_EQ(alignDown(gpuVa, 4), static_cast<uint64_t>(*pKernelArg));
-            EXPECT_EQ(static_cast<uint64_t>(*pKernelArg), surfaceStateDst.getSurfaceBaseAddress());
+            EXPECT_EQ(static_cast<uint64_t>(*pKernelArg), surfaceStateDst->getSurfaceBaseAddress());
         }
     }
 

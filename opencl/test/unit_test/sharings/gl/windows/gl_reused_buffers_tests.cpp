@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,7 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -87,7 +87,7 @@ TEST_F(GlReusedBufferTests, givenMultipleBuffersWithReusedAllocationWhenReleasin
 
 TEST_F(GlReusedBufferTests, givenMultipleBuffersWithReusedAllocationWhenCreatingThenReuseGmmResourceToo) {
     std::unique_ptr<Buffer> glBuffer1(GlBuffer::createSharedGlBuffer(&context, CL_MEM_READ_WRITE, bufferId1, &retVal));
-    glBuffer1->getGraphicsAllocation(rootDeviceIndex)->setDefaultGmm(new Gmm(context.getDevice(0)->getGmmClientContext(), (void *)0x100, 1, 0, false));
+    glBuffer1->getGraphicsAllocation(rootDeviceIndex)->setDefaultGmm(new Gmm(context.getDevice(0)->getGmmHelper(), (void *)0x100, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true));
 
     std::unique_ptr<Buffer> glBuffer2(GlBuffer::createSharedGlBuffer(&context, CL_MEM_READ_WRITE, bufferId1, &retVal));
 
@@ -178,19 +178,19 @@ TEST_F(GlReusedBufferTests, givenMultipleBuffersAndGlobalShareHandleChangedWhenA
     auto graphicsAllocation1 = clBuffer1->getGraphicsAllocation(rootDeviceIndex);
     auto graphicsAllocation2 = clBuffer2->getGraphicsAllocation(rootDeviceIndex);
     ASSERT_EQ(graphicsAllocation1, graphicsAllocation2);
-    ASSERT_EQ(2, graphicsAllocation1->peekReuseCount());
-    ASSERT_EQ(1, graphicsAllocationsForGlBufferReuse->size());
+    ASSERT_EQ(2u, graphicsAllocation1->peekReuseCount());
+    ASSERT_EQ(1u, graphicsAllocationsForGlBufferReuse->size());
 
     bufferInfoOutput.globalShareHandle = 41;
     dllParam.loadBuffer(bufferInfoOutput);
     clBuffer1->peekSharingHandler()->acquire(clBuffer1.get(), rootDeviceIndex);
     auto newGraphicsAllocation = clBuffer1->getGraphicsAllocation(rootDeviceIndex);
-    EXPECT_EQ(1, graphicsAllocationsForGlBufferReuse->size());
+    EXPECT_EQ(1u, graphicsAllocationsForGlBufferReuse->size());
     EXPECT_EQ(newGraphicsAllocation, graphicsAllocationsForGlBufferReuse->at(0).second);
 
     clBuffer2->peekSharingHandler()->acquire(clBuffer2.get(), rootDeviceIndex);
     EXPECT_EQ(clBuffer2->getGraphicsAllocation(rootDeviceIndex), newGraphicsAllocation);
-    EXPECT_EQ(1, graphicsAllocationsForGlBufferReuse->size());
+    EXPECT_EQ(1u, graphicsAllocationsForGlBufferReuse->size());
     EXPECT_EQ(newGraphicsAllocation, graphicsAllocationsForGlBufferReuse->at(0).second);
 
     clBuffer1->peekSharingHandler()->release(clBuffer1.get(), rootDeviceIndex);

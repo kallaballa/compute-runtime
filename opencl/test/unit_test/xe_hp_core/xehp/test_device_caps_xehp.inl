@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,7 @@
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 
-#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 using namespace NEO;
 
@@ -22,10 +22,6 @@ XEHPTEST_F(XeHPUsDeviceIdTest, WhenGettingHardwareInfoThenProductFamilyIsXeHpSdv
 
 XEHPTEST_F(XeHPUsDeviceIdTest, givenXeHPWhenCheckftr64KBpagesThenTrue) {
     EXPECT_TRUE(pDevice->getHardwareInfo().capabilityTable.ftr64KBpages);
-}
-
-XEHPTEST_F(XeHPUsDeviceIdTest, WheCheckingIsSimulationThenFalseIsReturned) {
-    EXPECT_FALSE(pDevice->isSimulation());
 }
 
 XEHPTEST_F(XeHPUsDeviceIdTest, givenXeHPSkusThenItSupportCorrectlyRoundedDivSqrtBit) {

@@ -6,17 +6,20 @@
  */
 
 #include "shared/source/command_container/command_encoder.h"
+#include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/command_stream/submissions_aggregator.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/direct_submission/direct_submission_hw.h"
 #include "shared/source/direct_submission/direct_submission_hw_diagnostic_mode.h"
 #include "shared/source/helpers/flush_stamp.h"
+#include "shared/source/helpers/logical_state_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/cpu_info.h"
 #include "shared/source/utilities/cpuintrinsics.h"
@@ -28,15 +31,33 @@
 namespace NEO {
 
 template <typename GfxFamily, typename Dispatcher>
-DirectSubmissionHw<GfxFamily, Dispatcher>::DirectSubmissionHw(Device &device,
-                                                              OsContext &osContext)
-    : device(device), osContext(osContext) {
+DirectSubmissionHw<GfxFamily, Dispatcher>::DirectSubmissionHw(const DirectSubmissionInputParams &inputParams)
+    : ringBuffers(RingBufferUse::initialRingBufferCount), osContext(inputParams.osContext), rootDeviceIndex(inputParams.rootDeviceIndex) {
+    memoryManager = inputParams.memoryManager;
+    globalFenceAllocation = inputParams.globalFenceAllocation;
+    logicalStateHelper = inputParams.logicalStateHelper;
+    hwInfo = inputParams.rootDeviceEnvironment.getHardwareInfo();
+    memoryOperationHandler = inputParams.rootDeviceEnvironment.memoryOperationsInterface.get();
+
+    auto hwInfoConfig = HwInfoConfig::get(hwInfo->platform.eProductFamily);
 
     disableCacheFlush = UllsDefaults::defaultDisableCacheFlush;
     disableMonitorFence = UllsDefaults::defaultDisableMonitorFence;
 
+    if (DebugManager.flags.DirectSubmissionMaxRingBuffers.get() != -1) {
+        this->maxRingBufferCount = DebugManager.flags.DirectSubmissionMaxRingBuffers.get();
+    }
+
     if (DebugManager.flags.DirectSubmissionDisableCacheFlush.get() != -1) {
         disableCacheFlush = !!DebugManager.flags.DirectSubmissionDisableCacheFlush.get();
+    }
+
+    miMemFenceRequired = hwInfoConfig->isGlobalFenceInDirectSubmissionRequired(*hwInfo);
+    if (DebugManager.flags.DirectSubmissionInsertExtraMiMemFenceCommands.get() == 0) {
+        miMemFenceRequired = false;
+    }
+    if (DebugManager.flags.DirectSubmissionInsertSfenceInstructionPriorToSubmission.get() != -1) {
+        sfenceMode = static_cast<DirectSubmissionSfenceMode>(DebugManager.flags.DirectSubmissionInsertSfenceInstructionPriorToSubmission.get());
     }
 
     int32_t disableCacheFlushKey = DebugManager.flags.DirectSubmissionDisableCpuCacheFlush.get();
@@ -44,11 +65,17 @@ DirectSubmissionHw<GfxFamily, Dispatcher>::DirectSubmissionHw(Device &device,
         disableCpuCacheFlush = disableCacheFlushKey == 1 ? true : false;
     }
 
+    isDisablePrefetcherRequired = hwInfoConfig->isPrefetcherDisablingInDirectSubmissionRequired();
+    if (DebugManager.flags.DirectSubmissionDisablePrefetcher.get() != -1) {
+        isDisablePrefetcherRequired = !!DebugManager.flags.DirectSubmissionDisablePrefetcher.get();
+    }
+
     UNRECOVERABLE_IF(!CpuInfo::getInstance().isFeatureSupported(CpuInfo::featureClflush) && !disableCpuCacheFlush);
 
-    hwInfo = &device.getHardwareInfo();
     createDiagnostic();
     setPostSyncOffset();
+
+    dcFlushRequired = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, *hwInfo);
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -59,26 +86,26 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::allocateResources() {
     DirectSubmissionAllocations allocations;
 
     bool isMultiOsContextCapable = osContext.getNumSupportedDevices() > 1u;
-    MemoryManager *memoryManager = device.getExecutionEnvironment()->memoryManager.get();
     constexpr size_t minimumRequiredSize = 256 * MemoryConstants::kiloByte;
     constexpr size_t additionalAllocationSize = MemoryConstants::pageSize;
     const auto allocationSize = alignUp(minimumRequiredSize + additionalAllocationSize, MemoryConstants::pageSize64k);
-    const AllocationProperties commandStreamAllocationProperties{device.getRootDeviceIndex(),
+    const AllocationProperties commandStreamAllocationProperties{rootDeviceIndex,
                                                                  true, allocationSize,
                                                                  AllocationType::RING_BUFFER,
-                                                                 isMultiOsContextCapable, osContext.getDeviceBitfield()};
-    ringBuffer = memoryManager->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
-    UNRECOVERABLE_IF(ringBuffer == nullptr);
-    allocations.push_back(ringBuffer);
+                                                                 isMultiOsContextCapable, false, osContext.getDeviceBitfield()};
 
-    ringBuffer2 = memoryManager->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
-    UNRECOVERABLE_IF(ringBuffer2 == nullptr);
-    allocations.push_back(ringBuffer2);
+    for (uint32_t ringBufferIndex = 0; ringBufferIndex < RingBufferUse::initialRingBufferCount; ringBufferIndex++) {
+        auto ringBuffer = memoryManager->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
+        this->ringBuffers[ringBufferIndex].ringBuffer = ringBuffer;
+        UNRECOVERABLE_IF(ringBuffer == nullptr);
+        allocations.push_back(ringBuffer);
+        memset(ringBuffer->getUnderlyingBuffer(), 0, allocationSize);
+    }
 
-    const AllocationProperties semaphoreAllocationProperties{device.getRootDeviceIndex(),
+    const AllocationProperties semaphoreAllocationProperties{rootDeviceIndex,
                                                              true, MemoryConstants::pageSize,
                                                              AllocationType::SEMAPHORE_BUFFER,
-                                                             isMultiOsContextCapable, osContext.getDeviceBitfield()};
+                                                             isMultiOsContextCapable, false, osContext.getDeviceBitfield()};
     semaphores = memoryManager->allocateGraphicsMemoryWithProperties(semaphoreAllocationProperties);
     UNRECOVERABLE_IF(semaphores == nullptr);
     allocations.push_back(semaphores);
@@ -87,28 +114,28 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::allocateResources() {
         allocations.push_back(workPartitionAllocation);
     }
 
-    if (DebugManager.flags.DirectSubmissionPrintBuffers.get()) {
-        printf("Ring buffer 1 - gpu address: %" PRIx64 " - %" PRIx64 ", cpu address: %p - %p, size: %zu \n",
-               ringBuffer->getGpuAddress(),
-               ptrOffset(ringBuffer->getGpuAddress(), ringBuffer->getUnderlyingBufferSize()),
-               ringBuffer->getUnderlyingBuffer(),
-               ptrOffset(ringBuffer->getUnderlyingBuffer(), ringBuffer->getUnderlyingBufferSize()),
-               ringBuffer->getUnderlyingBufferSize());
+    if (completionFenceAllocation != nullptr) {
+        allocations.push_back(completionFenceAllocation);
+    }
 
-        printf("Ring buffer 2 - gpu address: %" PRIx64 " - %" PRIx64 ", cpu address: %p - %p, size: %zu \n",
-               ringBuffer2->getGpuAddress(),
-               ptrOffset(ringBuffer2->getGpuAddress(), ringBuffer2->getUnderlyingBufferSize()),
-               ringBuffer2->getUnderlyingBuffer(),
-               ptrOffset(ringBuffer2->getUnderlyingBuffer(), ringBuffer2->getUnderlyingBufferSize()),
-               ringBuffer2->getUnderlyingBufferSize());
+    if (DebugManager.flags.DirectSubmissionPrintBuffers.get()) {
+        for (uint32_t ringBufferIndex = 0; ringBufferIndex < RingBufferUse::initialRingBufferCount; ringBufferIndex++) {
+            const auto ringBuffer = this->ringBuffers[ringBufferIndex].ringBuffer;
+
+            printf("Ring buffer %u - gpu address: %" PRIx64 " - %" PRIx64 ", cpu address: %p - %p, size: %zu \n",
+                   ringBufferIndex,
+                   ringBuffer->getGpuAddress(),
+                   ptrOffset(ringBuffer->getGpuAddress(), ringBuffer->getUnderlyingBufferSize()),
+                   ringBuffer->getUnderlyingBuffer(),
+                   ptrOffset(ringBuffer->getUnderlyingBuffer(), ringBuffer->getUnderlyingBufferSize()),
+                   ringBuffer->getUnderlyingBufferSize());
+        }
     }
 
     handleResidency();
-    ringCommandStream.replaceBuffer(ringBuffer->getUnderlyingBuffer(), minimumRequiredSize);
-    ringCommandStream.replaceGraphicsAllocation(ringBuffer);
+    ringCommandStream.replaceBuffer(this->ringBuffers[0u].ringBuffer->getUnderlyingBuffer(), minimumRequiredSize);
+    ringCommandStream.replaceGraphicsAllocation(this->ringBuffers[0].ringBuffer);
 
-    memset(ringBuffer->getUnderlyingBuffer(), 0, allocationSize);
-    memset(ringBuffer2->getUnderlyingBuffer(), 0, allocationSize);
     semaphorePtr = semaphores->getUnderlyingBuffer();
     semaphoreGpuVa = semaphores->getGpuAddress();
     semaphoreData = static_cast<volatile RingSemaphoreData *>(semaphorePtr);
@@ -127,9 +154,7 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::allocateResources() {
 
 template <typename GfxFamily, typename Dispatcher>
 bool DirectSubmissionHw<GfxFamily, Dispatcher>::makeResourcesResident(DirectSubmissionAllocations &allocations) {
-    auto memoryInterface = this->device.getRootDeviceEnvironment().memoryOperationsInterface.get();
-
-    auto ret = memoryInterface->makeResidentWithinOsContext(&this->osContext, ArrayRef<GraphicsAllocation *>(allocations), false) == MemoryOperationsStatus::SUCCESS;
+    auto ret = memoryOperationHandler->makeResidentWithinOsContext(&this->osContext, ArrayRef<GraphicsAllocation *>(allocations), false) == MemoryOperationsStatus::SUCCESS;
 
     return ret;
 }
@@ -170,6 +195,12 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::initialize(bool submitOnInit, bo
 
             this->partitionConfigSet = true;
         }
+        if (this->miMemFenceRequired) {
+            startBufferSize += getSizeSystemMemoryFenceAddress();
+            dispatchSystemMemoryFenceAddress();
+
+            this->systemMemoryFenceAddressSet = true;
+        }
         if (workloadMode == 1) {
             dispatchDiagnosticModeSection();
             startBufferSize += getDiagnosticModeSection();
@@ -193,6 +224,10 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::startRingBuffer() {
     if (!this->partitionConfigSet) {
         startSize += getSizePartitionRegisterConfigurationSection();
     }
+    if (this->miMemFenceRequired && !this->systemMemoryFenceAddressSet) {
+        startSize += getSizeSystemMemoryFenceAddress();
+    }
+
     size_t requiredSize = startSize + getSizeDispatch() + getSizeEnd();
     if (ringCommandStream.getAvailableSpace() < requiredSize) {
         switchRingBuffers();
@@ -202,6 +237,11 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::startRingBuffer() {
     if (!this->partitionConfigSet) {
         dispatchPartitionRegisterConfiguration();
         this->partitionConfigSet = true;
+    }
+
+    if (this->miMemFenceRequired && !this->systemMemoryFenceAddressSet) {
+        dispatchSystemMemoryFenceAddress();
+        this->systemMemoryFenceAddressSet = true;
     }
 
     currentQueueWorkCount++;
@@ -223,7 +263,8 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::stopRingBuffer() {
     if (disableMonitorFence) {
         TagData currentTagData = {};
         getTagAddressValue(currentTagData);
-        Dispatcher::dispatchMonitorFence(ringCommandStream, currentTagData.tagAddress, currentTagData.tagValue, *hwInfo, this->useNotifyForPostSync, this->partitionedMode);
+        Dispatcher::dispatchMonitorFence(ringCommandStream, currentTagData.tagAddress, currentTagData.tagValue, *hwInfo,
+                                         this->useNotifyForPostSync, this->partitionedMode, this->dcFlushRequired);
     }
     Dispatcher::dispatchStopCommandBuffer(ringCommandStream);
 
@@ -246,11 +287,17 @@ template <typename GfxFamily, typename Dispatcher>
 inline void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchSemaphoreSection(uint32_t value) {
     using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
     using COMPARE_OPERATION = typename GfxFamily::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
+
     dispatchDisablePrefetcher(true);
     EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(ringCommandStream,
                                                           semaphoreGpuVa,
                                                           value,
                                                           COMPARE_OPERATION::COMPARE_OPERATION_SAD_GREATER_THAN_OR_EQUAL_SDD);
+
+    if (miMemFenceRequired) {
+        MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronizationForDirectSubmission(ringCommandStream, this->gpuVaForAdditionalSynchronizationWA, true, *hwInfo);
+    }
+
     dispatchPrefetchMitigation();
     dispatchDisablePrefetcher(false);
 }
@@ -259,7 +306,15 @@ template <typename GfxFamily, typename Dispatcher>
 inline size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getSizeSemaphoreSection() {
     size_t semaphoreSize = EncodeSempahore<GfxFamily>::getSizeMiSemaphoreWait();
     semaphoreSize += getSizePrefetchMitigation();
-    semaphoreSize += 2 * getSizeDisablePrefetcher();
+
+    if (isDisablePrefetcherRequired) {
+        semaphoreSize += 2 * getSizeDisablePrefetcher();
+    }
+
+    if (miMemFenceRequired) {
+        semaphoreSize += MemorySynchronizationCommands<GfxFamily>::getSizeForSingleAdditionalSynchronizationForDirectSubmission(*hwInfo);
+    }
+
     return semaphoreSize;
 }
 
@@ -278,7 +333,8 @@ inline void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchSwitchRingBufferS
     if (disableMonitorFence) {
         TagData currentTagData = {};
         getTagAddressValue(currentTagData);
-        Dispatcher::dispatchMonitorFence(ringCommandStream, currentTagData.tagAddress, currentTagData.tagValue, *hwInfo, this->useNotifyForPostSync, this->partitionedMode);
+        Dispatcher::dispatchMonitorFence(ringCommandStream, currentTagData.tagAddress, currentTagData.tagValue, *hwInfo,
+                                         this->useNotifyForPostSync, this->partitionedMode, this->dcFlushRequired);
     }
     Dispatcher::dispatchStartCommandBuffer(ringCommandStream, nextBufferGpuAddress);
 }
@@ -376,7 +432,8 @@ void *DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchWorkloadSection(BatchBu
     if (!disableMonitorFence) {
         TagData currentTagData = {};
         getTagAddressValue(currentTagData);
-        Dispatcher::dispatchMonitorFence(ringCommandStream, currentTagData.tagAddress, currentTagData.tagValue, *hwInfo, this->useNotifyForPostSync, this->partitionedMode);
+        Dispatcher::dispatchMonitorFence(ringCommandStream, currentTagData.tagAddress, currentTagData.tagValue, *hwInfo,
+                                         this->useNotifyForPostSync, this->partitionedMode, this->dcFlushRequired);
     }
 
     dispatchSemaphoreSection(currentQueueWorkCount + 1);
@@ -388,18 +445,20 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchCommandBuffer(BatchBuffe
     //for now workloads requiring cache coherency are not supported
     UNRECOVERABLE_IF(batchBuffer.requiresCoherency);
 
+    if (batchBuffer.ringBufferRestartRequest) {
+        this->stopRingBuffer();
+    }
+
     this->startRingBuffer();
 
     size_t dispatchSize = getSizeDispatch();
     size_t cycleSize = getSizeSwitchRingBufferSection();
     size_t requiredMinimalSize = dispatchSize + cycleSize + getSizeEnd();
 
-    bool buffersSwitched = false;
     getCommandBufferPositionGpuAddress(ringCommandStream.getSpace(0));
 
     if (ringCommandStream.getAvailableSpace() < requiredMinimalSize) {
         switchRingBuffers();
-        buffersSwitched = true;
     }
 
     handleNewResourcesSubmission();
@@ -409,8 +468,27 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchCommandBuffer(BatchBuffe
     cpuCachelineFlush(currentPosition, dispatchSize);
     handleResidency();
 
+    if (DebugManager.flags.DirectSubmissionReadBackCommandBuffer.get() == 1) {
+        volatile auto cmdBufferStart = reinterpret_cast<uint32_t *>(batchBuffer.commandBufferAllocation->getUnderlyingBuffer());
+        reserved = *cmdBufferStart;
+    }
+
+    if (DebugManager.flags.DirectSubmissionReadBackRingBuffer.get() == 1) {
+        volatile auto ringBufferStart = reinterpret_cast<uint32_t *>(ringCommandStream.getSpace(0));
+        reserved = *ringBufferStart;
+    }
+
+    if (sfenceMode >= DirectSubmissionSfenceMode::BeforeSemaphoreOnly) {
+        CpuIntrinsics::sfence();
+    }
+
     //unblock GPU
     semaphoreData->QueueWorkCount = currentQueueWorkCount;
+
+    if (sfenceMode == DirectSubmissionSfenceMode::BeforeAndAfterSemaphore) {
+        CpuIntrinsics::sfence();
+    }
+
     cpuCachelineFlush(semaphorePtr, MemoryConstants::cacheLineSize);
     currentQueueWorkCount++;
     DirectSubmissionDiagnostics::diagnosticModeOneSubmit(diagnostic.get());
@@ -463,29 +541,46 @@ inline uint64_t DirectSubmissionHw<GfxFamily, Dispatcher>::switchRingBuffers() {
 
 template <typename GfxFamily, typename Dispatcher>
 inline GraphicsAllocation *DirectSubmissionHw<GfxFamily, Dispatcher>::switchRingBuffersAllocations() {
+    this->previousRingBuffer = this->currentRingBuffer;
     GraphicsAllocation *nextAllocation = nullptr;
-    if (currentRingBuffer == RingBufferUse::FirstBuffer) {
-        nextAllocation = ringBuffer2;
-        currentRingBuffer = RingBufferUse::SecondBuffer;
-    } else {
-        nextAllocation = ringBuffer;
-        currentRingBuffer = RingBufferUse::FirstBuffer;
+    for (uint32_t ringBufferIndex = 0; ringBufferIndex < this->ringBuffers.size(); ringBufferIndex++) {
+        if (ringBufferIndex != this->currentRingBuffer && this->isCompleted(ringBufferIndex)) {
+            this->currentRingBuffer = ringBufferIndex;
+            nextAllocation = this->ringBuffers[ringBufferIndex].ringBuffer;
+            break;
+        }
     }
+
+    if (nextAllocation == nullptr) {
+        if (this->ringBuffers.size() == this->maxRingBufferCount) {
+            this->currentRingBuffer = (this->currentRingBuffer + 1) % this->ringBuffers.size();
+            nextAllocation = this->ringBuffers[this->currentRingBuffer].ringBuffer;
+        } else {
+            bool isMultiOsContextCapable = osContext.getNumSupportedDevices() > 1u;
+            constexpr size_t minimumRequiredSize = 256 * MemoryConstants::kiloByte;
+            constexpr size_t additionalAllocationSize = MemoryConstants::pageSize;
+            const auto allocationSize = alignUp(minimumRequiredSize + additionalAllocationSize, MemoryConstants::pageSize64k);
+            const AllocationProperties commandStreamAllocationProperties{rootDeviceIndex,
+                                                                         true, allocationSize,
+                                                                         AllocationType::RING_BUFFER,
+                                                                         isMultiOsContextCapable, false, osContext.getDeviceBitfield()};
+            nextAllocation = memoryManager->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
+            this->currentRingBuffer = static_cast<uint32_t>(this->ringBuffers.size());
+            this->ringBuffers.emplace_back(0ull, nextAllocation);
+            auto ret = memoryOperationHandler->makeResidentWithinOsContext(&this->osContext, ArrayRef<GraphicsAllocation *>(&nextAllocation, 1u), false) == MemoryOperationsStatus::SUCCESS;
+            UNRECOVERABLE_IF(!ret);
+        }
+    }
+    UNRECOVERABLE_IF(this->currentRingBuffer == this->previousRingBuffer);
     return nextAllocation;
 }
 
 template <typename GfxFamily, typename Dispatcher>
 void DirectSubmissionHw<GfxFamily, Dispatcher>::deallocateResources() {
-    MemoryManager *memoryManager = device.getExecutionEnvironment()->memoryManager.get();
-
-    if (ringBuffer) {
-        memoryManager->freeGraphicsMemory(ringBuffer);
-        ringBuffer = nullptr;
+    for (uint32_t ringBufferIndex = 0; ringBufferIndex < this->ringBuffers.size(); ringBufferIndex++) {
+        memoryManager->freeGraphicsMemory(this->ringBuffers[ringBufferIndex].ringBuffer);
     }
-    if (ringBuffer2) {
-        memoryManager->freeGraphicsMemory(ringBuffer2);
-        ringBuffer2 = nullptr;
-    }
+    this->ringBuffers.clear();
     if (semaphores) {
         memoryManager->freeGraphicsMemory(semaphores);
         semaphores = nullptr;
@@ -557,6 +652,20 @@ void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchDiagnosticModeSection() 
 template <typename GfxFamily, typename Dispatcher>
 size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getDiagnosticModeSection() {
     return Dispatcher::getSizeStoreDwordCommand();
+}
+
+template <typename GfxFamily, typename Dispatcher>
+void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchSystemMemoryFenceAddress() {
+    EncodeMemoryFence<GfxFamily>::encodeSystemMemoryFence(ringCommandStream, this->globalFenceAllocation, this->logicalStateHelper);
+
+    if (logicalStateHelper) {
+        logicalStateHelper->writeStreamInline(ringCommandStream, false);
+    }
+}
+
+template <typename GfxFamily, typename Dispatcher>
+size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getSizeSystemMemoryFenceAddress() {
+    return EncodeMemoryFence<GfxFamily>::getSystemMemoryFenceSize();
 }
 
 } // namespace NEO

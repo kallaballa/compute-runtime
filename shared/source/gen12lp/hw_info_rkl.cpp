@@ -15,10 +15,6 @@ namespace NEO {
 
 const char *HwMapper<IGFX_ROCKETLAKE>::abbreviation = "rkl";
 
-bool isSimulationRKL(unsigned short deviceId) {
-    return false;
-};
-
 const PLATFORM RKL::platform = {
     IGFX_ROCKETLAKE,
     PCH_UNKNOWN,
@@ -40,7 +36,6 @@ const RuntimeCapabilityTable RKL::capabilityTable{
     0,                                               // sharedSystemMemCapabilities
     83.333,                                          // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                       // requiredPreemptionSurfaceSize
-    &isSimulationRKL,                                // isSimulation
     "lp",                                            // platformType
     "",                                              // deviceName
     PreemptionMode::MidThread,                       // defaultPreemptionMode
@@ -80,7 +75,8 @@ const RuntimeCapabilityTable RKL::capabilityTable{
     true,                                            // supportsMediaBlock
     false,                                           // p2pAccessSupported
     false,                                           // p2pAtomicAccessSupported
-    true                                             // fusedEuEnabled
+    true,                                            // fusedEuEnabled
+    false,                                           // l0DebuggerSupported;
 };
 
 WorkaroundTable RKL::workaroundTable = {};
@@ -119,21 +115,9 @@ void RKL::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waEnablePreemptionGranularityControlByUMD = true;
 };
 
-const HardwareInfo RKL_HW_CONFIG::hwInfo = {
-    &RKL::platform,
-    &RKL::featureTable,
-    &RKL::workaroundTable,
-    &RKL_HW_CONFIG::gtSystemInfo,
-    RKL::capabilityTable,
-};
-GT_SYSTEM_INFO RKL_HW_CONFIG::gtSystemInfo = {0};
-void RKL_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+void RKL::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * RKL::threadsPerEu;
-    gtSysInfo->DualSubSliceCount = gtSysInfo->SubSliceCount;
-    gtSysInfo->L3CacheSizeInKb = 1920;
-    gtSysInfo->L3BankCount = 4;
-    gtSysInfo->MaxFillRate = 8;
     gtSysInfo->TotalVsThreads = 0;
     gtSysInfo->TotalHsThreads = 0;
     gtSysInfo->TotalDsThreads = 0;
@@ -147,20 +131,39 @@ void RKL_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTab
     gtSysInfo->IsL3HashModeEnabled = false;
     gtSysInfo->IsDynamicallyPopulated = false;
 
-    gtSysInfo->CCSInfo.IsValid = true;
-    gtSysInfo->CCSInfo.NumberOfCCSEnabled = 1;
-    gtSysInfo->CCSInfo.Instances.CCSEnableMask = 0b1;
-
     if (setupFeatureTableAndWorkaroundTable) {
         setupFeatureAndWorkaroundTable(hwInfo);
     }
+}
+
+const HardwareInfo RklHwConfig::hwInfo = {
+    &RKL::platform,
+    &RKL::featureTable,
+    &RKL::workaroundTable,
+    &RklHwConfig::gtSystemInfo,
+    RKL::capabilityTable,
 };
 
-const HardwareInfo RKL::hwInfo = RKL_HW_CONFIG::hwInfo;
+GT_SYSTEM_INFO RklHwConfig::gtSystemInfo = {0};
+void RklHwConfig::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    RKL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->DualSubSliceCount = gtSysInfo->SubSliceCount;
+    gtSysInfo->L3CacheSizeInKb = 1920;
+    gtSysInfo->L3BankCount = 4;
+    gtSysInfo->MaxFillRate = 8;
+
+    gtSysInfo->CCSInfo.IsValid = true;
+    gtSysInfo->CCSInfo.NumberOfCCSEnabled = 1;
+    gtSysInfo->CCSInfo.Instances.CCSEnableMask = 0b1;
+};
+
+const HardwareInfo RKL::hwInfo = RklHwConfig::hwInfo;
 const uint64_t RKL::defaultHardwareInfoConfig = 0x100020010;
 
 void setupRKLHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
-    RKL_HW_CONFIG::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+    RklHwConfig::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
 }
 
 void (*RKL::setupHardwareInfo)(HardwareInfo *, bool, const uint64_t) = setupRKLHardwareInfoImpl;

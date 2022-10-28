@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,15 +12,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-extern bool verbose;
-bool verbose = false;
 bool useCopyEngine = false;
 
 uint8_t uinitializedPattern = 1;
 uint8_t expectedPattern = 7;
 size_t allocSize = 4096 + 7; // +7 to break alignment and make it harder
 
-static int sendmsg_fd(int socket, int fd) {
+static int sendmsgFd(int socket, int fd) {
     char sendBuf[sizeof(ze_ipc_mem_handle_t)] = {};
     char cmsgBuf[CMSG_SPACE(sizeof(ze_ipc_mem_handle_t))];
 
@@ -48,7 +46,7 @@ static int sendmsg_fd(int socket, int fd) {
     return 0;
 }
 
-static int recvmsg_fd(int socket) {
+static int recvmsgFd(int socket) {
     int fd = -1;
     char recvBuf[sizeof(ze_ipc_mem_handle_t)] = {};
     char cmsgBuf[CMSG_SPACE(sizeof(ze_ipc_mem_handle_t))];
@@ -69,7 +67,7 @@ static int recvmsg_fd(int socket) {
     }
 
     struct cmsghdr *controlHeader = CMSG_FIRSTHDR(&msgHeader);
-    if (CMSG_DATA(controlHeader) == nullptr) {
+    if (!CMSG_DATA(controlHeader)) {
         return -1;
     }
     memmove(&fd, CMSG_DATA(controlHeader), sizeof(int));
@@ -198,7 +196,7 @@ inline void initializeProcess(ze_context_handle_t &context,
     SUCCESS_OR_TERMINATE(zeCommandListCreate(context, device, &cmdListDescCopy, &cmdListCopy));
 }
 
-void run_client(int commSocket) {
+void runClient(int commSocket) {
     std::cout << "Client process " << std::dec << getpid() << "\n";
 
     ze_context_handle_t context;
@@ -220,13 +218,13 @@ void run_client(int commSocket) {
     SUCCESS_OR_TERMINATE(zeCommandQueueSynchronize(cmdQueue, std::numeric_limits<uint64_t>::max()));
 
     // get the dma_buf from the other process
-    int dma_buf_fd = recvmsg_fd(commSocket);
-    if (dma_buf_fd < 0) {
+    int dmaBufFd = recvmsgFd(commSocket);
+    if (dmaBufFd < 0) {
         std::cerr << "Failing to get dma_buf fd from server\n";
         std::terminate();
     }
     ze_ipc_mem_handle_t pIpcHandle;
-    memcpy(&pIpcHandle, static_cast<void *>(&dma_buf_fd), sizeof(dma_buf_fd));
+    memcpy(&pIpcHandle, static_cast<void *>(&dmaBufFd), sizeof(dmaBufFd));
 
     // get a memory pointer to the BO associated with the dma_buf
     void *zeIpcBuffer;
@@ -249,7 +247,7 @@ void run_client(int commSocket) {
     SUCCESS_OR_TERMINATE(zeContextDestroy(context));
 }
 
-void run_server(int commSocket, bool &validRet) {
+void runServer(int commSocket, bool &validRet) {
     std::cout << "Server process " << std::dec << getpid() << "\n";
 
     ze_context_handle_t context;
@@ -278,9 +276,9 @@ void run_server(int commSocket, bool &validRet) {
     SUCCESS_OR_TERMINATE(zeMemGetIpcHandle(context, zeBuffer, &pIpcHandle));
 
     // Pass the dma_buf to the other process
-    int dma_buf_fd;
-    memcpy(static_cast<void *>(&dma_buf_fd), &pIpcHandle, sizeof(dma_buf_fd));
-    if (sendmsg_fd(commSocket, static_cast<int>(dma_buf_fd)) < 0) {
+    int dmaBufFd;
+    memcpy(static_cast<void *>(&dmaBufFd), &pIpcHandle, sizeof(dmaBufFd));
+    if (sendmsgFd(commSocket, static_cast<int>(dmaBufFd)) < 0) {
         std::cerr << "Failing to send dma_buf fd to client\n";
         std::terminate();
     }
@@ -291,8 +289,8 @@ void run_server(int commSocket, bool &validRet) {
     }
 
     // Wait for child to exit
-    int child_status;
-    pid_t clientPId = wait(&child_status);
+    int childStatus;
+    pid_t clientPId = wait(&childStatus);
     if (clientPId <= 0) {
         std::cerr << "Client terminated abruptly with error code " << strerror(errno) << "\n";
         std::terminate();
@@ -329,6 +327,7 @@ void run_server(int commSocket, bool &validRet) {
 }
 
 int main(int argc, char *argv[]) {
+    const std::string blackBoxName = "Zello IPC P2P";
     verbose = isVerbose(argc, argv);
     bool outputValidationSuccessful;
 
@@ -346,18 +345,15 @@ int main(int argc, char *argv[]) {
         exit(1);
     } else if (0 == child) {
         close(sv[0]);
-        run_client(sv[1]);
+        runClient(sv[1]);
         close(sv[1]);
         exit(0);
     } else {
         close(sv[1]);
-        run_server(sv[0], outputValidationSuccessful);
+        runServer(sv[0], outputValidationSuccessful);
         close(sv[0]);
     }
 
-    std::cout << "\nZello IPC P2P Results validation "
-              << (outputValidationSuccessful ? "PASSED" : "FAILED")
-              << std::endl;
-
-    return 0;
+    printResult(false, outputValidationSuccessful, blackBoxName);
+    return outputValidationSuccessful ? 0 : 1;
 }

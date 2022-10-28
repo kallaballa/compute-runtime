@@ -6,11 +6,13 @@
  */
 
 #include "shared/source/aub_mem_dump/page_table_entry_bits.h"
+#include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hardware_context_controller.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/common/fixtures/aub_command_stream_receiver_fixture.h"
+#include "shared/test/common/fixtures/mock_aub_center_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/mocks/mock_aub_center.h"
@@ -24,9 +26,9 @@
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_os_context.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/fixtures/mock_aub_center_fixture.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
+#include "gtest/gtest.h"
 #include "third_party/aub_stream/headers/aubstream.h"
 
 using namespace NEO;
@@ -278,7 +280,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenNoCpuPtrAndNotLockableAllocationWhe
     allocation.overrideMemoryPool(MemoryPool::LocalMemory);
 
     aubExecutionEnvironment->executionEnvironment->rootDeviceEnvironments[0]->initGmm();
-    MockGmm mockGmm(aubExecutionEnvironment->executionEnvironment->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, initSize, initSize, false, false, false, {});
+    MockGmm mockGmm(aubExecutionEnvironment->executionEnvironment->rootDeviceEnvironments[0]->getGmmHelper(), nullptr, initSize, initSize, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     mockGmm.resourceParams.Flags.Info.NotLockable = true;
     allocation.setDefaultGmm(&mockGmm);
 
@@ -313,7 +315,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenNoCpuPtrAndLockableAllocationWhenGe
     allocation.overrideMemoryPool(MemoryPool::LocalMemory);
 
     aubExecutionEnvironment->executionEnvironment->rootDeviceEnvironments[0]->initGmm();
-    MockGmm mockGmm(aubExecutionEnvironment->executionEnvironment->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, initSize, initSize, false, false, false, {});
+    MockGmm mockGmm(aubExecutionEnvironment->executionEnvironment->rootDeviceEnvironments[0]->getGmmHelper(), nullptr, initSize, initSize, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     mockGmm.resourceParams.Flags.Info.NotLockable = false;
     allocation.setDefaultGmm(&mockGmm);
 
@@ -537,12 +539,18 @@ class OsAgnosticMemoryManagerForImagesWithNoHostPtr : public OsAgnosticMemoryMan
 
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
         auto imageAllocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(allocationData);
+        auto gmmHelper = getGmmHelper(allocationData.rootDeviceIndex);
+        auto canonizedGpuAddress = gmmHelper->canonize(imageAllocation->getGpuAddress());
+
         cpuPtr = imageAllocation->getUnderlyingBuffer();
-        imageAllocation->setCpuPtrAndGpuAddress(nullptr, imageAllocation->getGpuAddress());
+        imageAllocation->setCpuPtrAndGpuAddress(nullptr, canonizedGpuAddress);
         return imageAllocation;
     };
     void freeGraphicsMemoryImpl(GraphicsAllocation *imageAllocation) override {
-        imageAllocation->setCpuPtrAndGpuAddress(cpuPtr, imageAllocation->getGpuAddress());
+        auto gmmHelper = getGmmHelper(imageAllocation->getRootDeviceIndex());
+        auto canonizedGpuAddress = gmmHelper->canonize(imageAllocation->getGpuAddress());
+        imageAllocation->setCpuPtrAndGpuAddress(cpuPtr, canonizedGpuAddress);
+
         OsAgnosticMemoryManager::freeGraphicsMemoryImpl(imageAllocation);
     };
     void *lockResourceImpl(GraphicsAllocation &imageAllocation) override {
@@ -636,7 +644,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenNoDbgDeviceIdFlagWhenAubCsrIsCreate
 
 HWTEST_F(AubCommandStreamReceiverTests, givenDbgDeviceIdFlagIsSetWhenAubCsrIsCreatedThenUseDebugDeviceId) {
     DebugManagerStateRestore stateRestore;
-    DebugManager.flags.OverrideAubDeviceId.set(9); //this is Hsw, not used
+    DebugManager.flags.OverrideAubDeviceId.set(9); // this is Hsw, not used
     std::unique_ptr<MockAubCsr<FamilyType>> aubCsr(new MockAubCsr<FamilyType>("", true, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield()));
     EXPECT_EQ(9u, aubCsr->aubDeviceId);
 }
@@ -798,7 +806,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
     auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{pDevice->getRootDeviceIndex(), MemoryConstants::pageSize});
     aubCsr->setAubWritable(true, *gfxAllocation);
 
-    auto gmm = new Gmm(pDevice->getGmmClientContext(), nullptr, 1, 0, false);
+    auto gmm = new Gmm(pDevice->getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     gfxAllocation->setDefaultGmm(gmm);
 
     for (bool compressed : {false, true}) {

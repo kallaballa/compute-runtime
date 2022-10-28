@@ -11,7 +11,7 @@
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/libult/ult_command_stream_receiver.h"
 #include "shared/test/common/mocks/mock_device.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 using namespace NEO;
 
@@ -23,6 +23,13 @@ struct ComputeModeRequirements : public ::testing::Test {
         myCsr(ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
             : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0, deviceBitfield){};
         CsrSizeRequestFlags *getCsrRequestFlags() { return &this->csrSizeRequestFlags; }
+        bool hasSharedHandles() override {
+            if (hasSharedHandlesReturnValue) {
+                return *hasSharedHandlesReturnValue;
+            }
+            return UltCommandStreamReceiver<FamilyType>::hasSharedHandles();
+        };
+        std::optional<bool> hasSharedHandlesReturnValue;
     };
     void makeResidentSharedAlloc() {
         csr->getResidencyAllocations().push_back(alloc);
@@ -48,10 +55,8 @@ struct ComputeModeRequirements : public ::testing::Test {
                                     bool numGrfRequiredChanged,
                                     uint32_t numGrfRequired) {
         auto csrHw = getCsrHw<FamilyType>();
-        csrHw->getCsrRequestFlags()->hasSharedHandles = hasSharedHandles;
-        csrHw->getCsrRequestFlags()->numGrfRequiredChanged = numGrfRequiredChanged;
+        csrHw->hasSharedHandlesReturnValue = hasSharedHandles;
         flags.requiresCoherency = requireCoherency;
-        flags.numGrfRequired = numGrfRequired;
         csrHw->streamProperties.stateComputeMode.isCoherencyRequired.value = requireCoherency;
         csrHw->streamProperties.stateComputeMode.isCoherencyRequired.isDirty = coherencyRequestChanged;
         csrHw->streamProperties.stateComputeMode.largeGrfMode.value = (numGrfRequired == GrfConfig::LargeGrfNumber);
@@ -67,14 +72,15 @@ struct ComputeModeRequirements : public ::testing::Test {
     }
 
     template <typename FamilyType>
-    void SetUpImpl() {
-        SetUpImpl<FamilyType>(defaultHwInfo.get());
+    void setUpImpl() {
+        setUpImpl<FamilyType>(defaultHwInfo.get());
     }
 
     template <typename FamilyType>
-    void SetUpImpl(const NEO::HardwareInfo *hardwareInfo) {
+    void setUpImpl(const NEO::HardwareInfo *hardwareInfo) {
         device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(hardwareInfo));
         device->executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(hardwareInfo);
+        device->executionEnvironment->rootDeviceEnvironments[0]->initGmm();
         csr = new myCsr<FamilyType>(*device->executionEnvironment, device->getDeviceBitfield());
 
         device->resetCommandStreamReceiver(csr);

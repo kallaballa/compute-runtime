@@ -17,8 +17,9 @@
 
 template <class T>
 struct CmdParse;
-namespace NEO {
 
+namespace NEO {
+class LogicalStateHelper;
 struct XeHpCore {
 #include "shared/source/generated/xe_hp_core/hw_cmds_generated_xe_hp_core.inl"
 
@@ -31,6 +32,42 @@ struct XeHpCore {
     static constexpr bool isUsingMediaSamplerDopClockGate = true;
     static constexpr bool supportsSampler = true;
     static constexpr bool isUsingGenericMediaStateClear = true;
+    static constexpr bool isUsingMiMemFence = false;
+
+    struct FrontEndStateSupport {
+        static constexpr bool scratchSize = true;
+        static constexpr bool privateScratchSize = true;
+        static constexpr bool computeDispatchAllWalker = false;
+        static constexpr bool disableEuFusion = false;
+        static constexpr bool disableOverdispatch = true;
+        static constexpr bool singleSliceDispatchCcsMode = true;
+    };
+
+    struct StateComputeModeStateSupport {
+        static constexpr bool threadArbitrationPolicy = false;
+        static constexpr bool coherencyRequired = true;
+        static constexpr bool largeGrfMode = true;
+        static constexpr bool zPassAsyncComputeThreadLimit = false;
+        static constexpr bool pixelAsyncComputeThreadLimit = false;
+        static constexpr bool devicePreemptionMode = false;
+    };
+
+    struct StateBaseAddressStateSupport {
+        static constexpr bool globalAtomics = true;
+        static constexpr bool statelessMocs = true;
+    };
+
+    struct PipelineSelectStateSupport {
+        static constexpr bool modeSelected = true;
+        static constexpr bool mediaSamplerDopClockGate = true;
+        static constexpr bool systolicMode = true;
+    };
+
+    struct PreemptionDebugSupport {
+        static constexpr bool preemptionMode = true;
+        static constexpr bool stateSip = true;
+        static constexpr bool csrSurface = false;
+    };
 
     struct DataPortBindlessSurfaceExtendedMessageDescriptor {
         union {
@@ -67,6 +104,7 @@ struct XeHpFamily : public XeHpCore {
     using XY_COLOR_BLT = typename GfxFamily::XY_FAST_COLOR_BLT;
     using MI_STORE_REGISTER_MEM_CMD = typename GfxFamily::MI_STORE_REGISTER_MEM;
     using TimestampPacketType = uint32_t;
+    using LogicalStateHelperHw = LogicalStateHelper;
     static const COMPUTE_WALKER cmdInitGpgpuWalker;
     static const CFE_STATE cmdInitCfeState;
     static const INTERFACE_DESCRIPTOR_DATA cmdInitInterfaceDescriptorData;

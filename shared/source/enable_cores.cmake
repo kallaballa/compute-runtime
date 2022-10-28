@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2020-2021 Intel Corporation
+# Copyright (C) 2020-2022 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -18,6 +18,7 @@ set(CORE_RUNTIME_SRCS_COREX_CPP_BASE
     command_stream_receiver_hw
     command_stream_receiver_simulated_common_hw
     create_device_command_stream_receiver
+    debugger
     direct_submission
     experimental_command_buffer
     implicit_scaling
@@ -49,33 +50,50 @@ macro(macro_for_each_platform)
     if(EXISTS ${SRC_FILE})
       list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_BASE ${SRC_FILE})
     endif()
+
+    set(PLATFORM_FILE "hw_cmds_${PLATFORM_IT_LOWER}.inl")
+    set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}/definitions${BRANCH_DIR_SUFFIX}${PLATFORM_FILE})
+    if(EXISTS ${SRC_FILE})
+      list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_BASE ${SRC_FILE})
+    endif()
+
+    set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}/additional_files_${CORE_TYPE_LOWER}.cmake)
+    if(EXISTS ${SRC_FILE})
+      include(${SRC_FILE})
+    endif()
+
     foreach(BRANCH ${BRANCH_DIR_LIST})
+      set(PATH_TO_CORE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH})
 
-      set(PLATFORM_FILE "hw_cmds_${PLATFORM_IT_LOWER}.h")
-      set(PATH_TO_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}${PLATFORM_FILE})
-      if(EXISTS ${PATH_TO_FILE})
-        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${PATH_TO_FILE})
+      set(SRC_FILE ${PATH_TO_CORE}hw_cmds_${PLATFORM_IT_LOWER}.h)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
       endif()
 
-      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}linux/hw_info_extra_${PLATFORM_IT_LOWER}.cpp)
+      set(SRC_FILE ${PATH_TO_CORE}${PLATFORM_IT_LOWER}${BRANCH_DIR_SUFFIX}hw_cmds_${PLATFORM_IT_LOWER}.cpp)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
+      endif()
+
+      set(SRC_FILE ${PATH_TO_CORE}linux/hw_info_extra_${PLATFORM_IT_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_LINUX ${SRC_FILE})
       endif()
-      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}windows/hw_info_extra_${PLATFORM_IT_LOWER}.cpp)
+      set(SRC_FILE ${PATH_TO_CORE}windows/hw_info_extra_${PLATFORM_IT_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_WINDOWS ${SRC_FILE})
       endif()
 
-      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}linux/hw_info_config_${PLATFORM_IT_LOWER}.cpp)
+      set(SRC_FILE ${PATH_TO_CORE}linux/hw_info_config_${PLATFORM_IT_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_LINUX ${SRC_FILE})
       endif()
-      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}windows/hw_info_config_${PLATFORM_IT_LOWER}.cpp)
+      set(SRC_FILE ${PATH_TO_CORE}windows/hw_info_config_${PLATFORM_IT_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_WINDOWS ${SRC_FILE})
       endif()
 
-      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}enable_hw_info_config_${PLATFORM_IT_LOWER}.cpp)
+      set(SRC_FILE ${PATH_TO_CORE}enable_hw_info_config_${PLATFORM_IT_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND ${CORE_TYPE}_SRC_LINK_BASE ${SRC_FILE})
       endif()
@@ -93,15 +111,39 @@ macro(macro_for_each_platform)
         list(APPEND ${CORE_TYPE}_SRC_LINK_BASE ${SRC_FILE})
       endif()
 
-      set(SRC_FILE "${CORE_COREX_PREFIX}/os_agnostic_hw_info_config_${PLATFORM_IT_LOWER}.inl")
+      set(SRC_FILE ${PATH_TO_CORE}${PLATFORM_IT_LOWER}/os_agnostic_hw_info_config_${PLATFORM_IT_LOWER}.inl)
       if(EXISTS ${SRC_FILE})
         list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
       endif()
 
-      set(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.cpp")
-      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}${BRANCH}${PLATFORM_FILE})
+      set(SRC_FILE ${PATH_TO_CORE}${PLATFORM_IT_LOWER}/definitions${BRANCH_DIR_SUFFIX}os_agnostic_hw_info_config_${PLATFORM_IT_LOWER}_extra.inl)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
+      endif()
+
+      set(SRC_FILE ${PATH_TO_CORE}${PLATFORM_IT_LOWER}/device_ids_configs_${PLATFORM_IT_LOWER}.h)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
+      endif()
+
+      set(SRC_FILE ${PATH_TO_CORE}${PLATFORM_IT_LOWER}/definitions/device_ids_configs_${PLATFORM_IT_LOWER}_base.h)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
+      endif()
+
+      set(SRC_FILE ${PATH_TO_CORE}${PLATFORM_IT_LOWER}/definitions${BRANCH_DIR_SUFFIX}device_ids_configs_${PLATFORM_IT_LOWER}.h)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
+      endif()
+
+      set(SRC_FILE ${PATH_TO_CORE}hw_info_${PLATFORM_IT_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_BASE ${SRC_FILE})
+      endif()
+
+      set(SRC_FILE ${PATH_TO_CORE}hw_info_${PLATFORM_IT_LOWER}.h)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
       endif()
     endforeach()
   endforeach()
@@ -114,7 +156,7 @@ macro(macro_for_each_core_type)
     set(GENERATED_COREX_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/generated${BRANCH}${CORE_TYPE_LOWER})
 
     foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
-      foreach(SRC_IT ${CORE_SRCS_COREX_H_BASE} "hw_info_${CORE_TYPE_LOWER}.h")
+      foreach(SRC_IT ${CORE_SRCS_COREX_H_BASE} "hw_info_${CORE_TYPE_LOWER}.h" "hw_cmds_${CORE_TYPE_LOWER}_base.h")
         set(SRC_FILE ${CORE_COREX_PREFIX}${BRANCH_DIR}${SRC_IT})
         if(EXISTS ${SRC_FILE})
           list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE ${SRC_FILE})
@@ -139,13 +181,9 @@ macro(macro_for_each_core_type)
         list(APPEND ${CORE_TYPE}_SRC_LINK_BASE ${SRC_FILE})
       endif()
 
-      set(SRC_FILE ${CORE_COREX_PREFIX}${BRANCH_DIR}enable_${CORE_TYPE_LOWER}.cpp)
-      if(EXISTS ${SRC_FILE})
-        list(APPEND ${CORE_TYPE}_SRC_LINK_BASE ${SRC_FILE})
-      endif()
       set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${CORE_TYPE_LOWER}/enable_${CORE_TYPE_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
-        list(APPEND ${CORE_TYPE}_SRC_LINK_BASE ${SRC_FILE})
+        list(APPEND NEO_SRCS_ENABLE_CORE ${SRC_FILE})
       endif()
 
       set(SRC_FILE "${CORE_COREX_PREFIX}/os_agnostic_hw_info_config_${CORE_TYPE_LOWER}.inl")
@@ -164,10 +202,6 @@ macro(macro_for_each_core_type)
       endif()
 
     endforeach()
-    set(SRC_FILE "${CORE_COREX_PREFIX}/state_compute_mode_helper_${CORE_TYPE_LOWER}.cpp")
-    if(EXISTS ${SRC_FILE})
-      list(APPEND CORE_SRCS_${CORE_TYPE}_CPP_BASE ${SRC_FILE})
-    endif()
     if(EXISTS ${GENERATED_COREX_PREFIX}/hw_cmds_generated_${CORE_TYPE_LOWER}.inl)
       list(APPEND CORE_SRCS_${CORE_TYPE}_H_BASE "${GENERATED_COREX_PREFIX}/hw_cmds_generated_${CORE_TYPE_LOWER}.inl")
     endif()
@@ -191,3 +225,4 @@ set_property(GLOBAL PROPERTY CORE_SRCS_COREX_ALL_BASE ${CORE_SRCS_COREX_ALL_BASE
 set_property(GLOBAL PROPERTY CORE_SRCS_COREX_ALL_LINUX ${CORE_SRCS_COREX_ALL_LINUX})
 set_property(GLOBAL PROPERTY CORE_SRCS_COREX_ALL_WDDM ${CORE_SRCS_COREX_ALL_WDDM})
 set_property(GLOBAL PROPERTY CORE_SRCS_COREX_ALL_WINDOWS ${CORE_SRCS_COREX_ALL_WINDOWS})
+set_property(GLOBAL APPEND PROPERTY NEO_SRCS_ENABLE_CORE ${NEO_SRCS_ENABLE_CORE})

@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/pipe.h"
@@ -26,17 +26,17 @@ using namespace NEO;
 
 class KernelArgPipeFixture : public ContextFixture, public ClDeviceFixture {
 
-    using ContextFixture::SetUp;
+    using ContextFixture::setUp;
 
   public:
     KernelArgPipeFixture() {
     }
 
   protected:
-    void SetUp() {
-        ClDeviceFixture::SetUp();
+    void setUp() {
+        ClDeviceFixture::setUp();
         cl_device_id device = pClDevice;
-        ContextFixture::SetUp(1, &device);
+        ContextFixture::setUp(1, &device);
 
         // define kernel info
         pKernelInfo = std::make_unique<MockKernelInfo>();
@@ -56,12 +56,12 @@ class KernelArgPipeFixture : public ContextFixture, public ClDeviceFixture {
         pKernel->setKernelArgHandler(0, &Kernel::setArgPipe);
     }
 
-    void TearDown() override {
+    void tearDown() {
         delete pKernel;
 
         delete pProgram;
-        ContextFixture::TearDown();
-        ClDeviceFixture::TearDown();
+        ContextFixture::tearDown();
+        ClDeviceFixture::tearDown();
     }
 
     cl_int retVal = CL_SUCCESS;

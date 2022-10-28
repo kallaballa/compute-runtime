@@ -1,13 +1,14 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "hw_cmds.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <vector>
 
@@ -76,7 +77,7 @@ static inline typename FamilyType::MI_LOAD_REGISTER_IMM *findMmioCmd(GenCmdList:
 }
 
 template <typename Type>
-static inline GenCmdList::reverse_iterator reverse_find(GenCmdList::reverse_iterator itorStart, GenCmdList::const_reverse_iterator itorEnd) {
+static inline GenCmdList::reverse_iterator reverseFind(GenCmdList::reverse_iterator itorStart, GenCmdList::const_reverse_iterator itorEnd) {
     GenCmdList::reverse_iterator itor = itorStart;
     while (itor != itorEnd) {
         if (genCmdCast<Type>(*itor))

@@ -7,15 +7,15 @@
 
 #include "shared/source/helpers/get_info.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/raii_hw_helper.h"
 #include "shared/test/common/mocks/mock_driver_info.h"
 #include "shared/test/common/mocks/mock_os_context.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/cl_device/cl_device_info_map.h"
 #include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/device_info_fixture.h"
-#include "opencl/test/unit_test/helpers/raii_hw_helper.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/ult_cl_device_factory.h"
@@ -733,7 +733,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSingleDeviceWhenInitializingCapsThen
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(2u, paramRetSize / sizeof(cl_queue_family_properties_intel));
 
-    EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, families[0].capabilities);
+    EXPECT_EQ(static_cast<uint64_t>(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL), families[0].capabilities);
     EXPECT_EQ(3u, families[0].count);
     EXPECT_EQ(clDevice.getDeviceInfo().queueOnHostProperties, families[0].properties);
 
@@ -756,7 +756,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWhenInitializingCapsThenRet
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(2u, paramRetSize / sizeof(cl_queue_family_properties_intel));
 
-    EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, families[0].capabilities);
+    EXPECT_EQ(static_cast<uint64_t>(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL), families[0].capabilities);
     EXPECT_EQ(3u, families[0].count);
     EXPECT_EQ(clDevice.getDeviceInfo().queueOnHostProperties, families[0].properties);
 
@@ -791,7 +791,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWithoutSupportedEngineWhenI
         EXPECT_EQ(CL_SUCCESS, retVal);
         EXPECT_EQ(2u, paramRetSize / sizeof(cl_queue_family_properties_intel));
 
-        EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, families[0].capabilities);
+        EXPECT_EQ(static_cast<uint64_t>(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL), families[0].capabilities);
         EXPECT_EQ(3u, families[0].count);
         EXPECT_EQ(clDevice0.getDeviceInfo().queueOnHostProperties, families[0].properties);
 
@@ -807,7 +807,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenSubDeviceWithoutSupportedEngineWhenI
         EXPECT_EQ(CL_SUCCESS, retVal);
         EXPECT_EQ(1u, paramRetSize / sizeof(cl_queue_family_properties_intel));
 
-        EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, families[0].capabilities);
+        EXPECT_EQ(static_cast<uint64_t>(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL), families[0].capabilities);
         EXPECT_EQ(3u, families[0].count);
         EXPECT_EQ(clDevice1.getDeviceInfo().queueOnHostProperties, families[0].properties);
 
@@ -831,7 +831,7 @@ HWTEST_F(GetDeviceInfoQueueFamilyTest, givenDeviceRootDeviceWhenInitializingCaps
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(1u, paramRetSize / sizeof(cl_queue_family_properties_intel));
 
-    EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, families[0].capabilities);
+    EXPECT_EQ(static_cast<uint64_t>(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL), families[0].capabilities);
     EXPECT_EQ(1u, families[0].count);
     EXPECT_EQ(clDevice.getDeviceInfo().queueOnHostProperties, families[0].properties);
 }
@@ -970,6 +970,7 @@ cl_device_info deviceInfoParams[] = {
     CL_DEVICE_VENDOR_ID,
     CL_DEVICE_VERSION,
     CL_DRIVER_VERSION,
+    CL_DRIVER_UUID_KHR,
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -1028,7 +1029,7 @@ TEST(GetDeviceInfoTest, givenPciBusInfoWhenGettingPciBusInfoForDeviceThenPciBusI
 }
 
 TEST(GetDeviceInfoTest, givenPciBusInfoIsNotAvailableWhenGettingPciBusInfoForDeviceThenInvalidValueIsReturned) {
-    PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue);
+    PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue);
 
     auto driverInfo = new DriverInfoMock();
     driverInfo->setPciBusInfo(pciBusInfo);
@@ -1040,6 +1041,18 @@ TEST(GetDeviceInfoTest, givenPciBusInfoIsNotAvailableWhenGettingPciBusInfoForDev
     auto retVal = device->getDeviceInfo(CL_DEVICE_PCI_BUS_INFO_KHR, 0, nullptr, nullptr);
 
     ASSERT_EQ(retVal, CL_INVALID_VALUE);
+}
+
+TEST(GetDeviceInfo, givenDeviceUuidWhenGettingDeviceInfoThenGenerateDeviceUuid) {
+    std::array<uint8_t, CL_UUID_SIZE_KHR> generateDeviceUuid, deviceUuidKHR;
+    size_t retSize = 0;
+
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    auto retVal = device->getDeviceInfo(CL_DEVICE_UUID_KHR, sizeof(deviceUuidKHR), &deviceUuidKHR, &retSize);
+    ASSERT_EQ(retVal, CL_SUCCESS);
+
+    device.get()->getDevice().generateUuid(generateDeviceUuid);
+    EXPECT_EQ(generateDeviceUuid, deviceUuidKHR);
 }
 
 struct DeviceAttributeQueryTest : public ::testing::TestWithParam<uint32_t /*cl_device_info*/> {
@@ -1114,7 +1127,7 @@ struct DeviceAttributeQueryTest : public ::testing::TestWithParam<uint32_t /*cl_
             auto pCapabilities = reinterpret_cast<cl_device_feature_capabilities_intel *>(object.get());
             auto &hwInfo = device.getHardwareInfo();
             auto &clHwHelper = ClHwHelper::get(hwInfo.platform.eRenderCoreFamily);
-            EXPECT_EQ(clHwHelper.getSupportedDeviceFeatureCapabilities(), *pCapabilities);
+            EXPECT_EQ(clHwHelper.getSupportedDeviceFeatureCapabilities(hwInfo), *pCapabilities);
             EXPECT_EQ(sizeof(cl_device_feature_capabilities_intel), sizeReturned);
             break;
         }

@@ -11,51 +11,77 @@
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/test/common/helpers/default_hw_info.h"
+#include "shared/test/common/mocks/linux/mock_drm_wrappers.h"
 
-#include "drm/i915_drm.h"
 #include "engine_node.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 
 #include <atomic>
 #include <cstdint>
-#include <iostream>
 
 using NEO::Drm;
+using NEO::DrmIoctl;
 using NEO::HwDeviceIdDrm;
 using NEO::RootDeviceEnvironment;
 
 extern const int mockFd;
 extern const char *mockPciPath;
 
-class DrmMockImpl : public Drm {
+class Ioctls {
   public:
-    using Drm::setupIoctlHelper;
-    DrmMockImpl(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, mockPciPath), rootDeviceEnvironment){};
-
-    MOCK_METHOD2(ioctl, int(unsigned long request, void *arg));
+    Ioctls() {
+        reset();
+    }
+    void reset();
+    std::atomic<int32_t> total;
+    std::atomic<int32_t> query;
+    std::atomic<int32_t> execbuffer2;
+    std::atomic<int32_t> gemUserptr;
+    std::atomic<int32_t> gemCreate;
+    std::atomic<int32_t> gemCreateExt;
+    std::atomic<int32_t> gemSetTiling;
+    std::atomic<int32_t> gemGetTiling;
+    std::atomic<int32_t> gemVmCreate;
+    std::atomic<int32_t> gemVmDestroy;
+    std::atomic<int32_t> primeFdToHandle;
+    std::atomic<int32_t> handleToPrimeFd;
+    std::atomic<int32_t> gemMmapOffset;
+    std::atomic<int32_t> gemSetDomain;
+    std::atomic<int32_t> gemWait;
+    std::atomic<int32_t> gemClose;
+    std::atomic<int32_t> gemResetStats;
+    std::atomic<int32_t> regRead;
+    std::atomic<int32_t> getParam;
+    std::atomic<int32_t> contextGetParam;
+    std::atomic<int32_t> contextSetParam;
+    std::atomic<int32_t> contextCreate;
+    std::atomic<int32_t> contextDestroy;
 };
 
 class DrmMockSuccess : public Drm {
   public:
-    DrmMockSuccess(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, mockPciPath), rootDeviceEnvironment) {}
+    using Drm::setupIoctlHelper;
+    DrmMockSuccess(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, mockPciPath), rootDeviceEnvironment) {
+        setupIoctlHelper(NEO::defaultHwInfo->platform.eProductFamily);
+    }
 
-    int ioctl(unsigned long request, void *arg) override { return 0; };
+    int ioctl(DrmIoctl request, void *arg) override { return 0; };
 };
 
 class DrmMockFail : public Drm {
   public:
-    DrmMockFail(RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(mockFd, mockPciPath), rootDeviceEnvironment) {}
+    DrmMockFail(RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(mockFd, mockPciPath), rootDeviceEnvironment) {
+        setupIoctlHelper(NEO::defaultHwInfo->platform.eProductFamily);
+    }
 
-    int ioctl(unsigned long request, void *arg) override { return -1; };
+    int ioctl(DrmIoctl request, void *arg) override { return -1; };
 };
 
 class DrmMockTime : public DrmMockSuccess {
   public:
     using DrmMockSuccess::DrmMockSuccess;
-    int ioctl(unsigned long request, void *arg) override {
-        drm_i915_reg_read *reg = reinterpret_cast<drm_i915_reg_read *>(arg);
-        reg->val = getVal() << 32;
+    int ioctl(DrmIoctl request, void *arg) override {
+        auto *reg = reinterpret_cast<NEO::RegisterRead *>(arg);
+        reg->value = getVal() << 32;
         return 0;
     };
 
@@ -80,30 +106,6 @@ class DrmMockCustom : public Drm {
         IoctlResExt(int32_t no, int32_t res) : no(1u, no), res(res) {}
     };
 
-    class Ioctls {
-      public:
-        void reset();
-
-        std::atomic<int32_t> total;
-        std::atomic<int32_t> execbuffer2;
-        std::atomic<int32_t> gemUserptr;
-        std::atomic<int32_t> gemCreate;
-        std::atomic<int32_t> gemSetTiling;
-        std::atomic<int32_t> gemGetTiling;
-        std::atomic<int32_t> primeFdToHandle;
-        std::atomic<int32_t> handleToPrimeFd;
-        std::atomic<int32_t> gemMmap;
-        std::atomic<int32_t> gemMmapOffset;
-        std::atomic<int32_t> gemSetDomain;
-        std::atomic<int32_t> gemWait;
-        std::atomic<int32_t> gemClose;
-        std::atomic<int32_t> regRead;
-        std::atomic<int32_t> getParam;
-        std::atomic<int32_t> contextGetParam;
-        std::atomic<int32_t> contextCreate;
-        std::atomic<int32_t> contextDestroy;
-    };
-
     struct WaitUserFenceCall {
         uint64_t address = 0u;
         uint64_t value = 0u;
@@ -125,6 +127,8 @@ class DrmMockCustom : public Drm {
 
     int waitUserFence(uint32_t ctxId, uint64_t address, uint64_t value, ValueWidth dataWidth, int64_t timeout, uint16_t flags) override;
 
+    bool getSetPairAvailable() override;
+
     bool isVmBindAvailable() override;
 
     bool completionFenceSupport() override {
@@ -133,9 +137,9 @@ class DrmMockCustom : public Drm {
 
     void testIoctls();
 
-    int ioctl(unsigned long request, void *arg) override;
+    int ioctl(DrmIoctl request, void *arg) override;
 
-    virtual int ioctlExtra(unsigned long request, void *arg) {
+    virtual int ioctlExtra(DrmIoctl request, void *arg) {
         return -1;
     }
 
@@ -150,70 +154,70 @@ class DrmMockCustom : public Drm {
         ioctl_res_ext = &NONE;
     }
 
-    virtual void execBufferExtensions(drm_i915_gem_execbuffer2 *execbuf) {
+    virtual void execBufferExtensions(void *execbuf) {
     }
 
-    Ioctls ioctl_cnt;
-    Ioctls ioctl_expected;
+    Ioctls ioctl_cnt{};
+    Ioctls ioctl_expected{};
 
     IoctlResExt NONE = {-1, 0};
 
     WaitUserFenceCall waitUserFenceCall{};
+    IsVmBindAvailableCall getSetPairAvailableCall{};
     IsVmBindAvailableCall isVmBindAvailableCall{};
 
     std::atomic<int> ioctl_res;
     std::atomic<IoctlResExt *> ioctl_res_ext;
 
     //DRM_IOCTL_I915_GEM_EXECBUFFER2
-    drm_i915_gem_execbuffer2 execBuffer = {0};
+    NEO::MockExecBuffer execBuffer{};
 
     //First exec object
-    drm_i915_gem_exec_object2 execBufferBufferObjects = {0};
+    NEO::MockExecObject execBufferBufferObjects{};
 
     //DRM_IOCTL_I915_GEM_CREATE
-    __u64 createParamsSize = 0;
-    __u32 createParamsHandle = 0;
+    uint64_t createParamsSize = 0;
+    uint32_t createParamsHandle = 0;
     //DRM_IOCTL_I915_GEM_SET_TILING
-    __u32 setTilingMode = 0;
-    __u32 setTilingHandle = 0;
-    __u32 setTilingStride = 0;
+    uint32_t setTilingMode = 0;
+    uint32_t setTilingHandle = 0;
+    uint32_t setTilingStride = 0;
     //DRM_IOCTL_I915_GEM_GET_TILING
-    __u32 getTilingModeOut = I915_TILING_NONE;
-    __u32 getTilingHandleIn = 0;
+    uint32_t getTilingModeOut = 0;
+    uint32_t getTilingHandleIn = 0;
     //DRM_IOCTL_PRIME_FD_TO_HANDLE
-    __u32 outputHandle = 0;
-    __s32 inputFd = 0;
+    uint32_t outputHandle = 0;
+    int32_t inputFd = 0;
     //DRM_IOCTL_PRIME_HANDLE_TO_FD
-    __u32 inputHandle = 0;
-    __s32 outputFd = 0;
-    __s32 inputFlags = 0;
+    uint32_t inputHandle = 0;
+    int32_t outputFd = 0;
+    int32_t inputFlags = 0;
     //DRM_IOCTL_I915_GEM_USERPTR
-    __u32 returnHandle = 0;
-    //DRM_IOCTL_I915_GEM_MMAP
-    __u32 mmapHandle = 0;
-    __u32 mmapPad = 0;
-    __u64 mmapOffset = 0;
-    __u64 mmapSize = 0;
-    __u64 mmapAddrPtr = 0x7F4000001000;
-    __u64 mmapFlags = 0;
+    uint32_t returnHandle = 0;
     //DRM_IOCTL_I915_GEM_SET_DOMAIN
-    __u32 setDomainHandle = 0;
-    __u32 setDomainReadDomains = 0;
-    __u32 setDomainWriteDomain = 0;
+    uint32_t setDomainHandle = 0;
+    uint32_t setDomainReadDomains = 0;
+    uint32_t setDomainWriteDomain = 0;
     //DRM_IOCTL_I915_GETPARAM
-    drm_i915_getparam_t recordedGetParam = {0};
+    NEO::GetParam recordedGetParam = {0};
     int getParamRetValue = 0;
     //DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM
-    drm_i915_gem_context_param recordedGetContextParam = {0};
-    __u64 getContextParamRetValue = 0;
+    NEO::GemContextParam recordedGetContextParam = {0};
+    uint64_t getContextParamRetValue = 0;
     //DRM_IOCTL_I915_GEM_WAIT
     int64_t gemWaitTimeout = 0;
     //DRM_IOCTL_I915_GEM_MMAP_OFFSET
-    __u32 mmapOffsetHandle = 0;
-    __u32 mmapOffsetPad = 0;
-    __u64 mmapOffsetExpected = 0;
-    __u64 mmapOffsetFlags = 0;
+    uint32_t mmapOffsetHandle = 0;
+    uint32_t mmapOffsetPad = 0;
+    uint64_t mmapOffsetExpected = 0;
+    uint64_t mmapOffsetFlags = 0;
     bool failOnMmapOffset = false;
+    bool failOnPrimeFdToHandle = false;
+
+    //DRM_IOCTL_I915_GEM_CREATE_EXT
+    uint64_t createExtSize = 0;
+    uint32_t createExtHandle = 0;
+    uint64_t createExtExtensions = 0;
 
     int errnoValue = 0;
 

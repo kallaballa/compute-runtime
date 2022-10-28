@@ -1,18 +1,15 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include <condition_variable>
-#include <fstream>
-#include <mutex>
-#include <sstream>
-#include <stdint.h>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
 #include <string>
-#include <thread>
 
 enum class DebugFunctionalityLevel {
     None,   // Debug functionality disabled
@@ -53,8 +50,6 @@ void printDebugString(bool showDebugLogs, Args &&...args) {
 #define NO_SANITIZE
 #endif
 
-class Kernel;
-class GraphicsAllocation;
 class SettingsReader;
 
 template <typename T>
@@ -74,13 +69,13 @@ struct DebugVarBase {
     T value;
 };
 
-struct DebugVariables {
+struct DebugVariables { // NOLINT(clang-analyzer-optin.performance.Padding)
     struct DEBUGGER_LOG_BITMASK {
-        constexpr static int32_t LOG_INFO{1};
-        constexpr static int32_t LOG_ERROR{1 << 1};
-        constexpr static int32_t LOG_THREADS{1 << 2};
-        constexpr static int32_t LOG_MEM{1 << 3};
-        constexpr static int32_t DUMP_ELF{1 << 10};
+        constexpr static int32_t LOG_INFO{1};         // NOLINT(readability-identifier-naming)
+        constexpr static int32_t LOG_ERROR{1 << 1};   // NOLINT(readability-identifier-naming)
+        constexpr static int32_t LOG_THREADS{1 << 2}; // NOLINT(readability-identifier-naming)
+        constexpr static int32_t LOG_MEM{1 << 3};     // NOLINT(readability-identifier-naming)
+        constexpr static int32_t DUMP_ELF{1 << 10};   // NOLINT(readability-identifier-naming)
     };
 
 #define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description) \
@@ -125,17 +120,17 @@ class DebugSettingsManager {
         return (disabled() && PURGE_DEBUG_KEY_NAMES) ? "" : key;
     }
 
+    void getStringWithFlags(std::string &allFlags, std::string &changedFlags) const;
+
   protected:
     std::unique_ptr<SettingsReader> readerImpl;
-    std::mutex mtx;
-    std::string logFileName;
-
     bool isLoopAtDriverInitEnabled() const {
         auto loopingEnabled = flags.LoopAtDriverInit.get();
         return loopingEnabled;
     }
     template <typename DataType>
-    static void dumpNonDefaultFlag(const char *variableName, const DataType &variableValue, const DataType &defaultValue);
+    static void dumpNonDefaultFlag(const char *variableName, const DataType &variableValue, const DataType &defaultValuep, std::ostringstream &ostring);
+
     void dumpFlags() const;
     static const char *settingsDumpFileName;
 };

@@ -14,10 +14,11 @@
 #include "shared/test/common/mocks/mock_deferred_deleter.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.inl"
+#include "opencl/source/gtpin/gtpin_defs.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/sharings/sharing.h"
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
@@ -50,25 +51,22 @@ class WhiteBoxContext : public Context {
 struct ContextTest : public PlatformFixture,
                      public ::testing::Test {
 
-    using PlatformFixture::SetUp;
+    using PlatformFixture::setUp;
 
     void SetUp() override {
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
 
-        cl_platform_id platform = pPlatform;
-        properties = new cl_context_properties[3];
-        properties[0] = CL_CONTEXT_PLATFORM;
-        properties[1] = (cl_context_properties)platform;
-        properties[2] = 0;
+        properties.push_back(CL_CONTEXT_PLATFORM);
+        properties.push_back(reinterpret_cast<cl_context_properties>(pPlatform));
+        properties.push_back(0);
 
-        context = Context::create<WhiteBoxContext>(properties, ClDeviceVector(devices, num_devices), nullptr, nullptr, retVal);
+        context = Context::create<WhiteBoxContext>(properties.data(), ClDeviceVector(devices, num_devices), nullptr, nullptr, retVal);
         ASSERT_NE(nullptr, context);
     }
 
     void TearDown() override {
-        delete[] properties;
         delete context;
-        PlatformFixture::TearDown();
+        PlatformFixture::tearDown();
     }
 
     uint32_t getRootDeviceIndex() {
@@ -77,7 +75,7 @@ struct ContextTest : public PlatformFixture,
 
     cl_int retVal = CL_SUCCESS;
     WhiteBoxContext *context = nullptr;
-    cl_context_properties *properties = nullptr;
+    std::vector<cl_context_properties> properties;
 };
 
 TEST_F(ContextTest, WhenCreatingContextThenDevicesAllDevicesExist) {
@@ -92,7 +90,7 @@ TEST_F(ContextTest, WhenCreatingContextThenMemoryManagerForContextIsSet) {
 
 TEST_F(ContextTest, WhenCreatingContextThenPropertiesAreCopied) {
     auto contextProperties = context->getProperties();
-    EXPECT_NE(properties, contextProperties);
+    EXPECT_NE(properties.data(), contextProperties);
 }
 
 TEST_F(ContextTest, WhenCreatingContextThenPropertiesAreValid) {
@@ -467,8 +465,8 @@ TEST(Context, givenContextAndDevicesWhenIsTileOnlyThenProperValueReturned) {
 }
 
 TEST(InvalidExtraPropertiesTests, givenInvalidExtraPropertiesWhenCreatingContextThenContextIsNotCreated) {
-    constexpr cl_context_properties INVALID_PROPERTY_TYPE = (1 << 31);
-    constexpr cl_context_properties INVALID_CONTEXT_FLAG = (1 << 31);
+    constexpr cl_context_properties invalidPropertyType = (1 << 31);
+    constexpr cl_context_properties invalidContextFlag = (1 << 31);
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     cl_device_id deviceID = device.get();
@@ -476,7 +474,7 @@ TEST(InvalidExtraPropertiesTests, givenInvalidExtraPropertiesWhenCreatingContext
     std::unique_ptr<Context> context;
 
     {
-        cl_context_properties properties[] = {INVALID_PROPERTY_TYPE, INVALID_CONTEXT_FLAG, 0};
+        cl_context_properties properties[] = {invalidPropertyType, invalidContextFlag, 0};
         context.reset(Context::create<Context>(properties, ClDeviceVector(&deviceID, 1), nullptr, nullptr, retVal));
         EXPECT_EQ(CL_INVALID_PROPERTY, retVal);
         EXPECT_EQ(nullptr, context.get());
@@ -515,6 +513,55 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, ContextCreateTests, givenLocalMemoryAllocationWhenB
         executionEnv->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = true;
         EXPECT_EQ(BlitOperationResult::Success, BlitHelper::blitMemoryToAllocation(buffer->getContext()->getDevice(0)->getDevice(), memory, buffer->getOffset(), hostMemory, {1, 1, 1}));
     }
+}
+
+HWCMDTEST_F(IGFX_XE_HP_CORE, ContextCreateTests, givenGpuHangOnFlushBcsTaskAndLocalMemoryAllocationWhenBlitMemoryToAllocationIsCalledThenGpuHangIsReturned) {
+    if (is32bit) {
+        GTEST_SKIP();
+    }
+
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableLocalMemory.set(true);
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::Default));
+
+    VariableBackup<HardwareInfo> backupHwInfo(defaultHwInfo.get());
+    defaultHwInfo->capabilityTable.blitterOperationsSupported = true;
+    UltClDeviceFactory deviceFactory{1, 2};
+
+    auto testedDevice = deviceFactory.rootDevices[0];
+
+    MockContext context(testedDevice);
+    cl_int retVal;
+    auto buffer = std::unique_ptr<Buffer>(Buffer::create(&context, {}, 1, nullptr, retVal));
+    auto memory = buffer->getGraphicsAllocation(testedDevice->getRootDeviceIndex());
+
+    uint8_t hostMemory[1];
+    auto executionEnv = testedDevice->getExecutionEnvironment();
+    executionEnv->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = false;
+
+    EXPECT_EQ(BlitOperationResult::Unsupported, BlitHelper::blitMemoryToAllocation(buffer->getContext()->getDevice(0)->getDevice(), memory, buffer->getOffset(), hostMemory, {1, 1, 1}));
+
+    executionEnv->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = true;
+
+    const auto rootDevice = testedDevice->getDevice().getRootDevice();
+    const auto blitDevice = rootDevice->getNearestGenericSubDevice(0);
+    auto &selectorCopyEngine = blitDevice->getSelectorCopyEngine();
+    auto deviceBitfield = blitDevice->getDeviceBitfield();
+
+    const auto &hwInfo = testedDevice->getDevice().getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    auto internalUsage = true;
+    auto bcsEngineType = EngineHelpers::getBcsEngineType(hwInfo, deviceBitfield, selectorCopyEngine, internalUsage);
+    auto bcsEngineUsage = hwHelper.preferInternalBcsEngine() ? EngineUsage::Internal : EngineUsage::Regular;
+    auto bcsEngine = blitDevice->tryGetEngine(bcsEngineType, bcsEngineUsage);
+    ASSERT_NE(nullptr, bcsEngine);
+
+    auto ultBcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsEngine->commandStreamReceiver);
+    ultBcsCsr->callBaseFlushBcsTask = false;
+    ultBcsCsr->flushBcsTaskReturnValue = std::nullopt;
+
+    EXPECT_EQ(BlitOperationResult::GpuHang, BlitHelper::blitMemoryToAllocation(buffer->getContext()->getDevice(0)->getDevice(), memory, buffer->getOffset(), hostMemory, {1, 1, 1}));
 }
 
 struct AllocationReuseContextTest : ContextTest {
@@ -667,3 +714,45 @@ TEST_F(AllocationReuseContextTest, givenHostPtrStoredInMapOperationsStorageAndRe
     EXPECT_EQ(InternalMemoryType::NOT_SPECIFIED, retrievedMemoryType);
     EXPECT_TRUE(retrievedCpuCopyStatus);
 }
+
+struct MockGTPinTestContext : Context {
+    using Context::svmAllocsManager;
+};
+
+struct MockSVMAllocManager : SVMAllocsManager {
+    MockSVMAllocManager() : SVMAllocsManager(nullptr, false) {}
+    ~MockSVMAllocManager() override {
+        svmAllocManagerDeleted = true;
+    }
+
+    inline static bool svmAllocManagerDeleted = false;
+};
+
+struct GTPinContextDestroyTest : ContextTest {
+    void SetUp() override {
+        ContextTest::SetUp();
+    }
+
+    void TearDown() override {
+        PlatformFixture::tearDown();
+    }
+};
+
+void onContextDestroy(gtpin::context_handle_t context) {
+    EXPECT_FALSE(MockSVMAllocManager::svmAllocManagerDeleted);
+}
+
+namespace NEO {
+extern gtpin::ocl::gtpin_events_t GTPinCallbacks;
+TEST_F(GTPinContextDestroyTest, whenCallingConxtextDestructorThenGTPinIsNotifiedBeforeSVMAllocManagerGetsDestroyed) {
+    auto mockContext = reinterpret_cast<MockGTPinTestContext *>(context);
+    if (mockContext->svmAllocsManager) {
+        delete mockContext->svmAllocsManager;
+    }
+    mockContext->svmAllocsManager = new MockSVMAllocManager();
+
+    GTPinCallbacks.onContextDestroy = onContextDestroy;
+    delete context;
+    EXPECT_TRUE(MockSVMAllocManager::svmAllocManagerDeleted);
+}
+} // namespace NEO

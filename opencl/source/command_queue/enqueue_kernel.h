@@ -11,10 +11,6 @@
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/command_queue/gpgpu_walker.h"
-#include "opencl/source/helpers/hardware_commands_helper.h"
-#include "opencl/source/helpers/task_information.h"
-#include "opencl/source/mem_obj/buffer.h"
-#include "opencl/source/memory_manager/mem_obj_surface.h"
 
 #include <new>
 
@@ -135,7 +131,14 @@ cl_int CommandQueueHw<GfxFamily>::enqueueKernel(
         return CL_INVALID_WORK_GROUP_SIZE;
     }
 
-    enqueueHandler<CL_COMMAND_NDRANGE_KERNEL>(
+    for (auto i = 0u; i < workDim; i++) {
+        uint64_t dimension = static_cast<uint64_t>(region[i]) / workGroupSize[i];
+        if (dimension > std::numeric_limits<uint32_t>::max()) {
+            return CL_INVALID_GLOBAL_WORK_SIZE;
+        }
+    }
+
+    return enqueueHandler<CL_COMMAND_NDRANGE_KERNEL>(
         surfaces,
         false,
         &kernel,
@@ -147,7 +150,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueKernel(
         numEventsInWaitList,
         eventWaitList,
         event);
-
-    return CL_SUCCESS;
 }
+
 } // namespace NEO

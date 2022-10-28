@@ -1,10 +1,12 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/ail/ail_configuration.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/constants.h"
@@ -14,8 +16,6 @@
 #include "opencl/source/context/context.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/program.h"
-
-#include "compiler_options.h"
 
 namespace NEO {
 
@@ -33,7 +33,7 @@ T *Program::create(
 
     for (auto i = 0u; i < deviceVector.size(); i++) {
         auto device = deviceVector[i];
-        retVal = program->createProgramFromBinary(binaries[i], lengths[i], *device);
+        retVal = program->createProgramFromBinary(binaries[i], lengths[i], *device); // NOLINT(clang-analyzer-core.CallAndMessage)
         if (retVal != CL_SUCCESS) {
             break;
         }
@@ -73,6 +73,13 @@ T *Program::create(
         lengths);
 
     if (CL_SUCCESS == retVal) {
+
+        auto &hwInfo = pContext->getDevice(0)->getHardwareInfo();
+        auto ail = AILConfiguration::get(hwInfo.platform.eProductFamily);
+        if (ail) {
+            ail->modifyKernelIfRequired(combinedString);
+        }
+
         program = new T(pContext, false, pContext->getDevices());
         program->sourceCode.swap(combinedString);
         program->createdFrom = CreatedFrom::SOURCE;

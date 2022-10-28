@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,6 @@
 
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.h"
 #include "shared/source/helpers/ptr_math.h"
-#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/test_macros/test.h"
@@ -18,9 +17,7 @@
 #include "opencl/test/unit_test/aub_tests/fixtures/aub_fixture.h"
 #include "opencl/test/unit_test/aub_tests/fixtures/hello_world_fixture.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
-#include "opencl/test/unit_test/fixtures/simple_arg_fixture.h"
 #include "opencl/test/unit_test/fixtures/two_walker_fixture.h"
-#include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
 using namespace NEO;
@@ -54,13 +51,13 @@ struct AUBHelloWorld
       public ::testing::Test {
 
     void SetUp() override {
-        HelloWorldFixture<AUBHelloWorldFixtureFactory>::SetUp();
-        ClHardwareParse::SetUp();
+        HelloWorldFixture<AUBHelloWorldFixtureFactory>::setUp();
+        ClHardwareParse::setUp();
     }
 
     void TearDown() override {
-        ClHardwareParse::TearDown();
-        HelloWorldFixture<AUBHelloWorldFixtureFactory>::TearDown();
+        ClHardwareParse::tearDown();
+        HelloWorldFixture<AUBHelloWorldFixtureFactory>::tearDown();
     }
 };
 
@@ -128,12 +125,12 @@ struct AUBHelloWorldIntegrateTest : public HelloWorldFixture<AUBHelloWorldFixtur
         if (KernelFixture::simd < HwHelper::get(NEO::defaultHwInfo->platform.eRenderCoreFamily).getMinimalSIMDSize()) {
             GTEST_SKIP();
         }
-        ParentClass::SetUp();
+        ParentClass::setUp();
     }
 
     void TearDown() override {
         if (!IsSkipped()) {
-            ParentClass::TearDown();
+            ParentClass::tearDown();
         }
     }
 
@@ -148,7 +145,7 @@ struct AUBHelloWorldIntegrateTest : public HelloWorldFixture<AUBHelloWorldFixtur
             tbxWithAubCsr->writeMemory(*allocation);
         }
 
-        aubCsr->writeMemory(*allocation);
+        aubCsr->writeMemory(*allocation); // NOLINT(clang-analyzer-core.CallAndMessage)
     }
     TestParam param;
 };
@@ -212,16 +209,16 @@ struct AUBSimpleArg
       public ClHardwareParse,
       public ::testing::Test {
 
-    using SimpleArgKernelFixture::SetUp;
+    using SimpleArgKernelFixture::setUp;
 
     void SetUp() override {
-        SimpleArgFixture<AUBSimpleArgFixtureFactory>::SetUp();
-        ClHardwareParse::SetUp();
+        SimpleArgFixture<AUBSimpleArgFixtureFactory>::setUp();
+        ClHardwareParse::setUp();
     }
 
     void TearDown() override {
-        ClHardwareParse::TearDown();
-        SimpleArgFixture<AUBSimpleArgFixtureFactory>::TearDown();
+        ClHardwareParse::tearDown();
+        SimpleArgFixture<AUBSimpleArgFixtureFactory>::tearDown();
     }
 };
 
@@ -319,12 +316,12 @@ struct AUBSimpleArgIntegrateTest : public SimpleArgFixture<AUBSimpleArgFixtureFa
         if (simd < HwHelper::get(NEO::defaultHwInfo->platform.eRenderCoreFamily).getMinimalSIMDSize()) {
             GTEST_SKIP();
         }
-        ParentClass::SetUp();
+        ParentClass::setUp();
     }
 
     void TearDown() override {
         if (!IsSkipped()) {
-            ParentClass::TearDown();
+            ParentClass::tearDown();
         }
     }
     cl_uint simd;
@@ -375,9 +372,9 @@ INSTANTIATE_TEST_CASE_P(
 } // namespace ULT
 
 struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUniformKernelFixture> {
-    void SetUp() override {
+    void setUp() {
         REQUIRE_OCL_21_OR_SKIP(NEO::defaultHwInfo);
-        KernelAUBFixture<SimpleArgNonUniformKernelFixture>::SetUp();
+        KernelAUBFixture<SimpleArgNonUniformKernelFixture>::setUp();
 
         sizeUserMemory = alignUp(typeItems * typeSize, 64);
 
@@ -419,7 +416,7 @@ struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUnifo
         kernel->setArg(1, outBuffer.get());
 
         sizeWrittenMemory = maxId * typeSize;
-        //add single int size for atomic sum of all work-items
+        // add single int size for atomic sum of all work-items
         sizeWrittenMemory += typeSize;
 
         sizeRemainderMemory = sizeUserMemory - sizeWrittenMemory;
@@ -433,7 +430,7 @@ struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUnifo
         remainderBufferGpuAddress = ptrOffset(bufferGpuAddress, sizeWrittenMemory);
     }
 
-    void TearDown() override {
+    void tearDown() {
         if (NEO::defaultHwInfo->capabilityTable.supportsOcl21Features == false) {
             return;
         }
@@ -449,7 +446,7 @@ struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUnifo
             alignedFree(expectedRemainderMemory);
             expectedRemainderMemory = nullptr;
         }
-        KernelAUBFixture<SimpleArgNonUniformKernelFixture>::TearDown();
+        KernelAUBFixture<SimpleArgNonUniformKernelFixture>::tearDown();
     }
     unsigned int deviceClVersionSupport;
 
@@ -874,11 +871,11 @@ struct AUBBindlessKernel : public KernelAUBFixture<BindlessKernelFixture>,
     void SetUp() override {
         DebugManager.flags.UseBindlessMode.set(1);
         DebugManager.flags.UseExternalAllocatorForSshAndDsh.set(1);
-        KernelAUBFixture<BindlessKernelFixture>::SetUp();
+        KernelAUBFixture<BindlessKernelFixture>::setUp();
     }
 
     void TearDown() override {
-        KernelAUBFixture<BindlessKernelFixture>::TearDown();
+        KernelAUBFixture<BindlessKernelFixture>::tearDown();
     }
     DebugManagerStateRestore restorer;
 };
@@ -924,9 +921,9 @@ HWTEST2_F(AUBBindlessKernel, DISABLED_givenBindlessCopyKernelWhenEnqueuedThenRes
     simulatedCsr->writeMemory(*pBufferSrc->getGraphicsAllocation(device->getRootDeviceIndex()));
     simulatedCsr->writeMemory(*pBufferDst->getGraphicsAllocation(device->getRootDeviceIndex()));
 
-    //Src
+    // Src
     kernel->setArg(0, pBufferSrc.get());
-    //Dst
+    // Dst
     kernel->setArg(1, pBufferDst.get());
 
     retVal = this->pCmdQ->enqueueKernel(

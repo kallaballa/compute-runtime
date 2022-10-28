@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,11 @@
 
 #include "shared/test/common/test_macros/test.h"
 
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
+#include "level_zero/core/source/context/context_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/test/aub_tests/fixtures/aub_fixture.h"
-#include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
+#include "level_zero/core/test/unit_tests/mocks/mock_cmdlist.h"
 
 #include "test_mode.h"
 
@@ -35,7 +38,7 @@ TEST_F(AUBHelloWorldL0, whenAppendMemoryCopyIsCalledThenMemoryIsProperlyCopied) 
     pCmdq->executeCommandLists(1, pHCmdList.get(), nullptr, false);
     pCmdq->synchronize(std::numeric_limits<uint32_t>::max());
 
-    EXPECT_TRUE(csr->expectMemory(dstMemory, srcMemory, val, AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual));
+    EXPECT_TRUE(csr->expectMemory(dstMemory, srcMemory, size, AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual));
 
     driverHandle->svmAllocsManager->freeSVMAlloc(srcMemory);
     driverHandle->svmAllocsManager->freeSVMAlloc(dstMemory);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,9 @@
 
 #pragma once
 
+#include "shared/source/helpers/common_types.h"
+
+#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -31,13 +34,18 @@ class DirectSubmissionController {
 
   protected:
     struct DirectSubmissionState {
-        bool isStopped = false;
+        bool isStopped = true;
         uint32_t taskCount = 0u;
     };
 
     static void *controlDirectSubmissionsState(void *self);
     void checkNewSubmissions();
+    MOCKABLE_VIRTUAL void sleep();
 
+    void adjustTimeout(CommandStreamReceiver *csr);
+
+    uint32_t maxCcsCount = 1u;
+    std::array<uint32_t, DeviceBitfield().size()> ccsCount = {};
     std::unordered_map<CommandStreamReceiver *, DirectSubmissionState> directSubmissions;
     std::mutex directSubmissionsMutex;
 
@@ -45,6 +53,7 @@ class DirectSubmissionController {
     std::atomic_bool keepControlling = true;
     std::atomic_bool runControlling = false;
 
-    int timeout = 5;
+    int timeout = 5000;
+    int timeoutDivisor = 1;
 };
 } // namespace NEO

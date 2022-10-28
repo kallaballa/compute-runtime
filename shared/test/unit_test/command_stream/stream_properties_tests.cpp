@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,9 +24,18 @@ std::vector<StreamProperty *> getAllStateComputeModeProperties(StateComputeModeP
 
 std::vector<StreamProperty *> getAllFrontEndProperties(FrontEndProperties &properties) {
     std::vector<StreamProperty *> allProperties;
+    allProperties.push_back(&properties.disableEUFusion);
     allProperties.push_back(&properties.disableOverdispatch);
     allProperties.push_back(&properties.singleSliceDispatchCcsMode);
     allProperties.push_back(&properties.computeDispatchAllWalkerEnable);
+    return allProperties;
+}
+
+std::vector<StreamProperty *> getAllPipelineSelectProperties(PipelineSelectProperties &properties) {
+    std::vector<StreamProperty *> allProperties;
+    allProperties.push_back(&properties.modeSelected);
+    allProperties.push_back(&properties.mediaSamplerDopClockGate);
+    allProperties.push_back(&properties.systolicMode);
     return allProperties;
 }
 

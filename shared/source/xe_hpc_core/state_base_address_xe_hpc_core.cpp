@@ -1,21 +1,14 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/helpers/state_base_address_xehp_and_later.inl"
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
 
 namespace NEO {
-template <>
-void StateBaseAddressHelper<XE_HPC_COREFamily>::appendExtraCacheSettings(STATE_BASE_ADDRESS *stateBaseAddress, GmmHelper *gmmHelper) {
-    stateBaseAddress->setL1CachePolicyL1CacheControl(STATE_BASE_ADDRESS::L1_CACHE_POLICY_WBP);
-
-    if (DebugManager.flags.ForceStatelessL1CachingPolicy.get() != -1) {
-        stateBaseAddress->setL1CachePolicyL1CacheControl(static_cast<typename STATE_BASE_ADDRESS::L1_CACHE_POLICY>(DebugManager.flags.ForceStatelessL1CachingPolicy.get()));
-    }
-}
-
-template struct StateBaseAddressHelper<XE_HPC_COREFamily>;
+#include "shared/source/helpers/state_base_address_xe_hpg_core_and_later.inl"
+template struct StateBaseAddressHelper<XeHpcCoreFamily>;
 } // namespace NEO

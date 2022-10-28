@@ -28,11 +28,9 @@ ClDeviceVector toClDeviceVector(ClDevice &clDevice);
 class MockProgram : public Program {
   public:
     using Program::allowNonUniform;
-    using Program::applyAdditionalOptions;
     using Program::areSpecializationConstantsInitialized;
     using Program::buildInfos;
     using Program::context;
-    using Program::createDebugZebin;
     using Program::createdFrom;
     using Program::createProgramFromBinary;
     using Program::deviceBuildInfos;
@@ -42,14 +40,16 @@ class MockProgram : public Program {
     using Program::irBinary;
     using Program::irBinarySize;
     using Program::isBuiltIn;
+    using Program::isCreatedFromBinary;
     using Program::isSpirV;
     using Program::kernelDebugEnabled;
     using Program::linkBinary;
     using Program::options;
     using Program::packDeviceBinary;
+    using Program::processGenBinaries;
     using Program::Program;
+    using Program::requiresRebuild;
     using Program::setBuildStatus;
-    using Program::shouldWarnAboutRebuild;
     using Program::sourceCode;
     using Program::specConstantsIds;
     using Program::specConstantsSizes;
@@ -130,7 +130,7 @@ class MockProgram : public Program {
 
     cl_int rebuildProgramFromIr() {
         this->isCreatedFromBinary = false;
-        this->shouldWarnAboutRebuild = true;
+        this->requiresRebuild = true;
         setBuildStatus(CL_BUILD_NONE);
         std::unordered_map<std::string, BuiltinDispatchInfoBuilder *> builtins;
         return this->build(getDevices(), this->options.c_str(), false, builtins);
@@ -138,7 +138,7 @@ class MockProgram : public Program {
 
     cl_int recompile() {
         this->isCreatedFromBinary = false;
-        this->shouldWarnAboutRebuild = true;
+        this->requiresRebuild = true;
         setBuildStatus(CL_BUILD_NONE);
         return this->compile(getDevices(), this->options.c_str(), 0, nullptr, nullptr);
     }
@@ -179,12 +179,31 @@ class MockProgram : public Program {
         return kernelInfos;
     }
 
+    void processDebugData(uint32_t rootDeviceIndex) override {
+        Program::processDebugData(rootDeviceIndex);
+        wasProcessDebugDataCalled = true;
+    }
+
+    void createDebugZebin(uint32_t rootDeviceIndex) override {
+        Program::createDebugZebin(rootDeviceIndex);
+        wasCreateDebugZebinCalled = true;
+    }
+
+    void debugNotify(const ClDeviceVector &deviceVector, std::unordered_map<uint32_t, BuildPhase> &phasesReached) override {
+        Program::debugNotify(deviceVector, phasesReached);
+        wasDebuggerNotified = true;
+    }
+
+    std::vector<NEO::ExternalFunctionInfo> externalFunctions;
     std::map<uint32_t, int> processGenBinaryCalledPerRootDevice;
     std::map<uint32_t, int> replaceDeviceBinaryCalledPerRootDevice;
     static int getInternalOptionsCalled;
     bool contextSet = false;
     int isFlagOptionOverride = -1;
     int isOptionValueValidOverride = -1;
+    bool wasProcessDebugDataCalled = false;
+    bool wasCreateDebugZebinCalled = false;
+    bool wasDebuggerNotified = false;
 };
 
 class MockProgramAppendKernelDebugOptions : public Program {

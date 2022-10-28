@@ -1,13 +1,11 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-
-#include "shared/test/common/test_macros/test.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
@@ -29,7 +27,7 @@ struct OneMipLevelImageFixture {
         }
     };
 
-    void SetUp() {
+    void setUp() {
         REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
 
         cl_image_desc imageDesc = Image3dDefaults::imageDesc;
@@ -40,7 +38,7 @@ struct OneMipLevelImageFixture {
         this->image.reset(createImage());
     }
 
-    void TearDown() {
+    void tearDown() {
     }
 
     Image *createImage() {

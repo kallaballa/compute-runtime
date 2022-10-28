@@ -12,7 +12,6 @@
 #include "shared/source/memory_manager/memory_manager.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
-#include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/memory_manager/mem_obj_surface.h"
 
@@ -81,7 +80,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueFillBuffer(
     GeneralSurface s2(patternAllocation);
     Surface *surfaces[] = {&s1, &s2};
 
-    enqueueHandler<CL_COMMAND_FILL_BUFFER>(
+    const auto enqueueResult = enqueueHandler<CL_COMMAND_FILL_BUFFER>(
         surfaces,
         false,
         dispatchInfo,
@@ -92,6 +91,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueFillBuffer(
     auto storageForAllocation = getGpgpuCommandStreamReceiver().getInternalAllocationStorage();
     storageForAllocation->storeAllocationWithTaskCount(std::unique_ptr<GraphicsAllocation>(patternAllocation), REUSABLE_ALLOCATION, taskCount);
 
-    return CL_SUCCESS;
+    return enqueueResult;
 }
 } // namespace NEO

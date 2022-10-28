@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,6 @@
 
 #pragma once
 
-#include "level_zero/core/source/context/context.h"
-#include "level_zero/core/source/kernel/kernel.h"
-#include "level_zero/core/source/module/module_build_log.h"
 #include <level_zero/ze_api.h>
 
 #include <set>
@@ -19,6 +16,8 @@ struct _ze_module_handle_t {};
 
 namespace L0 {
 struct Device;
+struct ModuleBuildLog;
+struct KernelImmutableData;
 
 enum class ModuleType {
     Builtin,
@@ -27,14 +26,14 @@ enum class ModuleType {
 
 struct Module : _ze_module_handle_t {
 
-    static Module *create(Device *device, const ze_module_desc_t *desc, ModuleBuildLog *moduleBuildLog, ModuleType type);
+    static Module *create(Device *device, const ze_module_desc_t *desc, ModuleBuildLog *moduleBuildLog, ModuleType type, ze_result_t *result);
 
     virtual ~Module() = default;
 
     virtual Device *getDevice() const = 0;
 
     virtual ze_result_t createKernel(const ze_kernel_desc_t *desc,
-                                     ze_kernel_handle_t *phFunction) = 0;
+                                     ze_kernel_handle_t *kernelHandle) = 0;
     virtual ze_result_t destroy() = 0;
     virtual ze_result_t getNativeBinary(size_t *pSize, uint8_t *pModuleNativeBinary) = 0;
     virtual ze_result_t getFunctionPointer(const char *pKernelName, void **pfnFunction) = 0;
@@ -46,11 +45,12 @@ struct Module : _ze_module_handle_t {
                                            ze_module_handle_t *phModules,
                                            ze_module_build_log_handle_t *phLinkLog) = 0;
 
-    virtual const KernelImmutableData *getKernelImmutableData(const char *functionName) const = 0;
+    virtual const KernelImmutableData *getKernelImmutableData(const char *kernelName) const = 0;
     virtual const std::vector<std::unique_ptr<KernelImmutableData>> &getKernelImmutableDataVector() const = 0;
     virtual uint32_t getMaxGroupSize() const = 0;
     virtual bool isDebugEnabled() const = 0;
     virtual bool shouldAllocatePrivateMemoryPerDispatch() const = 0;
+    virtual uint32_t getProfileFlags() const = 0;
     virtual void checkIfPrivateMemoryPerDispatchIsNeeded() = 0;
 
     Module() = default;

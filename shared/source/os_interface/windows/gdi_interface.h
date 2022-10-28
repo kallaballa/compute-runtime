@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -19,7 +19,7 @@ namespace NEO {
 class Gdi {
   public:
     Gdi();
-    MOCKABLE_VIRTUAL ~Gdi() = default;
+    MOCKABLE_VIRTUAL ~Gdi();
 
     ThkWrapper<IN OUT D3DKMT_OPENADAPTERFROMLUID *> openAdapterFromLuid{};
     ThkWrapper<IN OUT D3DKMT_CREATEALLOCATION *> createAllocation_{};
@@ -62,6 +62,7 @@ class Gdi {
     ThkWrapper<IN D3DKMT_REGISTERTRIMNOTIFICATION *> registerTrimNotification{};
     ThkWrapper<IN D3DKMT_UNREGISTERTRIMNOTIFICATION *> unregisterTrimNotification{};
     ThkWrapper<IN CONST D3DKMT_SETALLOCATIONPRIORITY *> setAllocationPriority{};
+    ThkWrapper<IN CONST D3DKMT_SETCONTEXTSCHEDULINGPRIORITY *> setSchedulingPriority{};
 
     // HW queue
     ThkWrapper<IN OUT D3DKMT_CREATEHWQUEUE *> createHwQueue{};
@@ -79,7 +80,7 @@ class Gdi {
 
   protected:
     MOCKABLE_VIRTUAL bool getAllProcAddresses();
-    bool initialized = false;
     std::unique_ptr<NEO::OsLibrary> gdiDll;
+    bool initialized = false;
 };
 } // namespace NEO

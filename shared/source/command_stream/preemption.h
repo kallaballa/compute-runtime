@@ -10,7 +10,6 @@
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/command_stream/preemption_mode.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/source/os_interface/hw_info_config.h"
 
 #include "sku_info.h"
 
@@ -18,6 +17,7 @@ namespace NEO {
 class Device;
 class GraphicsAllocation;
 struct KernelDescriptor;
+class LogicalStateHelper;
 
 struct PreemptionFlags {
     PreemptionFlags() {
@@ -54,10 +54,10 @@ class PreemptionHelper {
     static size_t getRequiredStateSipCmdSize(Device &device, bool isRcs);
 
     template <typename GfxFamily>
-    static void programCsrBaseAddress(LinearStream &preambleCmdStream, Device &device, const GraphicsAllocation *preemptionCsr);
+    static void programCsrBaseAddress(LinearStream &preambleCmdStream, Device &device, const GraphicsAllocation *preemptionCsr, LogicalStateHelper *logicalStateHelper);
 
     template <typename GfxFamily>
-    static void programStateSip(LinearStream &preambleCmdStream, Device &device);
+    static void programStateSip(LinearStream &preambleCmdStream, Device &device, LogicalStateHelper *logicalStateHelper);
 
     template <typename GfxFamily>
     static void programStateSipEndWa(LinearStream &cmdStream, Device &device);
@@ -82,6 +82,13 @@ class PreemptionHelper {
 
     template <typename GfxFamily>
     static void programInterfaceDescriptorDataPreemption(INTERFACE_DESCRIPTOR_DATA<GfxFamily> *idd, PreemptionMode preemptionMode);
+
+  protected:
+    template <typename GfxFamily>
+    static void programCsrBaseAddressCmd(LinearStream &preambleCmdStream, const GraphicsAllocation *preemptionCsr, LogicalStateHelper *logicalStateHelper);
+
+    template <typename GfxFamily>
+    static void programStateSipCmd(LinearStream &preambleCmdStream, GraphicsAllocation *sipAllocation, LogicalStateHelper *logicalStateHelper);
 };
 
 template <typename GfxFamily>

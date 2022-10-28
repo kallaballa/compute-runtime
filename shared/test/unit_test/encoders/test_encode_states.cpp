@@ -5,15 +5,18 @@
  *
  */
 
+#include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/common/fixtures/command_container_fixture.h"
-#include "shared/test/common/fixtures/front_window_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
+#include "shared/test/common/libult/ult_command_stream_receiver.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
+#include "shared/test/unit_test/fixtures/command_container_fixture.h"
+#include "shared/test/unit_test/fixtures/front_window_fixture.h"
 
 #include "test_traits_common.h"
 
@@ -22,9 +25,13 @@ using namespace NEO;
 using CommandEncodeStatesTest = Test<CommandEncodeStatesFixture>;
 
 HWTEST_F(CommandEncodeStatesTest, GivenCommandStreamWhenEncodeCopySamplerStateThenIndirectStatePointerIsCorrect) {
+    bool deviceUsesDsh = pDevice->getHardwareInfo().capabilityTable.supportsImages;
+    if (!deviceUsesDsh) {
+        GTEST_SKIP();
+    }
     using SAMPLER_STATE = typename FamilyType::SAMPLER_STATE;
     uint32_t numSamplers = 1;
-    SAMPLER_STATE samplerState;
+    SAMPLER_STATE samplerState{};
 
     auto dsh = cmdContainer->getIndirectHeap(HeapType::DYNAMIC_STATE);
     auto usedBefore = dsh->getUsed();
@@ -35,6 +42,10 @@ HWTEST_F(CommandEncodeStatesTest, GivenCommandStreamWhenEncodeCopySamplerStateTh
 }
 
 HWTEST2_F(CommandEncodeStatesTest, givenDebugVariableSetWhenCopyingSamplerStateThenSetLowQualityFilterMode, IsAtLeastGen12lp) {
+    bool deviceUsesDsh = pDevice->getHardwareInfo().capabilityTable.supportsImages;
+    if (!deviceUsesDsh) {
+        GTEST_SKIP();
+    }
     using SAMPLER_STATE = typename FamilyType::SAMPLER_STATE;
 
     DebugManagerStateRestore restore;
@@ -287,8 +298,14 @@ HWTEST2_F(CommandEncodeStatesTest, givenCommandContainerWithDirtyHeapsWhenSetSta
     cmdContainer->setHeapDirty(NEO::HeapType::INDIRECT_OBJECT);
     cmdContainer->setHeapDirty(NEO::HeapType::SURFACE_STATE);
 
+    auto gmmHelper = cmdContainer->getDevice()->getRootDeviceEnvironment().getGmmHelper();
+    uint32_t statelessMocsIndex = (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1);
+
     STATE_BASE_ADDRESS sba;
-    EncodeStateBaseAddress<FamilyType>::encode(*cmdContainer.get(), sba, false);
+
+    EncodeStateBaseAddressArgs<FamilyType> args = createDefaultEncodeStateBaseAddressArgs<FamilyType>(cmdContainer.get(), sba, statelessMocsIndex);
+
+    EncodeStateBaseAddress<FamilyType>::encode(args);
 
     auto dsh = cmdContainer->getIndirectHeap(NEO::HeapType::DYNAMIC_STATE);
     auto ssh = cmdContainer->getIndirectHeap(NEO::HeapType::SURFACE_STATE);
@@ -299,7 +316,11 @@ HWTEST2_F(CommandEncodeStatesTest, givenCommandContainerWithDirtyHeapsWhenSetSta
     auto itorCmd = find<STATE_BASE_ADDRESS *>(commands.begin(), commands.end());
     auto pCmd = genCmdCast<STATE_BASE_ADDRESS *>(*itorCmd);
 
-    EXPECT_EQ(dsh->getHeapGpuBase(), pCmd->getDynamicStateBaseAddress());
+    if (pDevice->getDeviceInfo().imageSupport) {
+        EXPECT_EQ(dsh->getHeapGpuBase(), pCmd->getDynamicStateBaseAddress());
+    } else {
+        EXPECT_EQ(dsh, nullptr);
+    }
     EXPECT_EQ(ssh->getHeapGpuBase(), pCmd->getSurfaceStateBaseAddress());
 
     EXPECT_EQ(sba.getDynamicStateBaseAddress(), pCmd->getDynamicStateBaseAddress());
@@ -318,7 +339,12 @@ HWTEST_F(CommandEncodeStatesTest, givenCommandContainerWhenSetStateBaseAddressCa
     cmdContainer->dirtyHeaps = 0;
 
     STATE_BASE_ADDRESS sba;
-    EncodeStateBaseAddress<FamilyType>::encode(*cmdContainer.get(), sba, false);
+    auto gmmHelper = cmdContainer->getDevice()->getRootDeviceEnvironment().getGmmHelper();
+    uint32_t statelessMocsIndex = (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1);
+
+    EncodeStateBaseAddressArgs<FamilyType> args = createDefaultEncodeStateBaseAddressArgs<FamilyType>(cmdContainer.get(), sba, statelessMocsIndex);
+
+    EncodeStateBaseAddress<FamilyType>::encode(args);
 
     auto dsh = cmdContainer->getIndirectHeap(NEO::HeapType::DYNAMIC_STATE);
     auto ssh = cmdContainer->getIndirectHeap(NEO::HeapType::SURFACE_STATE);
@@ -330,8 +356,11 @@ HWTEST_F(CommandEncodeStatesTest, givenCommandContainerWhenSetStateBaseAddressCa
     ASSERT_NE(itorCmd, commands.end());
 
     auto cmd = genCmdCast<STATE_BASE_ADDRESS *>(*itorCmd);
-
-    EXPECT_NE(dsh->getHeapGpuBase(), cmd->getDynamicStateBaseAddress());
+    if (pDevice->getDeviceInfo().imageSupport) {
+        EXPECT_NE(dsh->getHeapGpuBase(), cmd->getDynamicStateBaseAddress());
+    } else {
+        EXPECT_EQ(dsh, nullptr);
+    }
     EXPECT_NE(ssh->getHeapGpuBase(), cmd->getSurfaceStateBaseAddress());
 }
 
@@ -358,11 +387,100 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, whenAdjustPipelineSelectIsC
     EXPECT_EQ(initialUsed, cmdContainer->getCommandStream()->getUsed());
 }
 
-HWTEST2_F(CommandEncodeStatesTest, whenAdjustStateComputeModeIsCalledThenNothingHappens, IsAtMostGen11) {
-    using PIPELINE_SELECT = typename FamilyType::PIPELINE_SELECT;
+HWTEST2_F(CommandEncodeStatesTest, whenProgramComputeModeCommandModeIsCalledThenThreadArbitrationPolicyIsProgrammed, IsAtMostGen11) {
+    using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     auto initialUsed = cmdContainer->getCommandStream()->getUsed();
-    StreamProperties emptyProperties{};
+    auto expectedSize = sizeof(MI_LOAD_REGISTER_IMM) + sizeof(PIPE_CONTROL);
+    StreamProperties streamProperties{};
+    streamProperties.stateComputeMode.threadArbitrationPolicy.value = ThreadArbitrationPolicy::AgeBased;
+    streamProperties.stateComputeMode.threadArbitrationPolicy.isDirty = true;
     NEO::EncodeComputeMode<FamilyType>::programComputeModeCommand(*cmdContainer->getCommandStream(),
-                                                                  emptyProperties.stateComputeMode, *defaultHwInfo);
-    EXPECT_EQ(initialUsed, cmdContainer->getCommandStream()->getUsed());
+                                                                  streamProperties.stateComputeMode, *defaultHwInfo, nullptr);
+
+    if constexpr (TestTraits<gfxCoreFamily>::programComputeModeCommandProgramsThreadArbitrationPolicy) {
+        GenCmdList commands;
+        CmdParse<FamilyType>::parseCommandBuffer(commands, ptrOffset(cmdContainer->getCommandStream()->getCpuBase(), initialUsed), cmdContainer->getCommandStream()->getUsed());
+
+        auto cmdCount = findAll<MI_LOAD_REGISTER_IMM *>(commands.begin(), commands.end()).size();
+        EXPECT_EQ(1u, cmdCount);
+        cmdCount = findAll<PIPE_CONTROL *>(commands.begin(), commands.end()).size();
+        EXPECT_EQ(1u, cmdCount);
+        EXPECT_EQ(initialUsed + expectedSize, cmdContainer->getCommandStream()->getUsed());
+    } else {
+        EXPECT_EQ(initialUsed, cmdContainer->getCommandStream()->getUsed());
+    }
+}
+
+HWTEST2_F(CommandEncodeStatesTest, whenProgramComputeModeCommandModeIsCalledThenNonCoherentIsProgrammed, IsAtMostGen11) {
+    using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    auto initialUsed = cmdContainer->getCommandStream()->getUsed();
+    [[maybe_unused]] auto expectedSize = sizeof(MI_LOAD_REGISTER_IMM);
+    StreamProperties streamProperties{};
+    streamProperties.stateComputeMode.threadArbitrationPolicy.value = ThreadArbitrationPolicy::AgeBased;
+    streamProperties.stateComputeMode.isCoherencyRequired.isDirty = true;
+    NEO::EncodeComputeMode<FamilyType>::programComputeModeCommand(*cmdContainer->getCommandStream(),
+                                                                  streamProperties.stateComputeMode, *defaultHwInfo, nullptr);
+
+    if constexpr (TestTraits<gfxCoreFamily>::programComputeModeCommandProgramsNonCoherent) {
+        GenCmdList commands;
+        CmdParse<FamilyType>::parseCommandBuffer(commands, ptrOffset(cmdContainer->getCommandStream()->getCpuBase(), initialUsed), cmdContainer->getCommandStream()->getUsed());
+
+        auto cmdCount = findAll<MI_LOAD_REGISTER_IMM *>(commands.begin(), commands.end()).size();
+        EXPECT_EQ(1u, cmdCount);
+        EXPECT_EQ(initialUsed + expectedSize, cmdContainer->getCommandStream()->getUsed());
+    } else {
+        EXPECT_EQ(initialUsed, cmdContainer->getCommandStream()->getUsed());
+    }
+}
+
+HWTEST2_F(CommandEncodeStatesTest, whenGetCmdSizeForComputeModeThenCorrectValueIsReturned, IsAtMostGen11) {
+    using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    auto expectedScmSize = 0u;
+
+    if constexpr (TestTraits<gfxCoreFamily>::programComputeModeCommandProgramsThreadArbitrationPolicy) {
+        expectedScmSize += sizeof(MI_LOAD_REGISTER_IMM) + sizeof(PIPE_CONTROL);
+    }
+    if constexpr (TestTraits<gfxCoreFamily>::programComputeModeCommandProgramsNonCoherent) {
+        expectedScmSize += sizeof(MI_LOAD_REGISTER_IMM);
+    }
+    EXPECT_EQ(expectedScmSize, EncodeComputeMode<FamilyType>::getCmdSizeForComputeMode(*defaultHwInfo, false, false));
+
+    UltDeviceFactory deviceFactory{1, 0};
+    auto &csr = deviceFactory.rootDevices[0]->getUltCommandStreamReceiver<FamilyType>();
+    csr.streamProperties.stateComputeMode.setProperties(false, 0, ThreadArbitrationPolicy::AgeBased, PreemptionMode::Disabled, *defaultHwInfo);
+    EXPECT_EQ(expectedScmSize, csr.getCmdSizeForComputeMode());
+}
+
+HWTEST2_F(CommandEncodeStatesTest, givenHeapSharingEnabledWhenRetrievingNotInitializedSshThenExpectCorrectSbaCommand, IsAtLeastXeHpCore) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+    using _3DSTATE_BINDING_TABLE_POOL_ALLOC = typename FamilyType::_3DSTATE_BINDING_TABLE_POOL_ALLOC;
+
+    cmdContainer->enableHeapSharing();
+    cmdContainer->dirtyHeaps = 0;
+    cmdContainer->setHeapDirty(NEO::HeapType::SURFACE_STATE);
+
+    auto gmmHelper = cmdContainer->getDevice()->getRootDeviceEnvironment().getGmmHelper();
+    uint32_t statelessMocsIndex = (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1);
+
+    STATE_BASE_ADDRESS sba;
+    EncodeStateBaseAddressArgs<FamilyType> args = createDefaultEncodeStateBaseAddressArgs<FamilyType>(cmdContainer.get(), sba, statelessMocsIndex);
+
+    EncodeStateBaseAddress<FamilyType>::encode(args);
+
+    GenCmdList commands;
+    CmdParse<FamilyType>::parseCommandBuffer(commands,
+                                             cmdContainer->getCommandStream()->getCpuBase(),
+                                             cmdContainer->getCommandStream()->getUsed());
+
+    auto itorCmd = find<STATE_BASE_ADDRESS *>(commands.begin(), commands.end());
+    ASSERT_NE(commands.end(), itorCmd);
+    auto sbaCmd = genCmdCast<STATE_BASE_ADDRESS *>(*itorCmd);
+
+    EXPECT_EQ(0u, sbaCmd->getSurfaceStateBaseAddress());
+
+    itorCmd = find<_3DSTATE_BINDING_TABLE_POOL_ALLOC *>(commands.begin(), commands.end());
+    EXPECT_EQ(commands.end(), itorCmd);
 }

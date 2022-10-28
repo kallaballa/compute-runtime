@@ -20,11 +20,13 @@ using namespace NEO;
 
 class MemoryAllocatorFixture : public MemoryManagementFixture {
   public:
-    void SetUp() override {
-        MemoryManagementFixture::SetUp();
+    void setUp() {
+        MemoryManagementFixture::setUp();
         executionEnvironment = new ExecutionEnvironment();
         executionEnvironment->prepareRootDeviceEnvironments(1);
         executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
+        executionEnvironment->rootDeviceEnvironments[0]->initGmm();
+
         device.reset(MockDevice::createWithExecutionEnvironment<MockDevice>(defaultHwInfo.get(), executionEnvironment, 0u));
         memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
@@ -36,9 +38,9 @@ class MemoryAllocatorFixture : public MemoryManagementFixture {
         csr->setupContext(*osContext);
     }
 
-    void TearDown() override {
+    void tearDown() {
         device.reset();
-        MemoryManagementFixture::TearDown();
+        MemoryManagementFixture::tearDown();
     }
 
   protected:

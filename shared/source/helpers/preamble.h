@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,7 @@
 
 #pragma once
 #include "shared/source/helpers/definitions/engine_group_types.h"
-#include "shared/source/helpers/pipeline_select_helper.h"
-#include "shared/source/kernel/kernel_execution_type.h"
 
-#include "engine_node.h"
 #include "igfxfmid.h"
 
 #include <cstddef>
@@ -24,6 +21,7 @@ class Device;
 struct DispatchFlags;
 class GraphicsAllocation;
 class LinearStream;
+class LogicalStateHelper;
 struct PipelineSelectArgs;
 struct StreamProperties;
 
@@ -37,9 +35,7 @@ struct PreambleHelper {
     static void programPipelineSelect(LinearStream *pCommandStream,
                                       const PipelineSelectArgs &pipelineSelectArgs,
                                       const HardwareInfo &hwInfo);
-    static void appendProgramPipelineSelect(void *cmd, bool isSpecialModeSelected, const HardwareInfo &hwInfo);
-    static void programThreadArbitration(LinearStream *pCommandStream, uint32_t requiredThreadArbitrationPolicy);
-    static void programPreemption(LinearStream *pCommandStream, Device &device, GraphicsAllocation *preemptionCsr);
+    static void programPreemption(LinearStream *pCommandStream, Device &device, GraphicsAllocation *preemptionCsr, LogicalStateHelper *logicalStateHelper);
     static void addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo, EngineGroupType engineGroupType);
     static void appendProgramVFEState(const HardwareInfo &hwInfo, const StreamProperties &streamProperties, void *cmd);
     static void *getSpaceForVfeState(LinearStream *pCommandStream,
@@ -50,21 +46,18 @@ struct PreambleHelper {
                                 uint32_t scratchSize,
                                 uint64_t scratchAddress,
                                 uint32_t maxFrontEndThreads,
-                                const StreamProperties &streamProperties);
+                                const StreamProperties &streamProperties,
+                                LogicalStateHelper *logicalStateHelper);
     static uint64_t getScratchSpaceAddressOffsetForVfeState(LinearStream *pCommandStream, void *pVfeState);
-    static void programAdditionalFieldsInVfeState(VFE_STATE_TYPE *mediaVfeState, const HardwareInfo &hwInfo);
     static void programPreamble(LinearStream *pCommandStream, Device &device, uint32_t l3Config,
-                                uint32_t requiredThreadArbitrationPolicy, GraphicsAllocation *preemptionCsr);
+                                GraphicsAllocation *preemptionCsr, LogicalStateHelper *logicalStateHelper);
     static void programKernelDebugging(LinearStream *pCommandStream);
     static void programSemaphoreDelay(LinearStream *pCommandStream);
     static uint32_t getL3Config(const HardwareInfo &hwInfo, bool useSLM);
     static bool isL3Configurable(const HardwareInfo &hwInfo);
     static bool isSystolicModeConfigurable(const HardwareInfo &hwInfo);
-    static bool isSpecialPipelineSelectModeChanged(bool lastSpecialPipelineSelectMode, bool newSpecialPipelineSelectMode,
-                                                   const HardwareInfo &hwInfo);
     static size_t getAdditionalCommandsSize(const Device &device);
-    static size_t getThreadArbitrationCommandsSize();
-    static std::vector<uint32_t> getSupportedThreadArbitrationPolicies();
+    static std::vector<int32_t> getSupportedThreadArbitrationPolicies();
     static size_t getVFECommandsSize();
     static size_t getKernelDebuggingCommandsSize(bool debuggingActive);
     static void programGenSpecificPreambleWorkArounds(LinearStream *pCommandStream, const HardwareInfo &hwInfo);

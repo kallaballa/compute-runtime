@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "shared/source/compiler_interface/compiler_options/compiler_options_base.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/utilities/const_stringref.h"
 
 #include <cstdint>
@@ -188,7 +188,7 @@ struct ArgTypeTraits {
 };
 
 namespace {
-static constexpr auto ArgTypeMetadataSize = sizeof(ArgTypeTraits);
+constexpr auto ArgTypeMetadataSize = sizeof(ArgTypeTraits);
 static_assert(ArgTypeMetadataSize <= 4, "Keep it small");
 } // namespace
 

@@ -69,7 +69,6 @@ else()
   target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
                              ${NEO_SHARED_DIRECTORY}/os_interface/linux
                              ${NEO_SOURCE_DIR}/opencl/source/os_interface/linux
-                             ${I915_INCLUDES_DIR}
   )
 endif()
 
@@ -109,6 +108,7 @@ if(${GENERATE_EXECUTABLE})
        $<TARGET_OBJECTS:${SHARINGS_ENABLE_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_VME_LIB_NAME}>
+       $<TARGET_OBJECTS:${BUILTINS_BINARIES_STATELESS_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
   )
 
@@ -175,9 +175,11 @@ if(${GENERATE_EXECUTABLE})
     target_include_directories(${NEO_DYNAMIC_LIB_NAME} PRIVATE
                                ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}
     )
-    set_property(TARGET ${NEO_DYNAMIC_LIB_NAME}
-                 APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${EXPORTS_FILENAME}"
-    )
+    if(NOT ENABLE_DYNAMIC_MEMORY_TRACKING)
+      set_property(TARGET ${NEO_DYNAMIC_LIB_NAME}
+                   APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${EXPORTS_FILENAME}"
+      )
+    endif()
     set_property(TARGET ${NEO_DYNAMIC_LIB_NAME}
                  APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-Bsymbolic"
     )

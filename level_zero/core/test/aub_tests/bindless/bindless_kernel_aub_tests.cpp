@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,11 +10,14 @@
 #include "shared/source/helpers/file_io.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/test_files.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
+#include "level_zero/core/source/context/context_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/source/module/module_imp.h"
 #include "level_zero/core/test/aub_tests/fixtures/aub_fixture.h"
-#include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
+#include "level_zero/core/test/unit_tests/mocks/mock_cmdlist.h"
 
 namespace L0 {
 namespace ult {
@@ -24,17 +27,17 @@ struct L0BindlessAub : Test<AUBFixtureL0> {
     void SetUp() override {
         DebugManager.flags.UseBindlessMode.set(1);
         DebugManager.flags.UseExternalAllocatorForSshAndDsh.set(1);
-        AUBFixtureL0::SetUp();
+        AUBFixtureL0::setUp();
     }
     void TearDown() override {
 
         module->destroy();
-        AUBFixtureL0::TearDown();
+        AUBFixtureL0::tearDown();
     }
 
     void createModuleFromFile(const std::string &fileName, ze_context_handle_t context, L0::Device *device) {
         std::string testFile;
-        retrieveBinaryKernelFilenameNoRevision(testFile, fileName + "_", ".bin");
+        retrieveBinaryKernelFilenameApiSpecific(testFile, fileName + "_", ".bin");
 
         size_t size = 0;
         auto src = loadDataFromFile(
@@ -51,14 +54,15 @@ struct L0BindlessAub : Test<AUBFixtureL0> {
         moduleDesc.pBuildFlags = "";
 
         module = new ModuleImp(device, nullptr, ModuleType::User);
-        bool success = module->initialize(&moduleDesc, device->getNEODevice());
-        ASSERT_TRUE(success);
+        ze_result_t result = ZE_RESULT_ERROR_MODULE_BUILD_FAILURE;
+        result = module->initialize(&moduleDesc, device->getNEODevice());
+        ASSERT_EQ(result, ZE_RESULT_SUCCESS);
     }
     DebugManagerStateRestore restorer;
     ModuleImp *module = nullptr;
 };
 
-HWTEST2_F(L0BindlessAub, GivenBindlessKernelWhenExecutedThenOutputIsCorrect, IsAtMostXeHpgCore) {
+HWTEST_F(L0BindlessAub, GivenBindlessKernelWhenExecutedThenOutputIsCorrect) {
     constexpr size_t bufferSize = MemoryConstants::pageSize;
     const uint32_t groupSize[] = {32, 1, 1};
     const uint32_t groupCount[] = {bufferSize / 32, 1, 1};

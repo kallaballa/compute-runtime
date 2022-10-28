@@ -12,7 +12,9 @@
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/cmd_buffer_validator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/static_size3.h"
 #include "shared/test/common/mocks/mock_allocation_properties.h"
 #include "shared/test/common/test_macros/test.h"
 
@@ -21,9 +23,7 @@
 #include "opencl/source/command_queue/resource_barrier.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
-#include "opencl/test/unit_test/helpers/cmd_buffer_validator.h"
 #include "opencl/test/unit_test/helpers/hardware_commands_helper_tests.h"
-#include "opencl/test/unit_test/helpers/static_size3.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 
 using namespace NEO;
@@ -51,7 +51,7 @@ struct L3ControlPolicy : CmdValidator {
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerEnabledWhenSvmAllocationsSetAsCacheFlushRequiringThenExpectCacheFlushCommand : public HardwareCommandsTest {
   public:
-    void TestBodyImpl() {
+    void testBodyImpl() {
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_CONTROL_WITHOUT_POST_SYNC = typename FamilyType::L3_CONTROL;
 
@@ -87,7 +87,7 @@ class GivenCacheFlushAfterWalkerEnabledWhenSvmAllocationsSetAsCacheFlushRequirin
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenKernelArgIsSetAsCacheFlushRequiredAndA0SteppingIsDisabledThenExpectCacheFlushCommand : public HardwareCommandsTest {
   public:
-    void TestBodyImpl(bool isA0Stepping) {
+    void testBodyImpl(bool isA0Stepping) {
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_FLUSH_ADDRESS_RANGE = typename FamilyType::L3_FLUSH_ADDRESS_RANGE;
         using L3_CONTROL_WITHOUT_POST_SYNC = typename FamilyType::L3_CONTROL;
@@ -98,6 +98,7 @@ class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenKernelArgIsSetA
         auto stepping = (isA0Stepping ? REVISION_A0 : REVISION_A1);
         hardwareInfo.platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(stepping, hardwareInfo);
         pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->setHwInfo(&hardwareInfo);
+        pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->initGmm();
 
         CommandQueueHw<FamilyType> cmdQ(nullptr, pClDevice, 0, false);
         auto &commandStream = cmdQ.getCS(1024);
@@ -133,7 +134,7 @@ class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenKernelArgIsSetA
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerEnabledWhenProgramGlobalSurfacePresentThenExpectCacheFlushCommand : public HardwareCommandsTest {
   public:
-    void TestBodyImpl() {
+    void testBodyImpl() {
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_CONTROL_WITHOUT_POST_SYNC = typename FamilyType::L3_CONTROL;
         DebugManagerStateRestore dbgRestore;
@@ -167,7 +168,7 @@ class GivenCacheFlushAfterWalkerEnabledWhenProgramGlobalSurfacePresentThenExpect
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerEnabledWhenProgramGlobalSurfacePresentAndPostSyncRequiredThenExpectProperCacheFlushCommand : public HardwareCommandsTest {
   public:
-    void TestBodyImpl() {
+    void testBodyImpl() {
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_CONTROL_WITH_POST_SYNC = typename FamilyType::L3_CONTROL;
 
@@ -207,7 +208,7 @@ using EnqueueKernelTest = Test<EnqueueKernelFixture>;
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenAllocationRequiresCacheFlushThenFlushCommandPresentAfterWalker : public EnqueueKernelTest {
   public:
-    void TestBodyImpl(bool isA0Stepping) {
+    void testBodyImpl(bool isA0Stepping) {
         using WALKER = typename FamilyType::WALKER_TYPE;
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_FLUSH_ADDRESS_RANGE = typename FamilyType::L3_FLUSH_ADDRESS_RANGE;
@@ -220,6 +221,7 @@ class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenAllocationRequi
         auto stepping = (isA0Stepping ? REVISION_A0 : REVISION_A1);
         hardwareInfo.platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(stepping, hardwareInfo);
         pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->setHwInfo(&hardwareInfo);
+        pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->initGmm();
 
         MockKernelWithInternals mockKernel(*pClDevice, context, true);
         mockKernel.mockKernel->svmAllocationsRequireCacheFlush = false;
@@ -240,7 +242,7 @@ class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenAllocationRequi
 
         mockKernel.kernelInfo.kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties(pDevice->getRootDeviceIndex(), true, MemoryConstants::pageSize, AllocationType::INTERNAL_HEAP));
         mockKernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
-        mockKernel.mockKernel->setArgSvmAlloc(0, svm, svmAllocation);
+        mockKernel.mockKernel->setArgSvmAlloc(0, svm, svmAllocation, 0u);
 
         cmdQ->getUltCommandStreamReceiver().timestampPacketWriteEnabled = false;
 
@@ -271,7 +273,7 @@ class GivenCacheFlushAfterWalkerEnabledAndProperSteppingIsSetWhenAllocationRequi
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerAndTimestampPacketsEnabledWhenAllocationRequiresCacheFlushThenFlushCommandPresentAfterWalker : public EnqueueKernelTest {
   public:
-    void TestBodyImpl() {
+    void testBodyImpl() {
         using WALKER = typename FamilyType::WALKER_TYPE;
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_FLUSH_ADDRESS_RANGE = typename FamilyType::L3_FLUSH_ADDRESS_RANGE;
@@ -295,7 +297,7 @@ class GivenCacheFlushAfterWalkerAndTimestampPacketsEnabledWhenAllocationRequires
 
         mockKernel.kernelInfo.kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties(pDevice->getRootDeviceIndex(), true, MemoryConstants::pageSize, AllocationType::INTERNAL_HEAP));
         mockKernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
-        mockKernel.mockKernel->setArgSvmAlloc(0, svm, svmAllocation);
+        mockKernel.mockKernel->setArgSvmAlloc(0, svm, svmAllocation, 0);
 
         cmdQ->enqueueKernel(mockKernel, 1, nullptr, StatickSize3<16, 1, 1>(), StatickSize3<16, 1, 1>(), 0, nullptr, nullptr);
 
@@ -327,7 +329,7 @@ class GivenCacheFlushAfterWalkerAndTimestampPacketsEnabledWhenAllocationRequires
 template <typename FamilyType>
 class GivenCacheFlushAfterWalkerDisabledAndProperSteppingIsSetWhenAllocationRequiresCacheFlushThenFlushCommandNotPresentAfterWalker : public EnqueueKernelTest {
   public:
-    void TestBodyImpl(bool isA0Stepping) {
+    void testBodyImpl(bool isA0Stepping) {
         using WALKER = typename FamilyType::WALKER_TYPE;
         using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         using L3_FLUSH_ADDRESS_RANGE = typename FamilyType::L3_FLUSH_ADDRESS_RANGE;
@@ -353,7 +355,7 @@ class GivenCacheFlushAfterWalkerDisabledAndProperSteppingIsSetWhenAllocationRequ
 
         mockKernel.kernelInfo.kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties(pDevice->getRootDeviceIndex(), true, MemoryConstants::pageSize, AllocationType::INTERNAL_HEAP));
         mockKernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
-        mockKernel.mockKernel->setArgSvmAlloc(0, svm, svmAllocation);
+        mockKernel.mockKernel->setArgSvmAlloc(0, svm, svmAllocation, 0u);
 
         cmdQ->enqueueKernel(mockKernel, 1, nullptr, StatickSize3<16, 1, 1>(), StatickSize3<16, 1, 1>(), 0, nullptr, nullptr);
 
@@ -379,7 +381,7 @@ class GivenCacheFlushAfterWalkerDisabledAndProperSteppingIsSetWhenAllocationRequ
 template <typename FamilyType>
 class GivenCacheResourceSurfacesWhenprocessingCacheFlushThenExpectProperCacheFlushCommand : public EnqueueKernelTest {
   public:
-    void TestBodyImpl() {
+    void testBodyImpl() {
 
         using L3_CONTROL_WITHOUT_POST_SYNC = typename FamilyType::L3_CONTROL;
 

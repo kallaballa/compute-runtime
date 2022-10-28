@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,7 +11,7 @@
 #include "shared/source/helpers/per_thread_data.h"
 #include "shared/source/program/kernel_info.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
@@ -25,7 +25,7 @@ struct PerThreadDataTests : public ClDeviceFixture,
                             ::testing::Test {
 
     void SetUp() override {
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
 
         kernelInfo.setLocalIds({localIdX, localIdY, localIdZ});
         kernelInfo.kernelDescriptor.kernelAttributes.flags.usesFlattenedLocalIds = flattenedId;
@@ -46,7 +46,7 @@ struct PerThreadDataTests : public ClDeviceFixture,
 
     void TearDown() override {
         alignedFree(indirectHeapMemory);
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     const std::array<uint8_t, 3> workgroupWalkOrder = {{0, 1, 2}};

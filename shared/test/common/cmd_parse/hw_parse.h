@@ -18,6 +18,8 @@
 
 namespace NEO {
 
+struct KernelInfo;
+
 struct HardwareParse {
     HardwareParse() {
         itorMediaInterfaceDescriptorLoad = cmdList.end();
@@ -28,10 +30,10 @@ struct HardwareParse {
         itorGpgpuCsrBaseAddress = cmdList.end();
     }
 
-    void SetUp() {
+    void setUp() {
     }
 
-    void TearDown() {
+    void tearDown() {
         cmdList.clear();
         lriList.clear();
         pipeControlList.clear();
@@ -51,6 +53,11 @@ struct HardwareParse {
 
     template <typename FamilyType>
     void findCsrBaseAddress();
+
+    template <typename FamilyType>
+    bool requiresPipelineSelectBeforeMediaState() {
+        return true;
+    }
 
     template <typename FamilyType>
     void findHardwareCommands();
@@ -87,28 +94,7 @@ struct HardwareParse {
     }
 
     template <typename FamilyType>
-    const typename FamilyType::RENDER_SURFACE_STATE &getSurfaceState(IndirectHeap *ssh, uint32_t index) {
-        typedef typename FamilyType::BINDING_TABLE_STATE BINDING_TABLE_STATE;
-        typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
-        typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
-        typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
-
-        const auto &interfaceDescriptorData = *(INTERFACE_DESCRIPTOR_DATA *)cmdInterfaceDescriptorData;
-
-        auto cmdSBA = (STATE_BASE_ADDRESS *)cmdStateBaseAddress;
-        auto surfaceStateHeap = cmdSBA->getSurfaceStateBaseAddress();
-        if (ssh && (ssh->getHeapGpuBase() == surfaceStateHeap)) {
-            surfaceStateHeap = reinterpret_cast<uint64_t>(ssh->getCpuBase());
-        }
-        EXPECT_NE(0u, surfaceStateHeap);
-
-        auto bindingTablePointer = interfaceDescriptorData.getBindingTablePointer();
-
-        const auto &bindingTableState = reinterpret_cast<BINDING_TABLE_STATE *>(surfaceStateHeap + bindingTablePointer)[index];
-        auto surfaceStatePointer = bindingTableState.getSurfaceStatePointer();
-
-        return *(RENDER_SURFACE_STATE *)(surfaceStateHeap + surfaceStatePointer);
-    }
+    const typename FamilyType::RENDER_SURFACE_STATE *getSurfaceState(IndirectHeap *ssh, uint32_t index);
 
     template <typename FamilyType>
     const typename FamilyType::SAMPLER_STATE &getSamplerState(uint32_t index) {

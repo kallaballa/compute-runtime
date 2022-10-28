@@ -8,7 +8,6 @@
 #pragma once
 #include "shared/source/helpers/string.h"
 
-#include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/tools/source/sysman/power/linux/os_power_imp.h"
 #include "level_zero/tools/test/unit_tests/sources/sysman/linux/mock_sysman_fixture.h"
 
@@ -274,8 +273,8 @@ struct Mock<PowerPmt> : public PowerPmt {
     Mock<PowerPmt>(FsAccess *pFsAccess, ze_bool_t onSubdevice, uint32_t subdeviceId) : PowerPmt(pFsAccess, onSubdevice, subdeviceId) {}
 
     void mockedInit(FsAccess *pFsAccess) {
-        std::string rootPciPathOfGpuDevice = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0";
-        if (ZE_RESULT_SUCCESS != PlatformMonitoringTech::enumerateRootTelemIndex(pFsAccess, rootPciPathOfGpuDevice)) {
+        std::string gpuUpstreamPortPath = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0";
+        if (ZE_RESULT_SUCCESS != PlatformMonitoringTech::enumerateRootTelemIndex(pFsAccess, gpuUpstreamPortPath)) {
             return;
         }
 
@@ -345,6 +344,7 @@ class SysmanDevicePowerFixture : public SysmanDeviceFixture {
     SysfsAccess *pSysfsAccessOld = nullptr;
     FsAccess *pFsAccessOriginal = nullptr;
     OsPower *pOsPowerOriginal = nullptr;
+    std::map<uint32_t, L0::PlatformMonitoringTech *> pmtMapOriginal;
     std::vector<ze_device_handle_t> deviceHandles;
     void SetUp() override {
         if (!sysmanUltsEnable) {
@@ -380,6 +380,8 @@ class SysmanDevicePowerFixture : public SysmanDeviceFixture {
             Device::fromHandle(device->toHandle())->getSubDevices(&subDeviceCount, deviceHandles.data());
         }
 
+        pmtMapOriginal = pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject;
+        pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject.clear();
         for (auto &deviceHandle : deviceHandles) {
             ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
             Device::fromHandle(deviceHandle)->getProperties(&deviceProperties);
@@ -390,15 +392,17 @@ class SysmanDevicePowerFixture : public SysmanDeviceFixture {
             pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject.emplace(deviceProperties.subdeviceId, pPmt);
         }
 
-        pSysmanDeviceImp->pPowerHandleContext->init(deviceHandles, device->toHandle());
+        getPowerHandles(0);
     }
     void TearDown() override {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        SysmanDeviceFixture::TearDown();
+        pLinuxSysmanImp->releasePmtObject();
+        pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject = pmtMapOriginal;
         pLinuxSysmanImp->pFsAccess = pFsAccessOriginal;
         pLinuxSysmanImp->pSysfsAccess = pSysfsAccessOld;
+        SysmanDeviceFixture::TearDown();
     }
 
     std::vector<zes_pwr_handle_t> getPowerHandles(uint32_t count) {
@@ -464,8 +468,6 @@ class SysmanDevicePowerMultiDeviceFixture : public SysmanMultiDeviceFixture {
             pPmt->keyOffsetMap = deviceKeyOffsetMapPower;
             pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject.emplace(deviceProperties.subdeviceId, pPmt);
         }
-
-        pSysmanDeviceImp->pPowerHandleContext->init(deviceHandles, device->toHandle());
     }
     void TearDown() override {
         if (!sysmanUltsEnable) {
@@ -474,10 +476,10 @@ class SysmanDevicePowerMultiDeviceFixture : public SysmanMultiDeviceFixture {
         for (const auto &pmtMapElement : pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject) {
             delete pmtMapElement.second;
         }
-        SysmanMultiDeviceFixture::TearDown();
         pLinuxSysmanImp->pFsAccess = pFsAccessOriginal;
         pLinuxSysmanImp->pSysfsAccess = pSysfsAccessOld;
         pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject = mapOriginal;
+        SysmanMultiDeviceFixture::TearDown();
     }
 
     std::vector<zes_pwr_handle_t> getPowerHandles(uint32_t count) {

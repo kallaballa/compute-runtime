@@ -8,6 +8,8 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/abort.h
     ${CMAKE_CURRENT_SOURCE_DIR}/address_patch.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/addressing_mode_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/addressing_mode_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/affinity_mask.h
     ${CMAKE_CURRENT_SOURCE_DIR}/aligned_memory.h
     ${CMAKE_CURRENT_SOURCE_DIR}/app_resource_defines.h
@@ -27,12 +29,17 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_flush.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy_base.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy_bdw_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/casts.h
     ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
     ${CMAKE_CURRENT_SOURCE_DIR}/compiler_hw_info_config.h
     ${CMAKE_CURRENT_SOURCE_DIR}/compiler_hw_info_config.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/compiler_hw_info_config_base.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_aot_config_bdw_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/compiler_hw_info_config_bdw_and_later.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_hw_info_config_before_xe_hpc.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_hw_info_config_xe_hpc_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/compiler_options_parser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/compiler_options_parser.h
     ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.h
@@ -45,7 +52,6 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/enable_product.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_control.h
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_node_helper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}engine_node_helper_extra.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_node_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/extendable_enum.h
     ${CMAKE_CURRENT_SOURCE_DIR}/file_io.cpp
@@ -69,7 +75,6 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_bdw_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_bdw_to_icllp.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}hw_helper_extended.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_tgllp_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.h
@@ -87,6 +92,8 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen_sse4.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/local_work_size.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/local_work_size.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/logical_state_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/logical_state_helper.inl
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}memory_properties_helpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_helpers_base.inl
@@ -104,9 +111,10 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/preamble_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/preamble_bdw_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/preprocessor.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/product_config_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/product_config_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/ptr_math.h
     ${CMAKE_CURRENT_SOURCE_DIR}/ray_tracing_helper.h
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}ray_tracing_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/register_offsets.h
     ${CMAKE_CURRENT_SOURCE_DIR}/registered_method_dispatcher.h
     ${CMAKE_CURRENT_SOURCE_DIR}/simd_helper.h
@@ -116,7 +124,6 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_bdw_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_icllp_and_later.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_skl.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/state_compute_mode_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/stdio.h
     ${CMAKE_CURRENT_SOURCE_DIR}/string.h
     ${CMAKE_CURRENT_SOURCE_DIR}/string_helpers.h
@@ -129,6 +136,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/validators.h
     ${CMAKE_CURRENT_SOURCE_DIR}/vec.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}hw_cmds.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}device_ids_configs.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions/engine_group_types.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions/mi_flush_args.h
 )
@@ -147,6 +155,7 @@ endif()
 if(SUPPORT_DG2_AND_LATER)
   list(APPEND NEO_CORE_HELPERS
        ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_dg2_and_later.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy_dg2_and_later.inl
   )
 endif()
 

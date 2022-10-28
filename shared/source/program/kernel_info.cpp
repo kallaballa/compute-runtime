@@ -30,7 +30,7 @@ struct KernelArgumentType {
     uint64_t argTypeQualifierValue;
 };
 
-WorkSizeInfo::WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t simdSize, uint32_t slmTotalSize, const HardwareInfo *hwInfo, uint32_t numThreadsPerSubSlice, uint32_t localMemSize, bool imgUsed, bool yTiledSurface) {
+WorkSizeInfo::WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t simdSize, uint32_t slmTotalSize, const HardwareInfo *hwInfo, uint32_t numThreadsPerSubSlice, uint32_t localMemSize, bool imgUsed, bool yTiledSurface, bool disableEUFusion) {
     this->maxWorkGroupSize = maxWorkGroupSize;
     this->hasBarriers = hasBarriers;
     this->simdSize = simdSize;
@@ -41,7 +41,7 @@ WorkSizeInfo::WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t
     this->imgUsed = imgUsed;
     this->yTiledSurfaces = yTiledSurface;
 
-    setMinWorkGroupSize(hwInfo);
+    setMinWorkGroupSize(hwInfo, disableEUFusion);
 }
 
 void WorkSizeInfo::setIfUseImg(const KernelInfo &kernelInfo) {
@@ -53,22 +53,27 @@ void WorkSizeInfo::setIfUseImg(const KernelInfo &kernelInfo) {
         }
     }
 }
-void WorkSizeInfo::setMinWorkGroupSize(const HardwareInfo *hwInfo) {
+
+void WorkSizeInfo::setMinWorkGroupSize(const HardwareInfo *hwInfo, bool disableEUFusion) {
     minWorkGroupSize = 0;
     if (hasBarriers) {
         uint32_t maxBarriersPerHSlice = (coreFamily >= IGFX_GEN9_CORE) ? 32 : 16;
         minWorkGroupSize = numThreadsPerSubSlice * simdSize / maxBarriersPerHSlice;
     }
     if (slmTotalSize > 0) {
+        if (localMemSize < slmTotalSize) {
+            PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "Size of SLM (%u) larger than available (%u)\n", slmTotalSize, localMemSize);
+        }
         UNRECOVERABLE_IF(localMemSize < slmTotalSize);
         minWorkGroupSize = std::max(maxWorkGroupSize / ((localMemSize / slmTotalSize)), minWorkGroupSize);
     }
 
     const auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
-    if (hwHelper.isFusedEuDispatchEnabled(*hwInfo)) {
+    if (hwHelper.isFusedEuDispatchEnabled(*hwInfo, disableEUFusion)) {
         minWorkGroupSize *= 2;
     }
 }
+
 void WorkSizeInfo::checkRatio(const size_t workItems[3]) {
     if (slmTotalSize > 0) {
         useRatio = true;
@@ -119,15 +124,37 @@ bool KernelInfo::createKernelAllocation(const Device &device, bool internalIsa) 
     UNRECOVERABLE_IF(kernelAllocation);
     auto kernelIsaSize = heapInfo.KernelHeapSize;
     const auto allocType = internalIsa ? AllocationType::KERNEL_ISA_INTERNAL : AllocationType::KERNEL_ISA;
-    kernelAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelIsaSize, allocType, device.getDeviceBitfield()});
+
+    if (device.getMemoryManager()->isKernelBinaryReuseEnabled()) {
+        auto lock = device.getMemoryManager()->lockKernelAllocationMap();
+        auto kernelName = this->kernelDescriptor.kernelMetadata.kernelName;
+        auto &storedAllocations = device.getMemoryManager()->getKernelAllocationMap();
+        auto kernelAllocations = storedAllocations.find(kernelName);
+        if (kernelAllocations != storedAllocations.end()) {
+            kernelAllocation = kernelAllocations->second.kernelAllocation;
+            kernelAllocations->second.reuseCounter++;
+            auto &hwInfo = device.getHardwareInfo();
+            auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+            return MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(hwInfo, *kernelAllocation),
+                                                                    device, kernelAllocation, 0, heapInfo.pKernelHeap,
+                                                                    static_cast<size_t>(kernelIsaSize));
+        } else {
+            kernelAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelIsaSize, allocType, device.getDeviceBitfield()});
+            storedAllocations.insert(std::make_pair(kernelName, MemoryManager::KernelAllocationInfo(kernelAllocation, 1u)));
+        }
+    } else {
+        kernelAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelIsaSize, allocType, device.getDeviceBitfield()});
+    }
+
     if (!kernelAllocation) {
         return false;
     }
 
     auto &hwInfo = device.getHardwareInfo();
-    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
 
-    return MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *kernelAllocation),
+    return MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(hwInfo, *kernelAllocation),
                                                             device, kernelAllocation, 0, heapInfo.pKernelHeap,
                                                             static_cast<size_t>(kernelIsaSize));
 }

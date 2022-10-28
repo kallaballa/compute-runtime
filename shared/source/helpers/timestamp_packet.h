@@ -17,7 +17,6 @@
 #include "shared/source/utilities/tag_allocator.h"
 
 #include <cstdint>
-#include <vector>
 
 namespace NEO {
 class CommandStreamReceiver;
@@ -71,6 +70,7 @@ class TimestampPackets : public TagTypeBase {
     uint64_t getGlobalEndValue(uint32_t packetIndex) const { return static_cast<uint64_t>(packets[packetIndex].globalEnd); }
 
     void const *getContextEndAddress(uint32_t packetIndex) const { return static_cast<void const *>(&packets[packetIndex].contextEnd); }
+    void const *getContextStartAddress(uint32_t packetIndex) const { return static_cast<void const *>(&packets[packetIndex].contextStart); }
 
   protected:
     Packet packets[TimestampPacketSizeControl::preferredPacketCount];
@@ -87,7 +87,7 @@ class TimestampPacketContainer : public NonCopyableClass {
     TimestampPacketContainer &operator=(TimestampPacketContainer &&) = default;
     MOCKABLE_VIRTUAL ~TimestampPacketContainer();
 
-    const std::vector<TagNodeBase *> &peekNodes() const { return timestampPacketNodes; }
+    const StackVec<TagNodeBase *, 32u> &peekNodes() const { return timestampPacketNodes; }
     void add(TagNodeBase *timestampPacketNode);
     void swapNodes(TimestampPacketContainer &timestampPacketContainer);
     void assignAndIncrementNodesRefCounts(const TimestampPacketContainer &inputTimestampPacketContainer);
@@ -95,7 +95,7 @@ class TimestampPacketContainer : public NonCopyableClass {
     void moveNodesToNewContainer(TimestampPacketContainer &timestampPacketContainer);
 
   protected:
-    std::vector<TagNodeBase *> timestampPacketNodes;
+    StackVec<TagNodeBase *, 32u> timestampPacketNodes;
 };
 
 struct TimestampPacketDependencies : public NonCopyableClass {
@@ -146,7 +146,7 @@ struct TimestampPacketHelper {
 
     template <typename GfxFamily>
     static void programCsrDependenciesForForTaskCountContainer(LinearStream &cmdStream, const CsrDependencies &csrDependencies) {
-        auto taskCountContainer = csrDependencies.taskCountContainer;
+        auto &taskCountContainer = csrDependencies.taskCountContainer;
 
         for (auto &[taskCountPreviousRootDevice, tagAddressPreviousRootDevice] : taskCountContainer) {
             using COMPARE_OPERATION = typename GfxFamily::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
@@ -174,8 +174,8 @@ struct TimestampPacketHelper {
 
             PipeControlArgs args;
             args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
-            MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
-                cmdStream, GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+            MemorySynchronizationCommands<GfxFamily>::addBarrierWithPostSyncOperation(
+                cmdStream, PostSyncMode::ImmediateData,
                 cacheFlushTimestampPacketGpuAddress, 0, hwInfo, args);
         }
 
@@ -189,7 +189,7 @@ struct TimestampPacketHelper {
         size_t size = count * TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<GfxFamily>();
 
         if (auxTranslationDirection == AuxTranslationDirection::NonAuxToAux && cacheFlushForBcsRequired) {
-            size += MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(hwInfo);
+            size += MemorySynchronizationCommands<GfxFamily>::getSizeForBarrierWithPostSyncOperation(hwInfo, false);
         }
 
         return size;

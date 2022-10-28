@@ -17,7 +17,6 @@
 #include "opencl/source/cl_device/cl_device_get_cap.inl"
 #include "opencl/source/cl_device/cl_device_info_map.h"
 #include "opencl/source/cl_device/cl_device_vector.h"
-#include "opencl/source/helpers/cl_device_helpers.h"
 #include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/source/helpers/get_info_status_mapper.h"
 #include "opencl/source/platform/platform.h"
@@ -68,6 +67,8 @@ cl_int ClDevice::getDeviceInfo(cl_device_info paramName,
     size_t value = 0u;
     ClDeviceInfoParam param{};
     const void *src = nullptr;
+    std::array<uint8_t, CL_UUID_SIZE_KHR> uuid;
+    std::array<uint8_t, CL_LUID_SIZE_KHR> luid;
 
     // clang-format off
     // please keep alphabetical order
@@ -280,8 +281,9 @@ cl_int ClDevice::getDeviceInfo(cl_device_info paramName,
         break;
     }
     case CL_DEVICE_FEATURE_CAPABILITIES_INTEL: {
-        auto &clHwHelper = ClHwHelper::get(getHardwareInfo().platform.eRenderCoreFamily);
-        param.bitfield = clHwHelper.getSupportedDeviceFeatureCapabilities();
+        auto &hwInfo = getHardwareInfo();
+        auto &clHwHelper = ClHwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        param.bitfield = clHwHelper.getSupportedDeviceFeatureCapabilities(hwInfo);
         src = &param.bitfield;
         retSize = srcSize = sizeof(cl_device_feature_capabilities_intel);
         break;
@@ -292,12 +294,45 @@ cl_int ClDevice::getDeviceInfo(cl_device_info paramName,
             retSize = srcSize = sizeof(deviceInfo.pciBusInfo);
         }
         break;
+    case CL_DEVICE_UUID_KHR:
+        device.generateUuid(uuid);
+        src = uuid.data();
+        retSize = srcSize = CL_UUID_SIZE_KHR;
+        break;
+    case CL_DRIVER_UUID_KHR:
+        const void *tmpUuid;
+        getStr<CL_DRIVER_UUID_KHR>(tmpUuid, srcSize, retSize);
+        uuid.fill(0);
+        memcpy_s(uuid.data(), srcSize, tmpUuid, srcSize);
+        src = uuid.data();
+        retSize = srcSize = CL_UUID_SIZE_KHR;
+        break;
+    case CL_DEVICE_LUID_VALID_KHR:
+        param.boolean = device.verifyAdapterLuid();
+        src = &param.boolean;
+        retSize = srcSize = sizeof(cl_bool);
+        break;
+    case CL_DEVICE_LUID_KHR:
+        memcpy_s(luid.data(), CL_LUID_SIZE_KHR, paramValue, CL_LUID_SIZE_KHR);
+        device.getAdapterLuid(luid);
+        src = luid.data();
+        retSize = srcSize = CL_LUID_SIZE_KHR;
+        break;
+    case CL_DEVICE_NODE_MASK_KHR:
+        memcpy_s(&param.uint, sizeof(cl_uint), paramValue, paramValueSize);
+        device.getAdapterMask(param.uint);
+        src = &param.uint;
+        retSize = srcSize = sizeof(cl_uint);
+        break;
+    case CL_DEVICE_EU_THREAD_COUNTS_INTEL:
+        src = getSharedDeviceInfo().threadsPerEUConfigs.begin();
+        retSize = srcSize = (getSharedDeviceInfo().threadsPerEUConfigs.size() * sizeof(uint32_t));
+        break;
     default:
         if (getDeviceInfoForImage(paramName, src, srcSize, retSize) && !getSharedDeviceInfo().imageSupport) {
             src = &value;
             break;
         }
-        ClDeviceHelper::getExtraDeviceInfo(*this, paramName, param, src, srcSize, retSize);
     }
 
     auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, src, srcSize);

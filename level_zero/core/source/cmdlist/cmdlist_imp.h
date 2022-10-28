@@ -1,15 +1,18 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-
 #include "level_zero/core/source/cmdlist/cmdlist.h"
-#include "level_zero/core/source/cmdqueue/cmdqueue_imp.h"
-#include "level_zero/core/source/device/device.h"
+
+#include <memory>
+
+namespace NEO {
+class LogicalStateHelper;
+}
 
 namespace L0 {
 
@@ -27,7 +30,11 @@ struct CommandListImp : CommandList {
     virtual void appendMultiPartitionPrologue(uint32_t partitionDataSize) = 0;
     virtual void appendMultiPartitionEpilogue() = 0;
 
+    virtual NEO::LogicalStateHelper *getLogicalStateHelper() const { return nonImmediateLogicalStateHelper.get(); }
+
   protected:
+    std::unique_ptr<NEO::LogicalStateHelper> nonImmediateLogicalStateHelper;
+
     ~CommandListImp() override = default;
 };
 

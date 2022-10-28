@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen11/hw_cmds.h"
 #include "shared/source/helpers/populate_factory.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 
@@ -14,7 +15,7 @@
 
 namespace NEO {
 
-typedef ICLFamily Family;
+typedef Gen11Family Family;
 static auto gfxCore = IGFX_GEN11_CORE;
 
 template class CommandQueueHw<Family>;

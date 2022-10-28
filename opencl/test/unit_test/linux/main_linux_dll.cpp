@@ -12,24 +12,25 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/linux/allocator_helper.h"
+#include "shared/source/os_interface/linux/i915.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/custom_event_listener.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/default_hw_info.inl"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/helpers/ult_hw_config.inl"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/libult/signal_utils.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/os_interface/linux/device_command_stream_fixture.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/linux/drm_wrap.h"
 #include "opencl/test/unit_test/linux/mock_os_layer.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "os_inc.h"
 
@@ -53,7 +54,7 @@ using namespace NEO;
 
 class DrmTestsFixture {
   public:
-    void SetUp() {
+    void setUp() {
         if (deviceDescriptorTable[0].deviceId == 0) {
             GTEST_SKIP();
         }
@@ -62,7 +63,7 @@ class DrmTestsFixture {
         rootDeviceEnvironment = executionEnvironment.rootDeviceEnvironments[0].get();
     }
 
-    void TearDown() {
+    void tearDown() {
     }
     ExecutionEnvironment executionEnvironment;
     RootDeviceEnvironment *rootDeviceEnvironment = nullptr;
@@ -112,29 +113,6 @@ TEST_F(DrmSimpleTests, GivenTwoOpenableDevicesWhenDiscoverDevicesThenCreateTwoHw
     ExecutionEnvironment executionEnvironment;
     auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
     EXPECT_EQ(2u, hwDeviceIds.size());
-}
-
-TEST_F(DrmSimpleTests, GivenSelectedNotExistingDeviceUsingForceDeviceIdFlagWhenGetDeviceFdThenFail) {
-    DebugManagerStateRestore stateRestore;
-    DebugManager.flags.ForceDeviceId.set("invalid");
-    openFull = nullptr; // open shouldn't be called
-    ExecutionEnvironment executionEnvironment;
-    auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
-    EXPECT_TRUE(hwDeviceIds.empty());
-}
-
-TEST_F(DrmSimpleTests, GivenSelectedExistingDeviceUsingForceDeviceIdFlagWhenGetDeviceFdThenReturnFd) {
-    DebugManagerStateRestore stateRestore;
-    DebugManager.flags.ForceDeviceId.set("0000:00:02.0");
-    VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
-    openFull = openWithCounter;
-    openCounter = 10;
-    ExecutionEnvironment executionEnvironment;
-    auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
-    EXPECT_EQ(1u, hwDeviceIds.size());
-    EXPECT_NE(nullptr, hwDeviceIds[0].get());
-    EXPECT_STREQ("/dev/dri/by-path/platform-4010000000.pcie-pci-0000:00:02.0-render", lastOpenedPath.c_str());
-    EXPECT_EQ(9, openCounter); // only one opened file
 }
 
 TEST_F(DrmSimpleTests, GivenSelectedNotExistingDeviceUsingFilterBdfWhenGetDeviceFdThenFail) {
@@ -254,19 +232,16 @@ TEST_F(DrmFailedIoctlTests, givenPrintIoctlEntriesWhenCallFailedIoctlThenExpecte
 }
 
 TEST_F(DrmSimpleTests, givenPrintIoctlTimesWhenCallIoctlThenStatisticsAreGathered) {
-    struct DrmMock : public Drm {
-        using Drm::ioctlStatistics;
-    };
-
     constexpr long long initialMin = std::numeric_limits<long long>::max();
-    constexpr long long initialMax = 0;
+    constexpr long long initialMax = std::numeric_limits<long long>::min();
 
     auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
     executionEnvironment->prepareRootDeviceEnvironments(1);
-    auto drm = static_cast<DrmMock *>(DrmWrap::createDrm(*executionEnvironment->rootDeviceEnvironments[0]).release());
+    auto drm = DrmWrap::createDrm(*executionEnvironment->rootDeviceEnvironments[0]);
 
     DebugManagerStateRestore restorer;
     DebugManager.flags.PrintIoctlTimes.set(true);
+    VariableBackup<decltype(forceExtraIoctlDuration)> backupForceExtraIoctlDuration(&forceExtraIoctlDuration, true);
 
     EXPECT_TRUE(drm->ioctlStatistics.empty());
 
@@ -282,20 +257,21 @@ TEST_F(DrmSimpleTests, givenPrintIoctlTimesWhenCallIoctlThenStatisticsAreGathere
     drm->setLowPriorityContextParam(contextId);
     EXPECT_EQ(2u, drm->ioctlStatistics.size());
 
-    auto euTotalData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GETPARAM);
+    auto euTotalData = drm->ioctlStatistics.find(DrmIoctl::Getparam);
     ASSERT_TRUE(euTotalData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GETPARAM), euTotalData->first);
+    EXPECT_EQ(DrmIoctl::Getparam, euTotalData->first);
     EXPECT_EQ(2u, euTotalData->second.count);
     EXPECT_NE(0, euTotalData->second.totalTime);
     EXPECT_NE(initialMin, euTotalData->second.minTime);
-    EXPECT_NE(initialMax, euTotalData->second.minTime);
+    EXPECT_LE(euTotalData->second.minTime, euTotalData->second.maxTime);
+    EXPECT_LE(initialMax, euTotalData->second.minTime);
     EXPECT_NE(initialMin, euTotalData->second.maxTime);
     EXPECT_NE(initialMax, euTotalData->second.maxTime);
     auto firstTime = euTotalData->second.totalTime;
 
-    auto lowPriorityData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM);
+    auto lowPriorityData = drm->ioctlStatistics.find(DrmIoctl::GemContextSetparam);
     ASSERT_TRUE(lowPriorityData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM), lowPriorityData->first);
+    EXPECT_EQ(DrmIoctl::GemContextSetparam, lowPriorityData->first);
     EXPECT_EQ(1u, lowPriorityData->second.count);
     EXPECT_NE(0, lowPriorityData->second.totalTime);
     EXPECT_NE(initialMin, lowPriorityData->second.minTime);
@@ -306,45 +282,45 @@ TEST_F(DrmSimpleTests, givenPrintIoctlTimesWhenCallIoctlThenStatisticsAreGathere
     drm->getEuTotal(euTotal);
     EXPECT_EQ(drm->ioctlStatistics.size(), 2u);
 
-    euTotalData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GETPARAM);
+    euTotalData = drm->ioctlStatistics.find(DrmIoctl::Getparam);
     ASSERT_TRUE(euTotalData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GETPARAM), euTotalData->first);
+    EXPECT_EQ(DrmIoctl::Getparam, euTotalData->first);
     EXPECT_EQ(3u, euTotalData->second.count);
     EXPECT_NE(0u, euTotalData->second.totalTime);
 
     auto secondTime = euTotalData->second.totalTime;
     EXPECT_GT(secondTime, firstTime);
 
-    lowPriorityData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM);
+    lowPriorityData = drm->ioctlStatistics.find(DrmIoctl::GemContextSetparam);
     ASSERT_TRUE(lowPriorityData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM), lowPriorityData->first);
+    EXPECT_EQ(DrmIoctl::GemContextSetparam, lowPriorityData->first);
     EXPECT_EQ(1u, lowPriorityData->second.count);
     EXPECT_NE(0, lowPriorityData->second.totalTime);
 
     drm->destroyDrmContext(contextId);
     EXPECT_EQ(3u, drm->ioctlStatistics.size());
 
-    euTotalData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GETPARAM);
+    euTotalData = drm->ioctlStatistics.find(DrmIoctl::Getparam);
     ASSERT_TRUE(euTotalData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GETPARAM), euTotalData->first);
+    EXPECT_EQ(DrmIoctl::Getparam, euTotalData->first);
     EXPECT_EQ(3u, euTotalData->second.count);
     EXPECT_NE(0, euTotalData->second.totalTime);
 
-    lowPriorityData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM);
+    lowPriorityData = drm->ioctlStatistics.find(DrmIoctl::GemContextSetparam);
     ASSERT_TRUE(lowPriorityData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM), lowPriorityData->first);
+    EXPECT_EQ(DrmIoctl::GemContextSetparam, lowPriorityData->first);
     EXPECT_EQ(1u, lowPriorityData->second.count);
     EXPECT_NE(0, lowPriorityData->second.totalTime);
 
-    auto destroyData = drm->ioctlStatistics.find(DRM_IOCTL_I915_GEM_CONTEXT_DESTROY);
+    auto destroyData = drm->ioctlStatistics.find(DrmIoctl::GemContextDestroy);
     ASSERT_TRUE(destroyData != drm->ioctlStatistics.end());
-    EXPECT_EQ(static_cast<unsigned long>(DRM_IOCTL_I915_GEM_CONTEXT_DESTROY), destroyData->first);
+    EXPECT_EQ(DrmIoctl::GemContextDestroy, destroyData->first);
     EXPECT_EQ(1u, destroyData->second.count);
     EXPECT_NE(0, destroyData->second.totalTime);
 
     ::testing::internal::CaptureStdout();
 
-    delete drm;
+    drm.reset();
 
     std::string output = ::testing::internal::GetCapturedStdout();
     EXPECT_STRNE("", output.c_str());
@@ -467,7 +443,7 @@ TEST_F(DrmTests, GivenErrorCodeWhenCreatingDrmThenDrmCreatedOnlyWithSpecificErro
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
 
-    drm_i915_getparam_t getParam;
+    GetParam getParam{};
     int lDeviceId;
 
     VariableBackup<decltype(ioctlCnt)> backupIoctlCnt(&ioctlCnt);
@@ -479,7 +455,7 @@ TEST_F(DrmTests, GivenErrorCodeWhenCreatingDrmThenDrmCreatedOnlyWithSpecificErro
     // check if device works, although there was EINTR error from KMD
     getParam.param = I915_PARAM_CHIPSET_ID;
     getParam.value = &lDeviceId;
-    auto ret = drm->ioctl(DRM_IOCTL_I915_GETPARAM, &getParam);
+    auto ret = drm->ioctl(DrmIoctl::Getparam, &getParam);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(deviceId, lDeviceId);
 
@@ -489,7 +465,7 @@ TEST_F(DrmTests, GivenErrorCodeWhenCreatingDrmThenDrmCreatedOnlyWithSpecificErro
     // check if device works, although there was EAGAIN error from KMD
     getParam.param = I915_PARAM_CHIPSET_ID;
     getParam.value = &lDeviceId;
-    ret = drm->ioctl(DRM_IOCTL_I915_GETPARAM, &getParam);
+    ret = drm->ioctl(DrmIoctl::Getparam, &getParam);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(deviceId, lDeviceId);
 
@@ -499,7 +475,7 @@ TEST_F(DrmTests, GivenErrorCodeWhenCreatingDrmThenDrmCreatedOnlyWithSpecificErro
     // check if device works, although there was EBUSY error from KMD
     getParam.param = I915_PARAM_CHIPSET_ID;
     getParam.value = &lDeviceId;
-    ret = drm->ioctl(DRM_IOCTL_I915_GETPARAM, &getParam);
+    ret = drm->ioctl(DrmIoctl::Getparam, &getParam);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(deviceId, lDeviceId);
 
@@ -509,7 +485,7 @@ TEST_F(DrmTests, GivenErrorCodeWhenCreatingDrmThenDrmCreatedOnlyWithSpecificErro
     // we failed with any other error code
     getParam.param = I915_PARAM_CHIPSET_ID;
     getParam.value = &lDeviceId;
-    ret = drm->ioctl(DRM_IOCTL_I915_GETPARAM, &getParam);
+    ret = drm->ioctl(DrmIoctl::Getparam, &getParam);
     EXPECT_EQ(-1, ret);
     EXPECT_EQ(deviceId, lDeviceId);
 }
@@ -542,16 +518,30 @@ TEST_F(DrmTests, GivenUnknownDeviceWhenCreatingDrmThenNullIsReturned) {
     DebugManager.flags.PrintDebugMessages.set(true);
 
     VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(revisionId)> backupRevisionId(&revisionId);
 
     deviceId = -1;
+    revisionId = -1;
 
     ::testing::internal::CaptureStderr();
     ::testing::internal::CaptureStdout();
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
     std::string errStr = ::testing::internal::GetCapturedStderr();
-    EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("FATAL: Unknown device: deviceId: ffffffff, revisionId: 0000")));
+    EXPECT_TRUE(hasSubstr(errStr, std::string("FATAL: Unknown device: deviceId: ffff, revisionId: ffff")));
     ::testing::internal::GetCapturedStdout();
+}
+
+TEST_F(DrmTests, GivenKnownDeviceWhenCreatingDrmThenHwInfoIsProperlySet) {
+    VariableBackup<decltype(revisionId)> backupRevisionId(&revisionId);
+
+    revisionId = 123;
+
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
+    EXPECT_NE(drm, nullptr);
+
+    EXPECT_EQ(revisionId, rootDeviceEnvironment->getHardwareInfo()->platform.usRevId);
+    EXPECT_EQ(deviceId, rootDeviceEnvironment->getHardwareInfo()->platform.usDeviceID);
 }
 
 TEST_F(DrmTests, GivenNoSoftPinWhenCreatingDrmThenNullIsReturned) {
@@ -666,11 +656,16 @@ TEST(AllocatorHelper, givenExpectedSizeToReserveWhenGetSizeToReserveCalledThenEx
 }
 
 TEST(DrmMemoryManagerCreate, whenCallCreateMemoryManagerThenDrmMemoryManagerIsCreated) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.OverridePatIndex.set(0);
+
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     auto drm = new DrmMockSuccess(fakeFd, *executionEnvironment.rootDeviceEnvironments[0]);
 
+    drm->setupIoctlHelper(defaultHwInfo->platform.eProductFamily);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
+
     auto drmMemoryManager = MemoryManager::createMemoryManager(executionEnvironment);
     EXPECT_NE(nullptr, drmMemoryManager.get());
     executionEnvironment.memoryManager = std::move(drmMemoryManager);
@@ -680,6 +675,7 @@ TEST(DrmMemoryManagerCreate, givenEnableHostPtrValidationSetToZeroWhenCreateDrmM
     DebugManagerStateRestore restorer;
     DebugManager.flags.EnableHostPtrValidation.set(0);
     DebugManager.flags.EnableGemCloseWorker.set(0);
+    DebugManager.flags.OverridePatIndex.set(0);
 
     VariableBackup<UltHwConfig> backup(&ultHwConfig);
     ultHwConfig.forceOsAgnosticMemoryManager = false;
@@ -687,8 +683,10 @@ TEST(DrmMemoryManagerCreate, givenEnableHostPtrValidationSetToZeroWhenCreateDrmM
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     auto drm = new DrmMockSuccess(fakeFd, *executionEnvironment.rootDeviceEnvironments[0]);
 
+    drm->setupIoctlHelper(defaultHwInfo->platform.eProductFamily);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
+
     auto drmMemoryManager = MemoryManager::createMemoryManager(executionEnvironment);
     EXPECT_NE(nullptr, drmMemoryManager.get());
     EXPECT_FALSE(static_cast<DrmMemoryManager *>(drmMemoryManager.get())->isValidateHostMemoryEnabled());
@@ -767,7 +765,7 @@ TEST_F(DrmTests, givenEnabledDebuggingAndVmBindNotAvailableWhenDrmIsCreatedThenP
     ::testing::internal::GetCapturedStdout();
     std::string errStr = ::testing::internal::GetCapturedStderr();
 
-    EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("WARNING: Debugging not supported\n")));
+    EXPECT_TRUE(hasSubstr(errStr, std::string("WARNING: Debugging not supported\n")));
 }
 
 TEST_F(DrmTests, givenDrmIsCreatedWhenCreateVirtualMemoryFailsThenReturnVirtualMemoryIdZeroAndPrintDebugMessage) {
@@ -788,8 +786,7 @@ TEST_F(DrmTests, givenDrmIsCreatedWhenCreateVirtualMemoryFailsThenReturnVirtualM
 
     std::string errStr = ::testing::internal::GetCapturedStderr();
     if (!drm->isPerContextVMRequired()) {
-
-        EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("INFO: Device doesn't support GEM Virtual Memory")));
+        EXPECT_TRUE(hasSubstr(errStr, std::string("INFO: Device doesn't support GEM Virtual Memory")));
     }
     ::testing::internal::GetCapturedStdout();
 }
@@ -807,6 +804,11 @@ TEST(SysCalls, WhenSysCallsFstatCalledThenCallIsRedirectedToOs) {
     struct stat st = {};
     auto result = NEO::SysCalls::fstat(0, &st);
     EXPECT_EQ(0, result);
+}
+
+TEST(SysCalls, WhenSysCallsGetNumThreadsCalledThenCallIsRedirectedToOs) {
+    auto result = NEO::SysCalls::getNumThreads();
+    EXPECT_GT(result, 0u);
 }
 
 int main(int argc, char **argv) {
@@ -867,26 +869,16 @@ TEST(DirectSubmissionControllerTest, whenCheckDirectSubmissionControllerSupportT
     EXPECT_TRUE(DirectSubmissionController::isSupported());
 }
 
-TEST(CommandQueueTest, whenCheckEngineRoundRobinAssignThenReturnsFalse) {
-    EXPECT_FALSE(CommandQueue::isAssignEngineRoundRobinEnabled());
-}
-
-TEST(CommandQueueTest, whenCheckEngineTimestampWaitEnabledThenReturnsFalse) {
-    EXPECT_FALSE(CommandQueue::isTimestampWaitEnabled());
-}
-
-TEST(CommandQueueTest, givenEnableCmdQRoundRobindEngineAssignSetWhenCheckEngineRoundRobinAssignThenReturnsTrue) {
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.EnableCmdQRoundRobindEngineAssign.set(1);
-
+TEST(CommandQueueTest, whenCheckEngineRoundRobinAssignThenReturnsTrue) {
     EXPECT_TRUE(CommandQueue::isAssignEngineRoundRobinEnabled());
 }
 
-TEST(CommandQueueTest, givenEnableCmdQRoundRobindEngineAssignSetZeroWhenCheckEngineRoundRobinAssignThenReturnsTrue) {
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.EnableCmdQRoundRobindEngineAssign.set(0);
+TEST(CommandQueueTest, whenCheckEngineTimestampWaitEnabledThenReturnsTrue) {
+    EXPECT_TRUE(CommandQueue::isTimestampWaitEnabled());
+}
 
-    EXPECT_FALSE(CommandQueue::isAssignEngineRoundRobinEnabled());
+TEST(DeviceTest, whenCheckBlitSplitEnabledThenReturnsTrue) {
+    EXPECT_TRUE(Device::isBlitSplitEnabled());
 }
 
 TEST(PlatformsDestructor, whenGlobalPlatformsDestructorIsCalledThenGlobalPlatformsAreDestroyed) {

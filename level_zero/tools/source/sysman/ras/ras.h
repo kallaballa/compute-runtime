@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "level_zero/core/source/device/device.h"
 #include <level_zero/zes_api.h>
 
+#include <mutex>
 #include <vector>
 
 struct _zes_ras_handle_t {
@@ -31,7 +32,7 @@ class Ras : _zes_ras_handle_t {
     }
     inline zes_ras_handle_t toHandle() { return this; }
     bool isRasErrorSupported = false;
-    zes_ras_error_type_t rasErrorType;
+    zes_ras_error_type_t rasErrorType{};
 };
 
 struct RasHandleContext {
@@ -45,9 +46,14 @@ struct RasHandleContext {
 
     OsSysman *pOsSysman = nullptr;
     std::vector<Ras *> handleList = {};
+    bool isRasInitDone() {
+        return rasInitDone;
+    }
 
   private:
     void createHandle(zes_ras_error_type_t type, ze_device_handle_t deviceHandle);
+    std::once_flag initRasOnce;
+    bool rasInitDone = false;
 };
 
 } // namespace L0

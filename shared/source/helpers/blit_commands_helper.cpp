@@ -177,6 +177,7 @@ BlitOperationResult BlitHelper::blitMemoryToAllocationBanks(const Device &device
     if (!hwInfo.capabilityTable.blitterOperationsSupported) {
         return BlitOperationResult::Unsupported;
     }
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
     UNRECOVERABLE_IF(memoryBanks.none());
 
@@ -189,16 +190,18 @@ BlitOperationResult BlitHelper::blitMemoryToAllocationBanks(const Device &device
 
         UNRECOVERABLE_IF(!pRootDevice->getDeviceBitfield().test(tileId));
         auto pDeviceForBlit = pRootDevice->getNearestGenericSubDevice(tileId);
-
         auto &selectorCopyEngine = pDeviceForBlit->getSelectorCopyEngine();
         auto deviceBitfield = pDeviceForBlit->getDeviceBitfield();
-        auto bcsEngine = pDeviceForBlit->tryGetEngine(EngineHelpers::getBcsEngineType(hwInfo, deviceBitfield, selectorCopyEngine, true), EngineUsage::Regular);
+        auto internalUsage = true;
+        auto bcsEngineType = EngineHelpers::getBcsEngineType(hwInfo, deviceBitfield, selectorCopyEngine, internalUsage);
+        auto bcsEngineUsage = hwHelper.preferInternalBcsEngine() ? EngineUsage::Internal : EngineUsage::Regular;
+        auto bcsEngine = pDeviceForBlit->tryGetEngine(bcsEngineType, bcsEngineUsage);
         if (!bcsEngine) {
             return BlitOperationResult::Unsupported;
         }
 
         bcsEngine->osContext->ensureContextInitialized();
-        bcsEngine->commandStreamReceiver->initDirectSubmission(*pDeviceForBlit, *bcsEngine->osContext);
+        bcsEngine->commandStreamReceiver->initDirectSubmission();
         BlitPropertiesContainer blitPropertiesContainer;
         blitPropertiesContainer.push_back(
             BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
@@ -206,7 +209,11 @@ BlitOperationResult BlitHelper::blitMemoryToAllocationBanks(const Device &device
                                                             hostPtr,
                                                             (memory->getGpuAddress() + offset),
                                                             0, 0, 0, size, 0, 0, 0, 0));
-        bcsEngine->commandStreamReceiver->flushBcsTask(blitPropertiesContainer, true, false, *pDeviceForBlit);
+
+        const auto newTaskCount = bcsEngine->commandStreamReceiver->flushBcsTask(blitPropertiesContainer, true, false, *pDeviceForBlit);
+        if (!newTaskCount) {
+            return BlitOperationResult::GpuHang;
+        }
     }
 
     return BlitOperationResult::Success;

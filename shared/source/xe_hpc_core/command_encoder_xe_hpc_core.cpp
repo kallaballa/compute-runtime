@@ -12,13 +12,13 @@
 #include "shared/source/command_stream/stream_properties.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/kernel/grf_config.h"
-#include "shared/source/xe_hpc_core/hw_cmds_base.h"
+#include "shared/source/utilities/lookup_array.h"
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
 
-namespace NEO {
+using Family = NEO::XeHpcCoreFamily;
 
-using Family = XE_HPC_COREFamily;
-}
-
+#include "shared/source/command_container/command_encoder_tgllp_and_later.inl"
+#include "shared/source/command_container/command_encoder_xe_hpc_core_and_later.inl"
 #include "shared/source/command_container/command_encoder_xe_hpg_core_and_later.inl"
 #include "shared/source/command_container/image_surface_state/compression_params_tgllp_and_later.inl"
 #include "shared/source/command_container/image_surface_state/compression_params_xehp_and_later.inl"
@@ -31,10 +31,40 @@ void EncodeDispatchKernel<Family>::adjustTimestampPacket(WALKER_TYPE &walkerCmd,
 }
 
 template <>
-void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo) {
+void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadGroupCount, const uint32_t numGrf) {
     const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
     if (hwInfoConfig.isDisableOverdispatchAvailable(hwInfo)) {
         interfaceDescriptor.setThreadGroupDispatchSize(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1);
+
+        if (hwInfo.gtSystemInfo.SliceCount % 2 == 0) {
+            UNRECOVERABLE_IF(numGrf == 0u);
+
+            constexpr uint32_t maxThreadsInTGForTGDispatchSize8 = 16u;
+            constexpr uint32_t maxThreadsInTGForTGDispatchSize4 = 32u;
+            auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+            uint32_t availableThreadCount = hwHelper.calculateAvailableThreadCount(hwInfo, numGrf);
+            uint32_t numberOfThreadsInThreadGroup = interfaceDescriptor.getNumberOfThreadsInGpgpuThreadGroup();
+            uint32_t dispatchedTotalThreadCount = numberOfThreadsInThreadGroup * threadGroupCount;
+
+            UNRECOVERABLE_IF(numberOfThreadsInThreadGroup == 0u);
+
+            if (dispatchedTotalThreadCount <= availableThreadCount) {
+                interfaceDescriptor.setThreadGroupDispatchSize(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1);
+            } else if (numberOfThreadsInThreadGroup <= maxThreadsInTGForTGDispatchSize8) {
+                interfaceDescriptor.setThreadGroupDispatchSize(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_8);
+            } else if (numberOfThreadsInThreadGroup <= maxThreadsInTGForTGDispatchSize4) {
+                interfaceDescriptor.setThreadGroupDispatchSize(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_4);
+            } else {
+                interfaceDescriptor.setThreadGroupDispatchSize(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_2);
+            }
+
+            uint32_t exponent = INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1 - interfaceDescriptor.getThreadGroupDispatchSize();
+            uint32_t threadGroupDispatchSize = 1u << exponent;
+            if ((dispatchedTotalThreadCount % (numberOfThreadsInThreadGroup * threadGroupDispatchSize)) != 0) {
+                interfaceDescriptor.setThreadGroupDispatchSize(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1);
+            }
+        }
     }
 
     if (DebugManager.flags.ForceThreadGroupDispatchSize.get() != -1) {
@@ -49,7 +79,7 @@ inline void EncodeAtomic<Family>::setMiAtomicAddress(MI_ATOMIC &atomic, uint64_t
 }
 
 template <>
-void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo) {
+void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo, LogicalStateHelper *logicalStateHelper) {
     using STATE_COMPUTE_MODE = typename Family::STATE_COMPUTE_MODE;
     using FORCE_NON_COHERENT = typename STATE_COMPUTE_MODE::FORCE_NON_COHERENT;
 
@@ -87,6 +117,9 @@ void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, Sta
 
     stateComputeMode.setMaskBits(maskBits);
 
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    hwInfoConfig.updateScmCommand(&stateComputeMode, properties);
+
     auto buffer = csr.getSpaceForCmd<STATE_COMPUTE_MODE>();
     *buffer = stateComputeMode;
 }
@@ -96,12 +129,7 @@ void EncodeMemoryPrefetch<Family>::programMemoryPrefetch(LinearStream &commandSt
     using STATE_PREFETCH = typename Family::STATE_PREFETCH;
     constexpr uint32_t mocsIndexForL3 = (2 << 1);
 
-    bool isBaseDieA0 = (hwInfo.platform.usRevId & Family::pvcBaseDieRevMask) == Family::pvcBaseDieA0Masked;
-
-    bool prefetch = !isBaseDieA0;
-    if (DebugManager.flags.EnableMemoryPrefetch.get() != -1) {
-        prefetch = !!DebugManager.flags.EnableMemoryPrefetch.get();
-    }
+    bool prefetch = HwInfoConfig::get(hwInfo.platform.eProductFamily)->allowMemoryPrefetch(hwInfo);
 
     if (!prefetch) {
         return;
@@ -110,11 +138,11 @@ void EncodeMemoryPrefetch<Family>::programMemoryPrefetch(LinearStream &commandSt
     uint64_t gpuVa = graphicsAllocation.getGpuAddress() + offset;
 
     while (size > 0) {
-        uint32_t sizeInBytsToPrefetch = std::min(alignUp(size, MemoryConstants::cacheLineSize),
-                                                 static_cast<uint32_t>(MemoryConstants::pageSize64k));
+        uint32_t sizeInBytesToPrefetch = std::min(alignUp(size, MemoryConstants::cacheLineSize),
+                                                  static_cast<uint32_t>(MemoryConstants::pageSize64k));
 
         // zero based cacheline count (0 == 1 cacheline)
-        uint32_t prefetchSize = (sizeInBytsToPrefetch / MemoryConstants::cacheLineSize) - 1;
+        uint32_t prefetchSize = (sizeInBytesToPrefetch / MemoryConstants::cacheLineSize) - 1;
 
         auto statePrefetch = commandStream.getSpaceForCmd<STATE_PREFETCH>();
         STATE_PREFETCH cmd = Family::cmdInitStatePrefetch;
@@ -130,21 +158,20 @@ void EncodeMemoryPrefetch<Family>::programMemoryPrefetch(LinearStream &commandSt
 
         *statePrefetch = cmd;
 
-        if (sizeInBytsToPrefetch > size) {
+        if (sizeInBytesToPrefetch > size) {
             break;
         }
 
-        gpuVa += sizeInBytsToPrefetch;
-        size -= sizeInBytsToPrefetch;
+        gpuVa += sizeInBytesToPrefetch;
+        size -= sizeInBytesToPrefetch;
     }
 }
 
 template <>
-size_t EncodeMemoryPrefetch<Family>::getSizeForMemoryPrefetch(size_t size) {
+size_t EncodeMemoryPrefetch<Family>::getSizeForMemoryPrefetch(size_t size, const HardwareInfo &hwInfo) {
     if (DebugManager.flags.EnableMemoryPrefetch.get() == 0) {
         return 0;
     }
-
     size = alignUp(size, MemoryConstants::pageSize64k);
 
     size_t count = size / MemoryConstants::pageSize64k;
@@ -170,33 +197,45 @@ template <>
 void EncodeDispatchKernel<Family>::programBarrierEnable(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor,
                                                         uint32_t value,
                                                         const HardwareInfo &hwInfo) {
-    interfaceDescriptor.setNumberOfBarriers(static_cast<INTERFACE_DESCRIPTOR_DATA::NUMBER_OF_BARRIERS>(value));
+    using BARRIERS = INTERFACE_DESCRIPTOR_DATA::NUMBER_OF_BARRIERS;
+    static const LookupArray<uint32_t, BARRIERS, 8> barrierLookupArray({{{0, BARRIERS::NUMBER_OF_BARRIERS_NONE},
+                                                                         {1, BARRIERS::NUMBER_OF_BARRIERS_B1},
+                                                                         {2, BARRIERS::NUMBER_OF_BARRIERS_B2},
+                                                                         {4, BARRIERS::NUMBER_OF_BARRIERS_B4},
+                                                                         {8, BARRIERS::NUMBER_OF_BARRIERS_B8},
+                                                                         {16, BARRIERS::NUMBER_OF_BARRIERS_B16},
+                                                                         {24, BARRIERS::NUMBER_OF_BARRIERS_B24},
+                                                                         {32, BARRIERS::NUMBER_OF_BARRIERS_B32}}});
+    BARRIERS numBarriers = barrierLookupArray.lookUp(value);
+    interfaceDescriptor.setNumberOfBarriers(numBarriers);
 }
 
 template <>
-void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd, KernelExecutionType kernelExecutionType) {
-    auto programGlobalFenceAsPostSyncOperationInComputeWalker = !Family::isXlA0(hwInfo);
-    if (DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.get() != -1) {
-        programGlobalFenceAsPostSyncOperationInComputeWalker = !!DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.get();
+void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd, const EncodeWalkerArgs &walkerArgs) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+    auto programGlobalFenceAsPostSyncOperationInComputeWalker = hwInfoConfig.isGlobalFenceInCommandStreamRequired(hwInfo) &&
+                                                                walkerArgs.requiredSystemFence;
+    int32_t overrideProgramSystemMemoryFence = DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.get();
+    if (overrideProgramSystemMemoryFence != -1) {
+        programGlobalFenceAsPostSyncOperationInComputeWalker = !!overrideProgramSystemMemoryFence;
     }
-    if (programGlobalFenceAsPostSyncOperationInComputeWalker) {
-        auto &postSyncData = walkerCmd.getPostSync();
-        postSyncData.setSystemMemoryFenceRequest(true);
+    auto &postSyncData = walkerCmd.getPostSync();
+    postSyncData.setSystemMemoryFenceRequest(programGlobalFenceAsPostSyncOperationInComputeWalker);
+
+    int32_t forceL3PrefetchForComputeWalker = DebugManager.flags.ForceL3PrefetchForComputeWalker.get();
+    if (forceL3PrefetchForComputeWalker != -1) {
+        walkerCmd.setL3PrefetchDisable(!forceL3PrefetchForComputeWalker);
     }
 
-    if (DebugManager.flags.ForceL3PrefetchForComputeWalker.get() != -1) {
-        walkerCmd.setL3PrefetchDisable(!DebugManager.flags.ForceL3PrefetchForComputeWalker.get());
+    auto programComputeDispatchAllWalkerEnableInComputeWalker = hwInfoConfig.isComputeDispatchAllWalkerEnableInComputeWalkerRequired(hwInfo) &&
+                                                                walkerArgs.kernelExecutionType == KernelExecutionType::Concurrent;
+    int32_t overrideDispatchAllWalkerEnableInComputeWalker = DebugManager.flags.ComputeDispatchAllWalkerEnableInComputeWalker.get();
+    if (overrideDispatchAllWalkerEnableInComputeWalker != -1) {
+        programComputeDispatchAllWalkerEnableInComputeWalker = !!overrideDispatchAllWalkerEnableInComputeWalker;
     }
 
-    auto programComputeDispatchAllWalkerEnableInComputeWalker = Family::isXtTemporary(hwInfo);
-    if (programComputeDispatchAllWalkerEnableInComputeWalker) {
-        if (kernelExecutionType == KernelExecutionType::Concurrent) {
-            walkerCmd.setComputeDispatchAllWalkerEnable(true);
-        }
-    }
-    if (DebugManager.flags.ComputeDispatchAllWalkerEnableInComputeWalker.get() != -1) {
-        walkerCmd.setComputeDispatchAllWalkerEnable(DebugManager.flags.ComputeDispatchAllWalkerEnableInComputeWalker.get());
-    }
+    walkerCmd.setComputeDispatchAllWalkerEnable(programComputeDispatchAllWalkerEnableInComputeWalker);
 }
 
 template <>
@@ -240,7 +279,9 @@ void EncodeDispatchKernel<Family>::appendAdditionalIDDFields(INTERFACE_DESCRIPTO
         }
     }
 
-    if ((slmSize == 0) && (Family::isXlA0(hwInfo))) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+    if ((slmSize == 0) && (hwInfoConfig.isAdjustProgrammableIdPreferredSlmSizeRequired(hwInfo))) {
         programmableIdPreferredSlmSize = PREFERRED_SLM_ALLOCATION_SIZE::PREFERRED_SLM_ALLOCATION_SIZE_16K;
     }
 
@@ -256,9 +297,6 @@ void EncodeDispatchKernel<Family>::appendAdditionalIDDFields(INTERFACE_DESCRIPTO
 template <>
 void EncodeDispatchKernel<Family>::adjustBindingTablePrefetch(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, uint32_t samplerCount, uint32_t bindingTableEntryCount) {
     auto enablePrefetch = EncodeSurfaceState<Family>::doBindingTablePrefetch();
-    if (DebugManager.flags.ForceBtpPrefetchMode.get() != -1) {
-        enablePrefetch = static_cast<bool>(DebugManager.flags.ForceBtpPrefetchMode.get());
-    }
 
     if (enablePrefetch) {
         interfaceDescriptor.setBindingTableEntryCount(std::min(bindingTableEntryCount, 31u));
@@ -288,4 +326,6 @@ template struct EncodeWA<Family>;
 template struct EncodeEnableRayTracing<Family>;
 template struct EncodeNoop<Family>;
 template struct EncodeStoreMemory<Family>;
+template struct EncodeMemoryFence<Family>;
+template struct EncodeKernelArgsBuffer<Family>;
 } // namespace NEO

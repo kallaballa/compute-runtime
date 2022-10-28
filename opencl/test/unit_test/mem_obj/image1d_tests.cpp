@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/helpers/cl_memory_properties_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -25,7 +25,7 @@ class CreateImage1DTest : public ClDeviceFixture,
 
   protected:
     void SetUp() override {
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
         types = GetParam();
 
         // clang-format off
@@ -59,7 +59,7 @@ class CreateImage1DTest : public ClDeviceFixture,
             clReleaseMemObject(imageDesc.mem_object);
         }
         delete context;
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     cl_image_format imageFormat;
@@ -94,10 +94,10 @@ HWTEST_P(CreateImage1DType, GivenValidTypeWhenCreatingImageThenImageParamsAreCor
     EXPECT_NE(0u, imgDesc.image_row_pitch);
     EXPECT_GE(imgDesc.image_slice_pitch, imgDesc.image_row_pitch);
 
-    size_t ImageInfoHeight = 0;
-    retVal = clGetImageInfo(image, CL_IMAGE_HEIGHT, sizeof(size_t), &ImageInfoHeight, NULL);
+    size_t imageInfoHeight = 0;
+    retVal = clGetImageInfo(image, CL_IMAGE_HEIGHT, sizeof(size_t), &imageInfoHeight, NULL);
     ASSERT_EQ(CL_SUCCESS, retVal);
-    ASSERT_EQ(0u, ImageInfoHeight);
+    ASSERT_EQ(0u, imageInfoHeight);
 
     if ((types == CL_MEM_OBJECT_IMAGE1D) || (types == CL_MEM_OBJECT_IMAGE1D_BUFFER)) {
         EXPECT_EQ(0u, imgDesc.image_array_size);

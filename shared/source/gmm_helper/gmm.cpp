@@ -7,6 +7,7 @@
 
 #include "shared/source/gmm_helper/gmm.h"
 
+#include "shared/source/gmm_helper/cache_settings_helper.h"
 #include "shared/source/gmm_helper/client_context/gmm_client_context.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/resource_info.h"
@@ -16,15 +17,12 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/surface_format_info.h"
+#include "shared/source/memory_manager/allocation_type.h"
+#include "shared/source/memory_manager/definitions/storage_info.h"
 
 namespace NEO {
-Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t alignedSize, size_t alignment, bool uncacheable) : Gmm(clientContext, alignedPtr, alignedSize, alignment, uncacheable, false, true, {}) {}
-
-Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t alignedSize, size_t alignment, bool uncacheable, bool preferCompressed, bool systemMemoryPool, StorageInfo storageInfo)
-    : Gmm(clientContext, alignedPtr, alignedSize, alignment, uncacheable, preferCompressed, systemMemoryPool, storageInfo, true) {
-}
-
-Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t alignedSize, size_t alignment, bool uncacheable, bool preferCompressed, bool systemMemoryPool, StorageInfo storageInfo, bool allowLargePages) : clientContext(clientContext) {
+Gmm::Gmm(GmmHelper *gmmHelper, const void *alignedPtr, size_t alignedSize, size_t alignment, GMM_RESOURCE_USAGE_TYPE_ENUM gmmResourceUsage,
+         bool preferCompressed, const StorageInfo &storageInfo, bool allowLargePages) : gmmHelper(gmmHelper) {
     resourceParams.Type = RESOURCE_BUFFER;
     resourceParams.Format = GMM_FORMAT_GENERIC_8BIT;
     resourceParams.BaseWidth64 = static_cast<uint64_t>(alignedSize);
@@ -38,13 +36,9 @@ Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t aligned
         }
     }
 
-    if (!uncacheable) {
-        resourceParams.Usage = GMM_RESOURCE_USAGE_OCL_BUFFER;
-    } else {
-        resourceParams.Usage = GMM_RESOURCE_USAGE_OCL_BUFFER_CSR_UC;
-    }
+    resourceParams.Usage = gmmResourceUsage;
     resourceParams.Flags.Info.Linear = 1;
-    resourceParams.Flags.Info.Cacheable = 1;
+    resourceParams.Flags.Info.Cacheable = !CacheSettingsHelper::isUncachedType(gmmResourceUsage);
     resourceParams.Flags.Gpu.Texture = 1;
 
     if (alignedPtr) {
@@ -60,28 +54,30 @@ Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t aligned
     }
 
     applyAuxFlagsForBuffer(preferCompressed);
-    applyMemoryFlags(systemMemoryPool, storageInfo);
+    applyMemoryFlags(storageInfo);
     applyAppResource(storageInfo);
     applyDebugOverrides();
 
-    gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &resourceParams));
+    gmmResourceInfo.reset(GmmResourceInfo::create(gmmHelper->getClientContext(), &resourceParams));
 }
 
-Gmm::Gmm(GmmClientContext *clientContext, GMM_RESOURCE_INFO *inputGmm) : clientContext(clientContext) {
-    gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, inputGmm));
+Gmm::Gmm(GmmHelper *gmmHelper, GMM_RESOURCE_INFO *inputGmm) : Gmm(gmmHelper, inputGmm, false) {}
+
+Gmm::Gmm(GmmHelper *gmmHelper, GMM_RESOURCE_INFO *inputGmm, bool openingHandle) : gmmHelper(gmmHelper) {
+    gmmResourceInfo.reset(GmmResourceInfo::create(gmmHelper->getClientContext(), inputGmm, openingHandle));
     applyDebugOverrides();
 }
 
 Gmm::~Gmm() = default;
 
-Gmm::Gmm(GmmClientContext *clientContext, ImageInfo &inputOutputImgInfo, StorageInfo storageInfo, bool preferCompressed) : clientContext(clientContext) {
+Gmm::Gmm(GmmHelper *gmmHelper, ImageInfo &inputOutputImgInfo, const StorageInfo &storageInfo, bool preferCompressed) : gmmHelper(gmmHelper) {
     this->resourceParams = {};
     setupImageResourceParams(inputOutputImgInfo, preferCompressed);
-    applyMemoryFlags(!inputOutputImgInfo.useLocalMemory, storageInfo);
+    applyMemoryFlags(storageInfo);
     applyAppResource(storageInfo);
     applyDebugOverrides();
 
-    this->gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &this->resourceParams));
+    this->gmmResourceInfo.reset(GmmResourceInfo::create(gmmHelper->getClientContext(), &this->resourceParams));
     UNRECOVERABLE_IF(this->gmmResourceInfo == nullptr);
 
     queryImageParams(inputOutputImgInfo);
@@ -120,11 +116,11 @@ void Gmm::setupImageResourceParams(ImageInfo &imgInfo, bool preferCompressed) {
 
     resourceParams.Flags.Info.Linear = imgInfo.linearStorage;
 
-    auto &hwHelper = HwHelper::get(clientContext->getHardwareInfo()->platform.eRenderCoreFamily);
+    auto &hwHelper = HwHelper::get(gmmHelper->getClientContext()->getHardwareInfo()->platform.eRenderCoreFamily);
 
     resourceParams.NoGfxMemory = 1; // dont allocate, only query for params
 
-    resourceParams.Usage = GMM_RESOURCE_USAGE_TYPE::GMM_RESOURCE_USAGE_OCL_IMAGE;
+    resourceParams.Usage = CacheSettingsHelper::getGmmUsageType(AllocationType::IMAGE, false, *gmmHelper->getClientContext()->getHardwareInfo());
 
     resourceParams.Format = imgInfo.surfaceFormat->GMMSurfaceFormat;
     resourceParams.Flags.Gpu.Texture = 1;
@@ -134,16 +130,12 @@ void Gmm::setupImageResourceParams(ImageInfo &imgInfo, bool preferCompressed) {
     resourceParams.ArraySize = imageCount;
     resourceParams.Flags.Wa.__ForceOtherHVALIGN4 = hwHelper.hvAlign4Required();
     resourceParams.MaxLod = imgInfo.baseMipLevel + imgInfo.mipCount;
-    if (imgInfo.imgDesc.imageRowPitch && imgInfo.imgDesc.fromParent) {
-        resourceParams.OverridePitch = (uint32_t)imgInfo.imgDesc.imageRowPitch;
-        resourceParams.Flags.Info.AllowVirtualPadding = true;
-    }
 
     applyAuxFlagsForImage(imgInfo, preferCompressed);
 }
 
 void Gmm::applyAuxFlagsForBuffer(bool preferCompression) {
-    auto hardwareInfo = clientContext->getHardwareInfo();
+    auto hardwareInfo = gmmHelper->getClientContext()->getHardwareInfo();
     bool allowCompression = HwHelper::compressedBuffersSupported(*hardwareInfo) &&
                             preferCompression;
 
@@ -160,13 +152,13 @@ void Gmm::applyAuxFlagsForBuffer(bool preferCompression) {
 void Gmm::applyAuxFlagsForImage(ImageInfo &imgInfo, bool preferCompressed) {
     uint8_t compressionFormat;
     if (this->resourceParams.Flags.Info.MediaCompressed) {
-        compressionFormat = clientContext->getMediaSurfaceStateCompressionFormat(imgInfo.surfaceFormat->GMMSurfaceFormat);
+        compressionFormat = gmmHelper->getClientContext()->getMediaSurfaceStateCompressionFormat(imgInfo.surfaceFormat->GMMSurfaceFormat);
     } else {
-        compressionFormat = clientContext->getSurfaceStateCompressionFormat(imgInfo.surfaceFormat->GMMSurfaceFormat);
+        compressionFormat = gmmHelper->getClientContext()->getSurfaceStateCompressionFormat(imgInfo.surfaceFormat->GMMSurfaceFormat);
     }
 
     bool compressionFormatSupported = false;
-    if (clientContext->getHardwareInfo()->featureTable.flags.ftrFlatPhysCCS) {
+    if (gmmHelper->getClientContext()->getHardwareInfo()->featureTable.flags.ftrFlatPhysCCS) {
         compressionFormatSupported = compressionFormat != GMM_FLATCCS_FORMAT::GMM_FLATCCS_FORMAT_INVALID;
     } else {
         compressionFormatSupported = compressionFormat != GMM_E2ECOMP_FORMAT::GMM_E2ECOMP_FORMAT_INVALID;
@@ -177,7 +169,7 @@ void Gmm::applyAuxFlagsForImage(ImageInfo &imgInfo, bool preferCompressed) {
                              imgInfo.surfaceFormat->GMMSurfaceFormat == GMM_FORMAT_YVYU ||
                              imgInfo.surfaceFormat->GMMSurfaceFormat == GMM_FORMAT_VYUY;
 
-    auto hwInfo = clientContext->getHardwareInfo();
+    auto hwInfo = gmmHelper->getClientContext()->getHardwareInfo();
 
     bool allowCompression = HwHelper::compressedImagesSupported(*hwInfo) &&
                             preferCompressed &&
@@ -255,7 +247,7 @@ void Gmm::queryImageParams(ImageInfo &imgInfo) {
 }
 
 uint32_t Gmm::queryQPitch(GMM_RESOURCE_TYPE resType) {
-    if (clientContext->getHardwareInfo()->platform.eRenderCoreFamily == IGFX_GEN8_CORE && resType == GMM_RESOURCE_TYPE::RESOURCE_3D) {
+    if (gmmHelper->getClientContext()->getHardwareInfo()->platform.eRenderCoreFamily == IGFX_GEN8_CORE && resType == GMM_RESOURCE_TYPE::RESOURCE_3D) {
         return 0;
     }
     return gmmResourceInfo->getQPitch();
@@ -331,6 +323,10 @@ bool Gmm::hasMultisampleControlSurface() const {
     return this->gmmResourceInfo->getResourceFlags()->Gpu.MCS;
 }
 
+GmmHelper *Gmm::getGmmHelper() const {
+    return this->gmmHelper;
+}
+
 uint32_t Gmm::getUnifiedAuxPitchTiles() {
     return this->gmmResourceInfo->getRenderAuxPitchTiles();
 }
@@ -338,12 +334,11 @@ uint32_t Gmm::getAuxQPitch() {
     return this->gmmResourceInfo->getAuxQPitch();
 }
 
-void Gmm::applyMemoryFlags(bool systemMemoryPool, StorageInfo &storageInfo) {
-    this->useSystemMemoryPool = systemMemoryPool;
-    auto hardwareInfo = clientContext->getHardwareInfo();
+void Gmm::applyMemoryFlags(const StorageInfo &storageInfo) {
+    auto hardwareInfo = gmmHelper->getClientContext()->getHardwareInfo();
 
     if (hardwareInfo->featureTable.flags.ftrLocalMemory) {
-        if (systemMemoryPool) {
+        if (storageInfo.systemMemoryPlacement) {
             resourceParams.Flags.Info.NonLocalOnly = 1;
         } else {
             if (extraMemoryFlagsRequired()) {
@@ -359,7 +354,7 @@ void Gmm::applyMemoryFlags(bool systemMemoryPool, StorageInfo &storageInfo) {
 
     if (hardwareInfo->featureTable.flags.ftrMultiTileArch) {
         resourceParams.MultiTileArch.Enable = 1;
-        if (systemMemoryPool) {
+        if (storageInfo.systemMemoryPlacement) {
             resourceParams.MultiTileArch.GpuVaMappingSet = hardwareInfo->gtSystemInfo.MultiTileArchInfo.TileMask;
             resourceParams.MultiTileArch.LocalMemPreferredSet = 0;
             resourceParams.MultiTileArch.LocalMemEligibilitySet = 0;
@@ -383,6 +378,10 @@ void Gmm::applyMemoryFlags(bool systemMemoryPool, StorageInfo &storageInfo) {
 void Gmm::applyDebugOverrides() {
     if (-1 != DebugManager.flags.OverrideGmmResourceUsageField.get()) {
         resourceParams.Usage = static_cast<GMM_RESOURCE_USAGE_TYPE>(DebugManager.flags.OverrideGmmResourceUsageField.get());
+    }
+
+    if (true == (DebugManager.flags.ForceAllResourcesUncached.get())) {
+        resourceParams.Usage = GMM_RESOURCE_USAGE_SURFACE_UNCACHED;
     }
 }
 } // namespace NEO

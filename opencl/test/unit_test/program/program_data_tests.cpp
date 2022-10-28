@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,13 +10,14 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/source/program/program_info_from_patchtokens.h"
+#include "shared/test/common/compiler_interface/linker_mock.h"
+#include "shared/test/common/device_binary_format/patchtokens_tests.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/mocks/mock_csr.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/compiler_interface/linker_mock.h"
-#include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/program.h"
@@ -36,8 +37,8 @@ class ProgramDataTestBase : public testing::Test,
                             public PlatformFixture,
                             public ProgramFixture {
 
-    using ContextFixture::SetUp;
-    using PlatformFixture::SetUp;
+    using ContextFixture::setUp;
+    using PlatformFixture::setUp;
 
   public:
     ProgramDataTestBase() {
@@ -50,24 +51,24 @@ class ProgramDataTestBase : public testing::Test,
     void buildAndDecodeProgramPatchList();
 
     void SetUp() override {
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
         pClDevice = pPlatform->getClDevice(0);
         rootDeviceIndex = pClDevice->getRootDeviceIndex();
         cl_device_id device = pClDevice;
 
-        ContextFixture::SetUp(1, &device);
-        ProgramFixture::SetUp();
+        ContextFixture::setUp(1, &device);
+        ProgramFixture::setUp();
 
-        CreateProgramWithSource(
+        createProgramWithSource(
             pContext,
             "CopyBuffer_simd16.cl");
     }
 
     void TearDown() override {
         knownSource.reset();
-        ProgramFixture::TearDown();
-        ContextFixture::TearDown();
-        PlatformFixture::TearDown();
+        ProgramFixture::tearDown();
+        ContextFixture::tearDown();
+        PlatformFixture::tearDown();
     }
 
     size_t setupConstantAllocation() {
@@ -145,7 +146,7 @@ void ProgramDataTestBase::buildAndDecodeProgramPatchList() {
     programBinaryHeader.PatchListSize = programPatchListSize;
 
     char *pProgramData = new char[headerSize + programBinaryHeader.PatchListSize];
-    ASSERT_NE(nullptr, pProgramData);
+    ASSERT_NE(nullptr, pProgramData); // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
     pCurPtr = pProgramData;
 
@@ -333,10 +334,12 @@ TEST_F(ProgramDataTest, givenConstantAllocationThatIsInUseByGpuWhenProgramIsBein
     constantSurface->updateTaskCount(*tagAddress + 1, csr.getOsContext().getContextId());
 
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
+    EXPECT_TRUE(csr.getDeferredAllocations().peekIsEmpty());
     delete pProgram;
     pProgram = nullptr;
-    EXPECT_FALSE(csr.getTemporaryAllocations().peekIsEmpty());
-    EXPECT_EQ(constantSurface, csr.getTemporaryAllocations().peekHead());
+    EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
+    EXPECT_FALSE(csr.getDeferredAllocations().peekIsEmpty());
+    EXPECT_EQ(constantSurface, csr.getDeferredAllocations().peekHead());
 }
 
 TEST_F(ProgramDataTest, givenGlobalAllocationThatIsInUseByGpuWhenProgramIsBeingDestroyedThenItIsAddedToTemporaryAllocationList) {
@@ -350,10 +353,12 @@ TEST_F(ProgramDataTest, givenGlobalAllocationThatIsInUseByGpuWhenProgramIsBeingD
     globalSurface->updateTaskCount(*tagAddress + 1, csr.getOsContext().getContextId());
 
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
+    EXPECT_TRUE(csr.getDeferredAllocations().peekIsEmpty());
     delete pProgram;
     pProgram = nullptr;
-    EXPECT_FALSE(csr.getTemporaryAllocations().peekIsEmpty());
-    EXPECT_EQ(globalSurface, csr.getTemporaryAllocations().peekHead());
+    EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
+    EXPECT_FALSE(csr.getDeferredAllocations().peekIsEmpty());
+    EXPECT_EQ(globalSurface, csr.getDeferredAllocations().peekHead());
 }
 
 TEST_F(ProgramDataTest, GivenDeviceForcing32BitMessagesWhenConstAllocationIsPresentInProgramBinariesThen32BitStorageIsAllocated) {
@@ -451,7 +456,7 @@ TEST(ProgramScopeMetadataTest, WhenPatchingGlobalSurfaceThenPickProperSourceBuff
 }
 
 TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeConstantBufferPatchTokensAreReadThenConstantPointerOffsetIsPatchedWith32bitPointer) {
-    CreateProgramWithSource(pContext, "CopyBuffer_simd16.cl");
+    createProgramWithSource(pContext, "CopyBuffer_simd16.cl");
     ASSERT_NE(nullptr, pProgram);
 
     MockProgram *prog = pProgram;
@@ -488,7 +493,7 @@ TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeConstantB
     programInfo.globalConstants.initData = constantSurface.mockGfxAllocation.getUnderlyingBuffer();
 
     pProgram->setLinkerInput(pClDevice->getRootDeviceIndex(), std::move(programInfo.linkerInput));
-    pProgram->linkBinary(&pClDevice->getDevice(), programInfo.globalConstants.initData, programInfo.globalVariables.initData, {});
+    pProgram->linkBinary(&pClDevice->getDevice(), programInfo.globalConstants.initData, programInfo.globalVariables.initData, {}, prog->externalFunctions);
     uint32_t expectedAddr = static_cast<uint32_t>(constantSurface.getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddressToPatch());
     EXPECT_EQ(expectedAddr, constantSurfaceStorage[0]);
     EXPECT_EQ(sentinel, constantSurfaceStorage[1]);
@@ -497,7 +502,7 @@ TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeConstantB
 }
 
 TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeGlobalPointerPatchTokensAreReadThenGlobalPointerOffsetIsPatchedWith32bitPointer) {
-    CreateProgramWithSource(pContext, "CopyBuffer_simd16.cl");
+    createProgramWithSource(pContext, "CopyBuffer_simd16.cl");
     ASSERT_NE(nullptr, pProgram);
 
     MockProgram *prog = pProgram;
@@ -534,7 +539,7 @@ TEST_F(ProgramDataTest, GivenProgramWith32bitPointerOptWhenProgramScopeGlobalPoi
     programInfo.globalVariables.initData = globalSurface.mockGfxAllocation.getUnderlyingBuffer();
 
     pProgram->setLinkerInput(pClDevice->getRootDeviceIndex(), std::move(programInfo.linkerInput));
-    pProgram->linkBinary(&pClDevice->getDevice(), programInfo.globalConstants.initData, programInfo.globalVariables.initData, {});
+    pProgram->linkBinary(&pClDevice->getDevice(), programInfo.globalConstants.initData, programInfo.globalVariables.initData, {}, prog->externalFunctions);
     uint32_t expectedAddr = static_cast<uint32_t>(globalSurface.getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddressToPatch());
     EXPECT_EQ(expectedAddr, globalSurfaceStorage[0]);
     EXPECT_EQ(sentinel, globalSurfaceStorage[1]);
@@ -561,7 +566,7 @@ TEST(ProgramLinkBinaryTest, whenLinkerInputEmptyThenLinkSuccessful) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     MockProgram program{nullptr, false, toClDeviceVector(*device)};
     program.setLinkerInput(device->getRootDeviceIndex(), std::move(linkerInput));
-    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {});
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
 }
 
@@ -570,7 +575,7 @@ TEST(ProgramLinkBinaryTest, whenLinkerUnresolvedExternalThenLinkFailedAndBuildLo
     NEO::LinkerInput::RelocationInfo relocation = {};
     relocation.symbolName = "A";
     relocation.offset = 0;
-    linkerInput->relocations.push_back(NEO::LinkerInput::Relocations{relocation});
+    linkerInput->textRelocations.push_back(NEO::LinkerInput::Relocations{relocation});
     linkerInput->traits.requiresPatchingOfInstructionSegments = true;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     auto rootDeviceIndex = device->getRootDeviceIndex();
@@ -581,12 +586,13 @@ TEST(ProgramLinkBinaryTest, whenLinkerUnresolvedExternalThenLinkFailedAndBuildLo
     kernelHeap.resize(32, 7);
     kernelInfo.heapInfo.pKernelHeap = kernelHeap.data();
     kernelInfo.heapInfo.KernelHeapSize = static_cast<uint32_t>(kernelHeap.size());
+    kernelInfo.createKernelAllocation(device->getDevice(), false);
     program.getKernelInfoArray(rootDeviceIndex).push_back(&kernelInfo);
     program.setLinkerInput(rootDeviceIndex, std::move(linkerInput));
 
     std::string buildLog = program.getBuildLog(device->getRootDeviceIndex());
     EXPECT_TRUE(buildLog.empty());
-    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {});
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {}, program.externalFunctions);
     EXPECT_NE(CL_SUCCESS, ret);
     program.getKernelInfoArray(rootDeviceIndex).clear();
     buildLog = program.getBuildLog(rootDeviceIndex);
@@ -594,7 +600,8 @@ TEST(ProgramLinkBinaryTest, whenLinkerUnresolvedExternalThenLinkFailedAndBuildLo
     Linker::UnresolvedExternals expectedUnresolvedExternals;
     expectedUnresolvedExternals.push_back(Linker::UnresolvedExternal{relocation, 0, false});
     auto expectedError = constructLinkerErrorMessage(expectedUnresolvedExternals, std::vector<std::string>{"kernel : " + kernelInfo.kernelDescriptor.kernelMetadata.kernelName});
-    EXPECT_THAT(buildLog.c_str(), ::testing::HasSubstr(expectedError));
+    EXPECT_TRUE(hasSubstr(buildLog, expectedError));
+    device->getMemoryManager()->freeGraphicsMemory(kernelInfo.getGraphicsAllocation());
 }
 
 TEST_F(ProgramDataTest, whenLinkerInputValidThenIsaIsProperlyPatched) {
@@ -604,9 +611,9 @@ TEST_F(ProgramDataTest, whenLinkerInputValidThenIsaIsProperlyPatched) {
     linkerInput->symbols["C"] = NEO::SymbolInfo{16U, 4U, NEO::SegmentType::Instructions};
 
     auto relocationType = NEO::LinkerInput::RelocationInfo::Type::Address;
-    linkerInput->relocations.push_back({NEO::LinkerInput::RelocationInfo{"A", 8U, relocationType},
-                                        NEO::LinkerInput::RelocationInfo{"B", 16U, relocationType},
-                                        NEO::LinkerInput::RelocationInfo{"C", 24U, relocationType}});
+    linkerInput->textRelocations.push_back({NEO::LinkerInput::RelocationInfo{"A", 8U, relocationType},
+                                            NEO::LinkerInput::RelocationInfo{"B", 16U, relocationType},
+                                            NEO::LinkerInput::RelocationInfo{"C", 24U, relocationType}});
     linkerInput->traits.requiresPatchingOfInstructionSegments = true;
     linkerInput->exportedFunctionsSegmentId = 0;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
@@ -633,14 +640,14 @@ TEST_F(ProgramDataTest, whenLinkerInputValidThenIsaIsProperlyPatched) {
     buildInfo.globalSurface = new MockGraphicsAllocation(globalVariablesBuffer.data(), globalVariablesBuffer.size());
     buildInfo.constantSurface = new MockGraphicsAllocation(globalConstantsBuffer.data(), globalConstantsBuffer.size());
 
-    auto ret = program.linkBinary(&pClDevice->getDevice(), globalConstantsInitData.data(), globalVariablesInitData.data(), {});
+    auto ret = program.linkBinary(&pClDevice->getDevice(), globalConstantsInitData.data(), globalVariablesInitData.data(), {}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
 
     linkerInput.reset(static_cast<WhiteBox<LinkerInput> *>(buildInfo.linkerInput.release()));
 
-    for (size_t i = 0; i < linkerInput->relocations.size(); ++i) {
-        auto expectedPatch = buildInfo.globalSurface->getGpuAddress() + linkerInput->symbols[linkerInput->relocations[0][0].symbolName].offset;
-        auto relocationAddress = kernelHeap.data() + linkerInput->relocations[0][0].offset;
+    for (size_t i = 0; i < linkerInput->textRelocations.size(); ++i) {
+        auto expectedPatch = buildInfo.globalSurface->getGpuAddress() + linkerInput->symbols[linkerInput->textRelocations[0][0].symbolName].offset;
+        auto relocationAddress = kernelHeap.data() + linkerInput->textRelocations[0][0].offset;
 
         EXPECT_EQ(static_cast<uintptr_t>(expectedPatch), *reinterpret_cast<uintptr_t *>(relocationAddress)) << i;
     }
@@ -681,7 +688,7 @@ TEST_F(ProgramDataTest, whenRelocationsAreNotNeededThenIsaIsPreserved) {
     buildInfo.globalSurface = new MockGraphicsAllocation(globalVariablesBuffer.data(), globalVariablesBuffer.size());
     buildInfo.constantSurface = new MockGraphicsAllocation(globalConstantsBuffer.data(), globalConstantsBuffer.size());
 
-    auto ret = program.linkBinary(&pClDevice->getDevice(), globalConstantsInitData.data(), globalVariablesInitData.data(), {});
+    auto ret = program.linkBinary(&pClDevice->getDevice(), globalConstantsInitData.data(), globalVariablesInitData.data(), {}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
     EXPECT_EQ(kernelHeapData, kernelHeap);
 
@@ -710,7 +717,7 @@ TEST(ProgramStringSectionTest, WhenConstStringBufferIsPresentThenUseItForLinking
     program.getKernelInfoArray(rootDeviceIndex).push_back(&kernelInfo);
 
     auto linkerInput = std::make_unique<WhiteBox<LinkerInput>>();
-    linkerInput->relocations.push_back({{".str", 0x8, LinkerInput::RelocationInfo::Type::Address, SegmentType::Instructions}});
+    linkerInput->textRelocations.push_back({{".str", 0x8, LinkerInput::RelocationInfo::Type::Address, SegmentType::Instructions}});
     linkerInput->symbols.insert({".str", {0x0, 0x8, SegmentType::GlobalStrings}});
     linkerInput->traits.requiresPatchingOfInstructionSegments = true;
 
@@ -722,7 +729,7 @@ TEST(ProgramStringSectionTest, WhenConstStringBufferIsPresentThenUseItForLinking
     const char constStringData[] = "Hello World!\n";
     auto stringsAddr = reinterpret_cast<uintptr_t>(constStringData);
 
-    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {constStringData, sizeof(constStringData)});
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {constStringData, sizeof(constStringData)}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
     EXPECT_EQ(static_cast<size_t>(stringsAddr), *reinterpret_cast<size_t *>(patchAddr));
 
@@ -744,10 +751,10 @@ TEST(ProgramImplicitArgsTest, givenImplicitRelocationAndStackCallsThenKernelRequ
     program.getKernelInfoArray(rootDeviceIndex).push_back(&kernelInfo);
 
     auto linkerInput = std::make_unique<WhiteBox<LinkerInput>>();
-    linkerInput->relocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
+    linkerInput->textRelocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
     linkerInput->traits.requiresPatchingOfInstructionSegments = true;
     program.setLinkerInput(rootDeviceIndex, std::move(linkerInput));
-    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {});
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
 
     EXPECT_TRUE(kernelInfo.kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs);
@@ -776,10 +783,10 @@ TEST(ProgramImplicitArgsTest, givenImplicitRelocationAndEnabledDebuggerThenKerne
     program.getKernelInfoArray(rootDeviceIndex).push_back(&kernelInfo);
 
     auto linkerInput = std::make_unique<WhiteBox<LinkerInput>>();
-    linkerInput->relocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
+    linkerInput->textRelocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
     linkerInput->traits.requiresPatchingOfInstructionSegments = true;
     program.setLinkerInput(rootDeviceIndex, std::move(linkerInput));
-    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {});
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
 
     EXPECT_TRUE(kernelInfo.kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs);
@@ -802,10 +809,10 @@ TEST(ProgramImplicitArgsTest, givenImplicitRelocationAndNoStackCallsAndDisabledD
     program.getKernelInfoArray(rootDeviceIndex).push_back(&kernelInfo);
 
     auto linkerInput = std::make_unique<WhiteBox<LinkerInput>>();
-    linkerInput->relocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
+    linkerInput->textRelocations.push_back({{implicitArgsRelocationSymbolName, 0x8, LinkerInput::RelocationInfo::Type::AddressLow, SegmentType::Instructions}});
     linkerInput->traits.requiresPatchingOfInstructionSegments = true;
     program.setLinkerInput(rootDeviceIndex, std::move(linkerInput));
-    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {});
+    auto ret = program.linkBinary(&device->getDevice(), nullptr, nullptr, {}, program.externalFunctions);
     EXPECT_EQ(CL_SUCCESS, ret);
 
     EXPECT_FALSE(kernelInfo.kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,28 +22,6 @@
 
 namespace NEO {
 
-template <>
-bool PreambleHelper<Family>::isSystolicModeConfigurable(const HardwareInfo &hwInfo);
-
-template <>
-void PreambleHelper<Family>::appendProgramPipelineSelect(void *cmd, bool isSpecialModeSelected, const HardwareInfo &hwInfo) {
-    using PIPELINE_SELECT = typename Family::PIPELINE_SELECT;
-    auto command = static_cast<PIPELINE_SELECT *>(cmd);
-    auto mask = command->getMaskBits();
-
-    if (PreambleHelper<Family>::isSystolicModeConfigurable(hwInfo)) {
-        command->setSystolicModeEnable(isSpecialModeSelected);
-        mask |= pipelineSelectSystolicModeEnableMaskBits;
-    }
-
-    if (DebugManager.flags.OverrideSystolicPipelineSelect.get() != -1) {
-        command->setSystolicModeEnable(DebugManager.flags.OverrideSystolicPipelineSelect.get());
-        mask |= pipelineSelectSystolicModeEnableMaskBits;
-    }
-
-    command->setMaskBits(mask);
-}
-
 template <typename Family>
 void PreambleHelper<Family>::programPipelineSelect(LinearStream *pCommandStream,
                                                    const PipelineSelectArgs &pipelineSelectArgs,
@@ -54,17 +32,16 @@ void PreambleHelper<Family>::programPipelineSelect(LinearStream *pCommandStream,
     PIPELINE_SELECT cmd = Family::cmdInitPipelineSelect;
 
     if (DebugManager.flags.CleanStateInPreamble.get()) {
-        auto pCmd = pCommandStream->getSpaceForCmd<PIPELINE_SELECT>();
+        auto cmdBuffer = pCommandStream->getSpaceForCmd<PIPELINE_SELECT>();
         cmd.setPipelineSelection(PIPELINE_SELECT::PIPELINE_SELECTION_3D);
-        *pCmd = cmd;
+        *cmdBuffer = cmd;
 
-        auto pipeControl = Family::cmdInitPipeControl;
-        pipeControl.setStateCacheInvalidationEnable(true);
-        auto pipeControlBuffer = pCommandStream->getSpaceForCmd<PIPE_CONTROL>();
-        *pipeControlBuffer = pipeControl;
+        PipeControlArgs args = {};
+        args.stateCacheInvalidationEnable = true;
+        MemorySynchronizationCommands<Family>::addSingleBarrier(*pCommandStream, args);
     }
 
-    auto pCmd = pCommandStream->getSpaceForCmd<PIPELINE_SELECT>();
+    auto cmdBuffer = pCommandStream->getSpaceForCmd<PIPELINE_SELECT>();
 
     auto mask = pipelineSelectEnablePipelineSelectMaskBits;
 
@@ -73,17 +50,29 @@ void PreambleHelper<Family>::programPipelineSelect(LinearStream *pCommandStream,
         mask |= pipelineSelectMediaSamplerDopClockGateMaskBits;
         cmd.setMediaSamplerDopClockGateEnable(!pipelineSelectArgs.mediaSamplerRequired);
     }
+
+    bool systolicSupport = pipelineSelectArgs.systolicPipelineSelectSupport;
+    bool systolicValue = pipelineSelectArgs.systolicPipelineSelectMode;
+    int32_t overrideSystolic = DebugManager.flags.OverrideSystolicPipelineSelect.get();
+
+    if (overrideSystolic != -1) {
+        systolicSupport = true;
+        systolicValue = !!overrideSystolic;
+    }
+
+    if (systolicSupport) {
+        cmd.setSystolicModeEnable(systolicValue);
+        mask |= pipelineSelectSystolicModeEnableMaskBits;
+    }
+
     cmd.setMaskBits(mask);
 
-    appendProgramPipelineSelect(&cmd, pipelineSelectArgs.specialPipelineSelectMode, hwInfo);
-
-    *pCmd = cmd;
+    *cmdBuffer = cmd;
 
     if (DebugManager.flags.CleanStateInPreamble.get()) {
-        auto pipeControl = Family::cmdInitPipeControl;
-        pipeControl.setStateCacheInvalidationEnable(true);
-        auto pipeControlBuffer = pCommandStream->getSpaceForCmd<PIPE_CONTROL>();
-        *pipeControlBuffer = pipeControl;
+        PipeControlArgs args = {};
+        args.stateCacheInvalidationEnable = true;
+        MemorySynchronizationCommands<Family>::addSingleBarrier(*pCommandStream, args);
     }
 }
 
@@ -102,10 +91,10 @@ uint32_t PreambleHelper<Family>::getUrbEntryAllocationSize() {
 template <>
 void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, const StreamProperties &streamProperties, void *cmd);
 
-template <>
-void *PreambleHelper<Family>::getSpaceForVfeState(LinearStream *pCommandStream,
-                                                  const HardwareInfo &hwInfo,
-                                                  EngineGroupType engineGroupType) {
+template <typename GfxFamily>
+void *PreambleHelper<GfxFamily>::getSpaceForVfeState(LinearStream *pCommandStream,
+                                                     const HardwareInfo &hwInfo,
+                                                     EngineGroupType engineGroupType) {
     using CFE_STATE = typename Family::CFE_STATE;
     return pCommandStream->getSpace(sizeof(CFE_STATE));
 }
@@ -116,7 +105,8 @@ void PreambleHelper<GfxFamily>::programVfeState(void *pVfeState,
                                                 uint32_t scratchSize,
                                                 uint64_t scratchAddress,
                                                 uint32_t maxFrontEndThreads,
-                                                const StreamProperties &streamProperties) {
+                                                const StreamProperties &streamProperties,
+                                                LogicalStateHelper *logicalStateHelper) {
     using CFE_STATE = typename Family::CFE_STATE;
 
     auto cfeState = reinterpret_cast<CFE_STATE *>(pVfeState);
@@ -145,8 +135,8 @@ uint64_t PreambleHelper<Family>::getScratchSpaceAddressOffsetForVfeState(LinearS
     return 0;
 }
 
-template <>
-size_t PreambleHelper<Family>::getVFECommandsSize() {
+template <typename GfxFamily>
+size_t PreambleHelper<GfxFamily>::getVFECommandsSize() {
     using CFE_STATE = typename Family::CFE_STATE;
     return sizeof(CFE_STATE);
 }

@@ -5,10 +5,12 @@
  *
  */
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/gmm_helper/client_context/gmm_client_context.h"
+#include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_gmm.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/helpers/cl_memory_properties_helpers.h"
@@ -33,7 +35,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHPAndLaterBufferTests, givenDebugFlagSetWhenProgr
     uint32_t defaultCompressionFormat = gmmContext->getSurfaceStateCompressionFormat(GMM_RESOURCE_FORMAT::GMM_FORMAT_GENERIC_8BIT);
 
     auto retVal = CL_SUCCESS;
-    auto gmm = new Gmm(context.getDevice(0)->getGmmHelper()->getClientContext(), nullptr, 1, 0, false);
+    auto gmm = new Gmm(context.getDevice(0)->getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     gmm->isCompressionEnabled = true;
 
     auto buffer = std::unique_ptr<Buffer>(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
@@ -75,11 +77,11 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHPAndLaterBufferTests, givenBufferAllocationInDev
 
     auto &device = context.getDevice(0)->getDevice();
     auto allocation = buffer->getGraphicsAllocation(device.getRootDeviceIndex());
-    auto gmm = new MockGmm(device.getGmmClientContext());
+    auto gmm = new MockGmm(device.getGmmHelper());
     gmm->isCompressionEnabled = true;
     allocation->setDefaultGmm(gmm);
 
-    EXPECT_TRUE(!MemoryPool::isSystemMemoryPool(allocation->getMemoryPool()));
+    EXPECT_TRUE(!MemoryPoolHelper::isSystemMemoryPool(allocation->getMemoryPool()));
 
     RENDER_SURFACE_STATE surfaceState = FamilyType::cmdInitRenderSurfaceState;
 
@@ -109,7 +111,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHPAndLaterBufferTests, givenBufferAllocationInHos
             retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getMemoryPool()));
+    EXPECT_TRUE(MemoryPoolHelper::isSystemMemoryPool(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getMemoryPool()));
 
     RENDER_SURFACE_STATE surfaceState = FamilyType::cmdInitRenderSurfaceState;
 
@@ -236,7 +238,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHPAndLaterBufferTests, givenBufferSetSurfaceThatM
     Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0, false, false);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
-    auto gmmHelper = device.get()->getGmmHelper();
+    auto gmmHelper = device->getGmmHelper();
     EXPECT_EQ(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST), mocs);
 
     alignedFree(ptr);

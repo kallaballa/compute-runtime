@@ -21,6 +21,7 @@
 
 #include "driver_version.h"
 
+#include <sstream>
 #include <string>
 
 namespace NEO {
@@ -30,7 +31,7 @@ static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
 static std::string spirvName = "SPIR-V";
-const char *latestConformanceVersionPassed = "v2021-06-16-00";
+const char *latestConformanceVersionPassed = "v2022-04-22-00";
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
 static std::string driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
@@ -74,11 +75,17 @@ void ClDevice::initializeCaps() {
 
     driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
 
-    name = getClDeviceName(hwInfo);
+    if (DebugManager.flags.OverrideDeviceName.get() != "unk") {
+        name.assign(DebugManager.flags.OverrideDeviceName.get().c_str());
+    } else {
+        name = getClDeviceName(hwInfo);
+        if (driverInfo) {
+            name.assign(driverInfo->getDeviceName(name).c_str());
+        }
+    }
 
     if (driverInfo) {
-        name.assign(driverInfo.get()->getDeviceName(name).c_str());
-        driverVersion.assign(driverInfo.get()->getVersion(driverVersion).c_str());
+        driverVersion.assign(driverInfo->getVersion(driverVersion).c_str());
         sharingFactory.verifyExtensionSupport(driverInfo.get());
     }
 
@@ -152,7 +159,7 @@ void ClDevice::initializeCaps() {
         deviceExtensions += "cl_intel_spirv_subgroups ";
         deviceExtensions += "cl_khr_spirv_no_integer_wrap_decoration ";
 
-        deviceExtensions += "cl_intel_unified_shared_memory_preview ";
+        deviceExtensions += "cl_intel_unified_shared_memory ";
         if (hwInfo.capabilityTable.supportsImages) {
             deviceExtensions += "cl_khr_mipmap_image cl_khr_mipmap_image_writes ";
         }
@@ -197,12 +204,16 @@ void ClDevice::initializeCaps() {
         deviceExtensions += "cl_intel_media_block_io ";
     }
 
+    if (hwInfoConfig->isBFloat16ConversionSupported(hwInfo)) {
+        deviceExtensions += "cl_intel_bfloat16_conversions ";
+    }
+
     auto sharingAllowed = (getNumGenericSubDevices() <= 1u);
     if (sharingAllowed) {
         deviceExtensions += sharingFactory.getExtensions(driverInfo.get());
     }
 
-    PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue);
+    PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue);
 
     if (driverInfo) {
         pciBusInfo = driverInfo->getPciBusInfo();
@@ -217,7 +228,7 @@ void ClDevice::initializeCaps() {
         deviceExtensions += "cl_khr_pci_bus_info ";
     }
 
-    deviceExtensions += hwHelper.getExtensions();
+    deviceExtensions += hwHelper.getExtensions(hwInfo);
     deviceInfo.deviceExtensions = deviceExtensions.c_str();
 
     std::vector<std::string> exposedBuiltinKernelsVector;
@@ -276,7 +287,8 @@ void ClDevice::initializeCaps() {
     //copy system info to prevent misaligned reads
     const auto systemInfo = hwInfo.gtSystemInfo;
 
-    deviceInfo.globalMemCacheSize = systemInfo.L3BankCount * 128 * KB;
+    const auto subDevicesCount = std::max(getNumGenericSubDevices(), 1u);
+    deviceInfo.globalMemCacheSize = systemInfo.L3CacheSizeInKb * KB * subDevicesCount;
     deviceInfo.grfSize = hwInfo.capabilityTable.grfSize;
 
     deviceInfo.globalMemCacheType = CL_READ_WRITE_CACHE;
@@ -291,7 +303,7 @@ void ClDevice::initializeCaps() {
 
     deviceInfo.maxWorkItemDimensions = 3;
 
-    deviceInfo.maxComputUnits = systemInfo.EUCount * std::max(getNumGenericSubDevices(), 1u);
+    deviceInfo.maxComputUnits = systemInfo.EUCount * subDevicesCount;
     if (device.isEngineInstanced()) {
         deviceInfo.maxComputUnits /= systemInfo.CCSInfo.NumberOfCCSEnabled;
     }
@@ -396,7 +408,7 @@ void ClDevice::initializeCaps() {
     deviceInfo.preferredLocalAtomicAlignment = MemoryConstants::cacheLineSize;
     deviceInfo.preferredPlatformAtomicAlignment = MemoryConstants::cacheLineSize;
 
-    deviceInfo.preferredWorkGroupSizeMultiple = hwHelper.isFusedEuDispatchEnabled(hwInfo)
+    deviceInfo.preferredWorkGroupSizeMultiple = hwHelper.isFusedEuDispatchEnabled(hwInfo, false)
                                                     ? CommonConstants::maximalSimdSize * 2
                                                     : CommonConstants::maximalSimdSize;
 

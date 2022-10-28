@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,9 @@
 
 #pragma once
 #include "shared/source/helpers/aligned_memory.h"
-#include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/utilities/idlist.h"
+#include "shared/source/utilities/stackvec.h"
 
 #include <atomic>
 #include <cstdint>
@@ -144,7 +144,7 @@ class TagAllocatorBase {
   protected:
     TagAllocatorBase() = delete;
 
-    TagAllocatorBase(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memMngr, size_t tagCount,
+    TagAllocatorBase(const RootDeviceIndicesContainer &rootDeviceIndices, MemoryManager *memMngr, size_t tagCount,
                      size_t tagAlignment, size_t tagSize, bool doNotReleaseNodes,
                      DeviceBitfield deviceBitfield);
 
@@ -158,7 +158,7 @@ class TagAllocatorBase {
 
     std::vector<std::unique_ptr<MultiGraphicsAllocation>> gfxAllocations;
     const DeviceBitfield deviceBitfield;
-    std::vector<uint32_t> rootDeviceIndices;
+    RootDeviceIndicesContainer rootDeviceIndices;
     uint32_t maxRootDeviceIndex = 0;
     MemoryManager *memoryManager;
     size_t tagCount;
@@ -173,7 +173,7 @@ class TagAllocator : public TagAllocatorBase {
   public:
     using NodeType = TagNode<TagType>;
 
-    TagAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memMngr, size_t tagCount,
+    TagAllocator(const RootDeviceIndicesContainer &rootDeviceIndices, MemoryManager *memMngr, size_t tagCount,
                  size_t tagAlignment, size_t tagSize, bool doNotReleaseNodes,
                  DeviceBitfield deviceBitfield);
 

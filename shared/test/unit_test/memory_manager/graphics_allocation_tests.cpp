@@ -6,9 +6,10 @@
  */
 
 #include "shared/test/common/mocks/mock_aub_csr.h"
+#include "shared/test/common/mocks/mock_command_stream_receiver.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 using namespace NEO;
 
@@ -215,12 +216,23 @@ TEST(GraphicsAllocationTest, givenDefaultGraphicsAllocationWhenInternalHandleIsB
     EXPECT_EQ(0llu, graphicsAllocation.peekInternalHandle(nullptr));
 }
 
+TEST(GraphicsAllocationTest, givenDefaultGraphicsAllocationWhenGettingNumHandlesThenZeroIsReturned) {
+    MockGraphicsAllocation graphicsAllocation;
+    EXPECT_EQ(0u, graphicsAllocation.getNumHandles());
+}
+
+TEST(GraphicsAllocationTest, givenDefaultGraphicsAllocationWhenGettingNumHandlesAfterSettingNonZeroNumberThenZeroIsReturned) {
+    MockGraphicsAllocation graphicsAllocation;
+    graphicsAllocation.setNumHandles(64u);
+    EXPECT_EQ(0u, graphicsAllocation.getNumHandles());
+}
+
 TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenQueryingUsedPageSizeThenCorrectSizeForMemoryPoolUsedIsReturned) {
 
-    MemoryPool::Type page4kPools[] = {MemoryPool::MemoryNull,
-                                      MemoryPool::System4KBPages,
-                                      MemoryPool::System4KBPagesWith32BitGpuAddressing,
-                                      MemoryPool::SystemCpuInaccessible};
+    MemoryPool page4kPools[] = {MemoryPool::MemoryNull,
+                                MemoryPool::System4KBPages,
+                                MemoryPool::System4KBPagesWith32BitGpuAddressing,
+                                MemoryPool::SystemCpuInaccessible};
 
     for (auto pool : page4kPools) {
         MockGraphicsAllocation graphicsAllocation(0, AllocationType::UNKNOWN, nullptr, 0u, 0u, static_cast<osHandle>(1), pool, MemoryManager::maxOsContextCount);
@@ -228,9 +240,9 @@ TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenQueryingUsedPageSizeThen
         EXPECT_EQ(MemoryConstants::pageSize, graphicsAllocation.getUsedPageSize());
     }
 
-    MemoryPool::Type page64kPools[] = {MemoryPool::System64KBPages,
-                                       MemoryPool::System64KBPagesWith32BitGpuAddressing,
-                                       MemoryPool::LocalMemory};
+    MemoryPool page64kPools[] = {MemoryPool::System64KBPages,
+                                 MemoryPool::System64KBPagesWith32BitGpuAddressing,
+                                 MemoryPool::LocalMemory};
 
     for (auto pool : page64kPools) {
         MockGraphicsAllocation graphicsAllocation(0, AllocationType::UNKNOWN, nullptr, 0u, 0u, 0, pool, MemoryManager::maxOsContextCount);
@@ -294,7 +306,7 @@ HWTEST_F(GraphicsAllocationTests, givenGraphicsAllocationThatHasPageTablesClonin
 
     EXPECT_TRUE(aubCsr.isAubWritable(graphicsAllocation));
 
-    //modify non default bank
+    // modify non default bank
     graphicsAllocation.setAubWritable(false, 0x2);
 
     EXPECT_TRUE(aubCsr.isAubWritable(graphicsAllocation));
@@ -398,4 +410,69 @@ HWTEST_F(GraphicsAllocationTests, givenMultiStorageGraphicsAllocationWhenTbxWrit
     EXPECT_TRUE(graphicsAllocation.isTbxWritable(0b1000));
     EXPECT_TRUE(graphicsAllocation.isTbxWritable(0b101));
     EXPECT_TRUE(graphicsAllocation.isTbxWritable(0b1010));
+}
+
+uint32_t MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes = 0;
+
+TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenAssignedTaskCountEqualZeroThenPrepareForResidencyDoeNotCallGetTaskCount) {
+    MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes = 0;
+    MockGraphicsAllocationTaskCount graphicsAllocation;
+    graphicsAllocation.hostPtrTaskCountAssignment = 0;
+    graphicsAllocation.prepareHostPtrForResidency(nullptr);
+    EXPECT_EQ(MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes, 0u);
+    MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes = 0;
+}
+
+HWTEST_F(GraphicsAllocationTests, givenGraphicsAllocationWhenAssignedTaskCountAbovelZeroThenPrepareForResidencyGetTaskCountWasCalled) {
+    executionEnvironment.initializeMemoryManager();
+    auto osContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor()));
+    MockCommandStreamReceiver csr(executionEnvironment, 0, 1);
+    csr.osContext = osContext.get();
+    MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes = 0;
+    MockGraphicsAllocationTaskCount graphicsAllocation;
+    graphicsAllocation.hostPtrTaskCountAssignment = 1;
+    graphicsAllocation.prepareHostPtrForResidency(&csr);
+    EXPECT_EQ(MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes, 1u);
+    MockGraphicsAllocationTaskCount::getTaskCountCalleedTimes = 0;
+}
+
+HWTEST_F(GraphicsAllocationTests, givenGraphicsAllocationAllocTaskCountHigherThanInCsrThenUpdateTaskCountWasNotCalled) {
+    executionEnvironment.initializeMemoryManager();
+    auto osContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor()));
+    MockCommandStreamReceiver csr(executionEnvironment, 0, 1);
+    csr.osContext = osContext.get();
+    MockGraphicsAllocationTaskCount graphicsAllocation;
+    graphicsAllocation.updateTaskCount(10u, 0u);
+    *csr.getTagAddress() = 5;
+    graphicsAllocation.hostPtrTaskCountAssignment = 1;
+    auto calledTimesBefore = graphicsAllocation.updateTaskCountCalleedTimes;
+    graphicsAllocation.prepareHostPtrForResidency(&csr);
+    EXPECT_EQ(graphicsAllocation.updateTaskCountCalleedTimes, calledTimesBefore);
+}
+
+HWTEST_F(GraphicsAllocationTests, givenGraphicsAllocationAllocTaskCountLowerThanInCsrThenUpdateTaskCountWasCalled) {
+    executionEnvironment.initializeMemoryManager();
+    auto osContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor()));
+    MockCommandStreamReceiver csr(executionEnvironment, 0, 1);
+    csr.osContext = osContext.get();
+    MockGraphicsAllocationTaskCount graphicsAllocation;
+    graphicsAllocation.updateTaskCount(5u, 0u);
+    csr.taskCount = 10;
+    graphicsAllocation.hostPtrTaskCountAssignment = 1;
+    auto calledTimesBefore = graphicsAllocation.updateTaskCountCalleedTimes;
+    graphicsAllocation.prepareHostPtrForResidency(&csr);
+    EXPECT_EQ(graphicsAllocation.updateTaskCountCalleedTimes, calledTimesBefore + 1u);
+}
+
+HWTEST_F(GraphicsAllocationTests, givenGraphicsAllocationAllocTaskCountLowerThanInCsrThenAssignmentCountIsDecremented) {
+    executionEnvironment.initializeMemoryManager();
+    auto osContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, EngineDescriptorHelper::getDefaultDescriptor()));
+    MockCommandStreamReceiver csr(executionEnvironment, 0, 1);
+    csr.osContext = osContext.get();
+    MockGraphicsAllocationTaskCount graphicsAllocation;
+    graphicsAllocation.updateTaskCount(5u, 0u);
+    csr.taskCount = 10;
+    graphicsAllocation.hostPtrTaskCountAssignment = 1;
+    graphicsAllocation.prepareHostPtrForResidency(&csr);
+    EXPECT_EQ(graphicsAllocation.hostPtrTaskCountAssignment, 0u);
 }

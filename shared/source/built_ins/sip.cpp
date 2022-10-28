@@ -14,6 +14,7 @@
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/allocation_properties.h"
@@ -24,8 +25,6 @@
 #include "common/StateSaveAreaHeader.h"
 
 namespace NEO {
-
-const size_t SipKernel::maxDbgSurfaceSize = 0x1800000; // proper value should be taken from compiler when it's ready
 
 SipClassType SipKernel::classType = SipClassType::Init;
 
@@ -61,7 +60,7 @@ std::vector<char> readFile(const std::string &fileName, size_t &retSize) {
 
 SipKernel::~SipKernel() = default;
 
-SipKernel::SipKernel(SipKernelType type, GraphicsAllocation *sipAlloc, std::vector<char> ssah) : stateSaveAreaHeader(ssah), sipAllocation(sipAlloc), type(type) {
+SipKernel::SipKernel(SipKernelType type, GraphicsAllocation *sipAlloc, std::vector<char> ssah) : stateSaveAreaHeader(std::move(ssah)), sipAllocation(sipAlloc), type(type) {
 }
 
 GraphicsAllocation *SipKernel::getSipAllocation() const {
@@ -72,14 +71,17 @@ const std::vector<char> &SipKernel::getStateSaveAreaHeader() const {
     return stateSaveAreaHeader;
 }
 
-size_t SipKernel::getStateSaveAreaSize() const {
-    auto stateSaveAreaHeader = getStateSaveAreaHeader();
+size_t SipKernel::getStateSaveAreaSize(Device *device) const {
+    auto &hwInfo = device->getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    auto maxDbgSurfaceSize = hwHelper.getSipKernelMaxDbgSurfaceSize(hwInfo);
+    const auto &stateSaveAreaHeader = getStateSaveAreaHeader();
     if (stateSaveAreaHeader.empty()) {
-        return SipKernel::maxDbgSurfaceSize;
+        return maxDbgSurfaceSize;
     }
 
     if (strcmp(stateSaveAreaHeader.data(), "tssarea")) {
-        return SipKernel::maxDbgSurfaceSize;
+        return maxDbgSurfaceSize;
     }
 
     auto hdr = reinterpret_cast<const SIP::StateSaveAreaHeader *>(stateSaveAreaHeader.data());
@@ -95,6 +97,9 @@ size_t SipKernel::getStateSaveAreaSize() const {
 }
 
 SipKernelType SipKernel::getSipKernelType(Device &device) {
+    if (device.getDebugger() != nullptr && !device.getDebugger()->isLegacy()) {
+        return SipKernelType::DbgBindless;
+    }
     bool debuggingEnabled = device.getDebugger() != nullptr || device.isDebuggerActive();
     return getSipKernelType(device, debuggingEnabled);
 }
@@ -135,9 +140,9 @@ bool SipKernel::initRawBinaryFromFileKernel(SipKernelType type, Device &device, 
         }
 
         auto &hwInfo = device.getHardwareInfo();
-        auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
 
-        MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *sipAllocation),
+        MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(hwInfo, *sipAllocation),
                                                          device, sipAllocation, 0, alignedBuffer,
                                                          bytesRead);
 
@@ -187,6 +192,7 @@ bool SipKernel::initHexadecimalArraySipKernel(SipKernelType type, Device &device
     size_t kernelBinarySize = 0u;
     auto &hwInfo = device.getHardwareInfo();
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
     hwHelper.setSipKernelData(sipKernelBinary, kernelBinarySize);
     const auto allocType = AllocationType::KERNEL_ISA_INTERNAL;
     AllocationProperties properties = {rootDeviceIndex, kernelBinarySize, allocType, device.getDeviceBitfield()};
@@ -196,8 +202,8 @@ bool SipKernel::initHexadecimalArraySipKernel(SipKernelType type, Device &device
     if (sipAllocation == nullptr) {
         return false;
     }
-
-    MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *sipAllocation),
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(hwInfo, *sipAllocation),
                                                      device, sipAllocation, 0, sipKernelBinary,
                                                      kernelBinarySize);
 

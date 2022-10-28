@@ -6,23 +6,26 @@
  */
 
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
-#include "shared/source/kernel/kernel_arg_descriptor_extended_device_side_enqueue.h"
 #include "shared/source/kernel/kernel_arg_descriptor_extended_vme.h"
 #include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/kernel/kernel_descriptor_from_patchtokens.h"
+#include "shared/test/common/device_binary_format/patchtokens_tests.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
 
-TEST(KernelDescriptorFromPatchtokens, GivenEmptyInputKernelFromPatchtokensThenOnlySetsUpPointerSize) {
+TEST(KernelDescriptorFromPatchtokens, GivenEmptyInputKernelFromPatchtokensThenOnlySetsUpPointerSizeAndBinaryType) {
     NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens;
     iOpenCL::SKernelBinaryHeaderCommon kernelHeader;
     kernelTokens.header = &kernelHeader;
     NEO::KernelDescriptor kernelDescriptor;
     NEO::populateKernelDescriptor(kernelDescriptor, kernelTokens, 4);
     EXPECT_EQ(kernelDescriptor.kernelAttributes.gpuPointerSize, 4);
+    EXPECT_EQ(kernelDescriptor.kernelAttributes.binaryFormat, DeviceBinaryFormat::Patchtokens);
+
+    kernelDescriptor.kernelAttributes.binaryFormat = DeviceBinaryFormat::Unknown;
     NEO::populateKernelDescriptor(kernelDescriptor, kernelTokens, 8);
     EXPECT_EQ(kernelDescriptor.kernelAttributes.gpuPointerSize, 8);
+    EXPECT_EQ(kernelDescriptor.kernelAttributes.binaryFormat, DeviceBinaryFormat::Patchtokens);
 }
 
 TEST(KernelDescriptorFromPatchtokens, GivenKernelFromPatchtokensWhenKernelNameIsSpecifiedThenItIsCopiedIntoKernelDescriptor) {
@@ -239,14 +242,6 @@ TEST(KernelDescriptorFromPatchtokens, GivenImplicitArgsThenSetsProperPartsOfDesc
     EXPECT_EQ(mediaVfeState1.PerThreadScratchSpace, kernelDescriptor.kernelAttributes.perThreadScratchSize[1]);
     kernelTokens.tokens.mediaVfeState[0] = nullptr;
     kernelTokens.tokens.mediaVfeState[1] = nullptr;
-
-    EXPECT_EQ(0U, kernelDescriptor.kernelMetadata.deviceSideEnqueueBlockInterfaceDescriptorOffset);
-    iOpenCL::SPatchInterfaceDescriptorData interfaceDescriptorData = {};
-    interfaceDescriptorData.Offset = 4096;
-    kernelTokens.tokens.interfaceDescriptorData = &interfaceDescriptorData;
-    NEO::populateKernelDescriptor(kernelDescriptor, kernelTokens, 4);
-    EXPECT_EQ(interfaceDescriptorData.Offset, kernelDescriptor.kernelMetadata.deviceSideEnqueueBlockInterfaceDescriptorOffset);
-    kernelTokens.tokens.interfaceDescriptorData = nullptr;
 
     EXPECT_EQ(0U, kernelDescriptor.kernelAttributes.crossThreadDataSize);
     iOpenCL::SPatchDataParameterStream dataParameterStream = {};
@@ -475,6 +470,21 @@ TEST(KernelDescriptorFromPatchtokens, GivenhKernelAttributesThenPopulatesStrings
     NEO::populateKernelDescriptor(kernelDescriptor, kernelTokens, 4);
     EXPECT_EQ(attribute, kernelDescriptor.kernelMetadata.kernelLanguageAttributes);
     EXPECT_EQ(32U, kernelDescriptor.kernelMetadata.requiredSubGroupSize);
+    EXPECT_FALSE(kernelDescriptor.kernelAttributes.flags.isInvalid);
+}
+
+TEST(KernelDescriptorFromPatchtokens, GivenInvalidKernelAttributeThenInvalidKernelFlagIsSet) {
+    using AttributeInfoToken = iOpenCL::SPatchKernelAttributesInfo;
+    constexpr ConstStringRef attribute = "invalid_kernel(\"uses-fp64-math\")";
+
+    std::vector<uint8_t> tokenStorage(sizeof(AttributeInfoToken) + attribute.size());
+    auto &token = *reinterpret_cast<AttributeInfoToken *>(tokenStorage.data());
+    token.AttributesSize = static_cast<uint32_t>(attribute.size());
+    std::memcpy(tokenStorage.data() + sizeof(AttributeInfoToken), attribute.data(), attribute.length());
+
+    NEO::KernelDescriptor kernelDescriptor;
+    NEO::populateKernelDescriptor(kernelDescriptor, token);
+    EXPECT_TRUE(kernelDescriptor.kernelAttributes.flags.isInvalid);
 }
 
 TEST(KernelDescriptorFromPatchtokens, GivenValidKernelWithArgThenMetadataIsProperlyPopulated) {
@@ -865,7 +875,7 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithPointerArgumentAndMetadataT
         NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
         EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTPointer>());
         EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bufferOffset));
-        EXPECT_FALSE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful()));
+        EXPECT_FALSE(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful());
         EXPECT_FALSE(dst.kernelAttributes.flags.usesImages);
         EXPECT_FALSE(dst.kernelAttributes.flags.usesSamplers);
     }
@@ -878,7 +888,7 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithPointerArgumentAndMetadataT
         NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
         EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTPointer>());
         EXPECT_EQ(bufferOffset.Offset, dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bufferOffset);
-        EXPECT_FALSE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful()));
+        EXPECT_FALSE(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful());
         kernelTokens.tokens.kernelArgs[0].metadata.buffer.bufferOffset = nullptr;
         EXPECT_FALSE(dst.kernelAttributes.flags.usesImages);
         EXPECT_FALSE(dst.kernelAttributes.flags.usesSamplers);
@@ -890,7 +900,7 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithPointerArgumentAndMetadataT
         NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
         EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTPointer>());
         EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bufferOffset));
-        EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful()));
+        EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful());
         kernelTokens.tokens.kernelArgs[0].metadata.buffer.pureStateful = nullptr;
         EXPECT_FALSE(dst.kernelAttributes.flags.usesImages);
         EXPECT_FALSE(dst.kernelAttributes.flags.usesSamplers);
@@ -1033,7 +1043,7 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithSlmArgumentAndMetadataThenK
         NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
         EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTPointer>());
         EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bufferOffset));
-        EXPECT_FALSE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful()));
+        EXPECT_FALSE(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful());
         EXPECT_FALSE(dst.kernelAttributes.flags.usesImages);
         EXPECT_FALSE(dst.kernelAttributes.flags.usesSamplers);
         EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bindful));
@@ -1056,7 +1066,7 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithSlmArgumentAndMetadataThenK
         NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
         EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTPointer>());
         EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bufferOffset));
-        EXPECT_FALSE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful()));
+        EXPECT_FALSE(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().isPureStateful());
         EXPECT_FALSE(dst.kernelAttributes.flags.usesImages);
         EXPECT_FALSE(dst.kernelAttributes.flags.usesSamplers);
         EXPECT_TRUE(NEO::isUndefinedOffset(dst.payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>().bindful));
@@ -1108,34 +1118,6 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithSamplerArgumentAndMetadataW
         EXPECT_EQ(subpixelMode.Offset, argVme->subpixelMode);
         EXPECT_EQ(sadAdjustMode.Offset, argVme->sadAdjustMode);
         EXPECT_EQ(searchPathType.Offset, argVme->searchPathType);
-    }
-}
-
-TEST(KernelDescriptorFromPatchtokens, GivenKernelWithSamplerArgumentAndMetadataWhenObjectIdIsPresentThenKernelDescriptorIsProperlyPopulated) {
-    std::vector<uint8_t> storage;
-    NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens = PatchTokensTestData::ValidEmptyKernel::create(storage);
-    kernelTokens.tokens.kernelArgs.resize(1);
-    kernelTokens.tokens.kernelArgs[0].objectType = NEO::PatchTokenBinary::ArgObjectType::Sampler;
-    {
-        NEO::KernelDescriptor dst = {};
-        NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
-        EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTSampler>());
-        EXPECT_FALSE(dst.payloadMappings.explicitArgs[0].getExtendedTypeInfo().hasDeviceSideEnqueueExtendedDescriptor);
-        EXPECT_TRUE(dst.payloadMappings.explicitArgsExtendedDescriptors.empty());
-    }
-    {
-        iOpenCL::SPatchDataParameterBuffer objectId = {};
-        kernelTokens.tokens.kernelArgs[0].objectId = &objectId;
-        objectId.Offset = 7;
-
-        NEO::KernelDescriptor dst = {};
-        NEO::populateKernelDescriptor(dst, kernelTokens, sizeof(void *));
-        EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].is<NEO::ArgDescriptor::ArgTSampler>());
-        EXPECT_TRUE(dst.kernelAttributes.flags.usesSamplers);
-        EXPECT_TRUE(dst.payloadMappings.explicitArgs[0].getExtendedTypeInfo().hasDeviceSideEnqueueExtendedDescriptor);
-        ASSERT_EQ(1U, dst.payloadMappings.explicitArgsExtendedDescriptors.size());
-        auto argObjectId = reinterpret_cast<NEO::ArgDescriptorDeviceSideEnqueue *>(dst.payloadMappings.explicitArgsExtendedDescriptors[0].get());
-        EXPECT_EQ(objectId.Offset, argObjectId->objectId);
     }
 }
 
@@ -1283,28 +1265,6 @@ TEST(KernelDescriptorFromPatchtokens, GivenKernelWithDitpatchMetadataImplicitArg
         EXPECT_EQ(kernelTokens.tokens.crossThreadPayloadArgs.localMemoryStatelessWindowSize->Offset, dst.payloadMappings.implicitArgs.localMemoryStatelessWindowSize);
         EXPECT_EQ(kernelTokens.tokens.crossThreadPayloadArgs.localMemoryStatelessWindowStartAddress->Offset, dst.payloadMappings.implicitArgs.localMemoryStatelessWindowStartAddres);
     }
-}
-
-TEST(KernelDescriptorFromPatchtokens, GivenKernelWithChildBlocksMetadataImplicitArgsThenKernelDescriptorIsProperlyPopulated) {
-    std::vector<uint8_t> storage;
-    NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens = PatchTokensTestData::ValidEmptyKernel::create(storage);
-    NEO::KernelDescriptor dst;
-    NEO::populateKernelDescriptor(dst, kernelTokens, 4);
-    EXPECT_TRUE(dst.kernelMetadata.deviceSideEnqueueChildrenKernelsIdOffset.empty());
-
-    iOpenCL::SPatchDataParameterBuffer childBlocks[2] = {};
-    childBlocks[0].ArgumentNumber = 0;
-    childBlocks[1].ArgumentNumber = 1;
-    childBlocks[0].Offset = 4096;
-    childBlocks[1].Offset = 8192;
-    kernelTokens.tokens.crossThreadPayloadArgs.childBlockSimdSize.push_back(&childBlocks[0]);
-    kernelTokens.tokens.crossThreadPayloadArgs.childBlockSimdSize.push_back(&childBlocks[1]);
-    NEO::populateKernelDescriptor(dst, kernelTokens, 4);
-    ASSERT_EQ(2U, dst.kernelMetadata.deviceSideEnqueueChildrenKernelsIdOffset.size());
-    EXPECT_EQ(childBlocks[0].ArgumentNumber, dst.kernelMetadata.deviceSideEnqueueChildrenKernelsIdOffset[0].first);
-    EXPECT_EQ(childBlocks[1].ArgumentNumber, dst.kernelMetadata.deviceSideEnqueueChildrenKernelsIdOffset[1].first);
-    EXPECT_EQ(childBlocks[0].Offset, dst.kernelMetadata.deviceSideEnqueueChildrenKernelsIdOffset[0].second);
-    EXPECT_EQ(childBlocks[1].Offset, dst.kernelMetadata.deviceSideEnqueueChildrenKernelsIdOffset[1].second);
 }
 
 TEST(KernelDescriptorFromPatchtokens, GivenDispatchTraitsImplicitArgsAndExplicitArgsWhenPopulatingKernelDescriptorThenCrossThreadDataSizeIsSetToMaxOffsetAndAligned) {
@@ -1597,4 +1557,30 @@ TEST(KernelDescriptorFromPatchtokens, GivenUpdateCrossThreadDataSizeFalseWhenPop
     NEO::populateKernelDescriptor(kernelDescriptor, kernelTokens, 8);
 
     EXPECT_EQ(32u, kernelDescriptor.kernelAttributes.crossThreadDataSize);
+}
+
+TEST(KernelDescriptorFromPatchtokens, givenDataParameterImplArgBufferTokenWhenPopulateKernelDescriptorThenProperOffsetIsSetAndImplicitArgsAreRequired) {
+    NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens;
+    iOpenCL::SKernelBinaryHeaderCommon kernelHeader;
+    kernelTokens.header = &kernelHeader;
+
+    NEO::KernelDescriptor kernelDescriptor;
+
+    uint16_t offset = 0x30;
+
+    iOpenCL::SPatchDataParameterBuffer dataParameterToken{};
+    dataParameterToken.Token = iOpenCL::PATCH_TOKEN_DATA_PARAMETER_BUFFER;
+    dataParameterToken.Size = sizeof(iOpenCL::SPatchDataParameterBuffer);
+    dataParameterToken.Type = iOpenCL::DATA_PARAMETER_IMPL_ARG_BUFFER;
+    dataParameterToken.ArgumentNumber = 0;
+    dataParameterToken.Offset = offset;
+    dataParameterToken.DataSize = sizeof(uint32_t);
+    dataParameterToken.SourceOffset = 0;
+
+    kernelTokens.tokens.crossThreadPayloadArgs.implicitArgsBufferOffset = &dataParameterToken;
+
+    NEO::populateKernelDescriptor(kernelDescriptor, kernelTokens, 8);
+
+    EXPECT_EQ(offset, kernelDescriptor.payloadMappings.implicitArgs.implicitArgsBuffer);
+    EXPECT_TRUE(kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs);
 }

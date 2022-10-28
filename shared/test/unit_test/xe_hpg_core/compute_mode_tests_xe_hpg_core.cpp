@@ -17,10 +17,21 @@ using namespace NEO;
 using ComputeModeRequirementsXeHpgCore = ComputeModeRequirements;
 
 XE_HPG_CORETEST_F(ComputeModeRequirementsXeHpgCore, GivenVariousSettingsWhenComputeModeIsProgrammedThenThreadLimitsAreCorrectlySet) {
-    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-
     DebugManagerStateRestore restorer;
-    SetUpImpl<FamilyType>();
+    setUpImpl<FamilyType>();
+
+    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    const auto &hwInfoConfig = *HwInfoConfig::get(productFamily);
+    const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig.isPipeControlPriorToNonPipelinedStateCommandsWARequired(*defaultHwInfo, csr->isRcs());
+    std::ignore = isExtendedWARequired;
+
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE);
+    if (isBasicWARequired) {
+        cmdsSize += +sizeof(PIPE_CONTROL);
+    }
+
     overrideComputeModeRequest<FamilyType>(false, false, false, true, 128u);
 
     auto defaultScmCmd = FamilyType::cmdInitStateComputeMode;
@@ -51,12 +62,15 @@ XE_HPG_CORETEST_F(ComputeModeRequirementsXeHpgCore, GivenVariousSettingsWhenComp
         DebugManager.flags.ForcePixelAsyncComputeThreadLimit.set(testValue.pixelThreadLimit);
 
         pCsr->streamProperties.stateComputeMode = {};
-        pCsr->streamProperties.stateComputeMode.setProperties(false, 0u, 0u);
+        pCsr->streamProperties.stateComputeMode.setProperties(false, 0u, 0u, PreemptionMode::Disabled, *defaultHwInfo);
         LinearStream stream(buff, 1024);
         pCsr->programComputeMode(stream, flags, *defaultHwInfo);
-        EXPECT_EQ(sizeof(STATE_COMPUTE_MODE), stream.getUsed());
+        EXPECT_EQ(cmdsSize, stream.getUsed());
 
         auto pScmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
+        if (isBasicWARequired) {
+            pScmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
+        }
         EXPECT_EQ(testValue.zPassThreadLimit, pScmCmd->getZPassAsyncComputeThreadLimit());
         EXPECT_EQ(testValue.pixelThreadLimit, pScmCmd->getPixelAsyncComputeThreadLimit());
 
@@ -69,14 +83,78 @@ XE_HPG_CORETEST_F(ComputeModeRequirementsXeHpgCore, GivenVariousSettingsWhenComp
     DebugManager.flags.ForcePixelAsyncComputeThreadLimit.set(-1);
 
     pCsr->streamProperties.stateComputeMode = {};
-    pCsr->streamProperties.stateComputeMode.setProperties(false, 0u, 0u);
+    pCsr->streamProperties.stateComputeMode.setProperties(false, 0u, 0u, PreemptionMode::Disabled, *defaultHwInfo);
     LinearStream stream(buff, 1024);
     pCsr->programComputeMode(stream, flags, *defaultHwInfo);
-    EXPECT_EQ(sizeof(STATE_COMPUTE_MODE), stream.getUsed());
+    EXPECT_EQ(cmdsSize, stream.getUsed());
 
     auto pScmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(stream.getCpuBase());
+    if (isBasicWARequired) {
+        pScmCmd = reinterpret_cast<STATE_COMPUTE_MODE *>(ptrOffset(stream.getCpuBase(), sizeof(PIPE_CONTROL)));
+    }
     EXPECT_EQ(STATE_COMPUTE_MODE::Z_PASS_ASYNC_COMPUTE_THREAD_LIMIT_MAX_60, pScmCmd->getZPassAsyncComputeThreadLimit());
     EXPECT_EQ(STATE_COMPUTE_MODE::PIXEL_ASYNC_COMPUTE_THREAD_LIMIT_DISABLED, pScmCmd->getPixelAsyncComputeThreadLimit());
     EXPECT_FALSE(isValueSet(pScmCmd->getMaskBits(), FamilyType::stateComputeModeZPassAsyncComputeThreadLimitMask));
     EXPECT_FALSE(isValueSet(pScmCmd->getMaskBits(), FamilyType::stateComputeModePixelAsyncComputeThreadLimitMask));
+}
+
+XE_HPG_CORETEST_F(ComputeModeRequirementsXeHpgCore, givenComputeModeCmdSizeWhenLargeGrfModeChangeIsRequiredThenSCMCommandSizeIsCalculated) {
+    setUpImpl<FamilyType>();
+    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    overrideComputeModeRequest<FamilyType>(false, false, false, false, 128u);
+    EXPECT_FALSE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+
+    auto cmdSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+
+    overrideComputeModeRequest<FamilyType>(false, false, false, true, 256u);
+    auto retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+    EXPECT_EQ(cmdSize, retSize);
+
+    overrideComputeModeRequest<FamilyType>(true, false, false, true, 256u);
+    retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+    EXPECT_EQ(cmdSize, retSize);
+}
+
+XE_HPG_CORETEST_F(ComputeModeRequirementsXeHpgCore, givenCoherencyWithSharedHandlesWhenCommandSizeIsCalculatedThenCorrectCommandSizeIsReturned) {
+    setUpImpl<FamilyType>();
+    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    overrideComputeModeRequest<FamilyType>(false, false, true);
+    EXPECT_FALSE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+
+    overrideComputeModeRequest<FamilyType>(false, true, true);
+    EXPECT_FALSE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + (2 * sizeof(PIPE_CONTROL));
+
+    overrideComputeModeRequest<FamilyType>(true, true, true);
+    auto retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+    EXPECT_EQ(cmdsSize, retSize);
+
+    overrideComputeModeRequest<FamilyType>(true, false, true);
+    retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+    EXPECT_EQ(cmdsSize, retSize);
+}
+
+XE_HPG_CORETEST_F(ComputeModeRequirementsXeHpgCore, givenCoherencyWithoutSharedHandlesWhenCommandSizeIsCalculatedThenCorrectCommandSizeIsReturned) {
+    using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    setUpImpl<FamilyType>();
+
+    auto cmdsSize = sizeof(STATE_COMPUTE_MODE) + sizeof(PIPE_CONTROL);
+
+    overrideComputeModeRequest<FamilyType>(false, false, false, false);
+    EXPECT_FALSE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+
+    overrideComputeModeRequest<FamilyType>(false, false, false, true);
+    auto retSize = getCsrHw<FamilyType>()->getCmdSizeForComputeMode();
+    EXPECT_TRUE(getCsrHw<FamilyType>()->streamProperties.stateComputeMode.isDirty());
+    EXPECT_EQ(cmdsSize, retSize);
 }

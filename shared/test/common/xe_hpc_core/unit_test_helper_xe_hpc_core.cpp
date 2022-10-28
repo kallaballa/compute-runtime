@@ -5,11 +5,16 @@
  *
  */
 
+#include "shared/source/os_interface/hw_info_config.h"
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
 #include "shared/source/xe_hpc_core/hw_info.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.inl"
 #include "shared/test/common/helpers/unit_test_helper_xehp_and_later.inl"
-using Family = NEO::XE_HPC_COREFamily;
+
+using Family = NEO::XeHpcCoreFamily;
+
+#include "unit_test_helper_xe_hpc_core_extra.inl"
 
 namespace NEO {
 
@@ -28,7 +33,7 @@ template <>
 const uint32_t UnitTestHelper<Family>::smallestTestableSimdSize = 16;
 
 template <>
-uint32_t UnitTestHelper<Family>::getAppropriateThreadArbitrationPolicy(uint32_t policy) {
+uint32_t UnitTestHelper<Family>::getAppropriateThreadArbitrationPolicy(int32_t policy) {
     using STATE_COMPUTE_MODE = typename Family::STATE_COMPUTE_MODE;
     switch (policy) {
     case ThreadArbitrationPolicy::RoundRobin:
@@ -54,7 +59,8 @@ bool UnitTestHelper<Family>::isAdditionalSynchronizationRequired() {
 
 template <>
 bool UnitTestHelper<Family>::isAdditionalMiSemaphoreWaitRequired(const HardwareInfo &hwInfo) {
-    auto programGlobalFenceAsMiMemFenceCommandInCommandStream = !Family::isXlA0(hwInfo);
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    auto programGlobalFenceAsMiMemFenceCommandInCommandStream = hwInfoConfig.isGlobalFenceInCommandStreamRequired(hwInfo);
     if (DebugManager.flags.ProgramGlobalFenceAsMiMemFenceCommandInCommandStream.get() != -1) {
         programGlobalFenceAsMiMemFenceCommandInCommandStream = !!DebugManager.flags.ProgramGlobalFenceAsMiMemFenceCommandInCommandStream.get();
     }
@@ -82,6 +88,11 @@ uint32_t UnitTestHelper<Family>::getTdCtlRegisterOffset() {
 template <>
 uint32_t UnitTestHelper<Family>::getTdCtlRegisterValue() {
     return (1u << 7) | (1u << 4) | (1u << 2) | (1u << 0);
+}
+
+template <>
+bool UnitTestHelper<Family>::getComputeDispatchAllWalkerFromFrontEndCommand(const typename Family::VFE_STATE_TYPE &feCmd) {
+    return feCmd.getComputeDispatchAllWalkerEnable();
 }
 
 template struct UnitTestHelper<Family>;

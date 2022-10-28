@@ -1,13 +1,19 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/gen8/hw_cmds_bdw.h"
 #include "shared/source/helpers/compiler_hw_info_config.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/helpers/default_hw_info.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
+
+#include "platforms.h"
+
 using namespace NEO;
 
 TEST(BdwHwInfoConfig, givenInvalidSystemInfoWhenSettingHardwareInfoThenExpectThrow) {
@@ -78,7 +84,50 @@ BDWTEST_F(BdwHwInfo, givenHwInfoConfigStringThenAfterSetupResultingVmeIsDisabled
     EXPECT_FALSE(hwInfo.capabilityTable.supportsVme);
 }
 
+BDWTEST_F(BdwHwInfo, givenHwInfoConfigWhenGetProductConfigThenCorrectMatchIsFound) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    EXPECT_EQ(hwInfoConfig.getProductConfigFromHwInfo(hwInfo), AOT::BDW);
+}
+
+BDWTEST_F(BdwHwInfo, givenHwInfoConfigWhenGettingEvictIfNecessaryFlagSupportedThenExpectTrue) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    EXPECT_TRUE(hwInfoConfig.isEvictionIfNecessaryFlagSupported());
+}
+
 using CompilerHwInfoConfigHelperTestsBdw = ::testing::Test;
 BDWTEST_F(CompilerHwInfoConfigHelperTestsBdw, givenBdwWhenIsStatelessToStatefulBufferOffsetSupportedIsCalledThenReturnsTrue) {
     EXPECT_FALSE(CompilerHwInfoConfig::get(productFamily)->isStatelessToStatefulBufferOffsetSupported());
+}
+
+BDWTEST_F(BdwHwInfo, givenHwInfoConfigWhenGetCommandsStreamPropertiesSupportThenExpectCorrectValues) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyThreadArbitrationPolicySupport());
+    EXPECT_TRUE(hwInfoConfig.getScmPropertyCoherencyRequiredSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyZPassAsyncComputeThreadLimitSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyPixelAsyncComputeThreadLimitSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyLargeGrfModeSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyDevicePreemptionModeSupport());
+
+    EXPECT_FALSE(hwInfoConfig.getSbaPropertyGlobalAtomicsSupport());
+    EXPECT_TRUE(hwInfoConfig.getSbaPropertyStatelessMocsSupport());
+
+    EXPECT_TRUE(hwInfoConfig.getFrontEndPropertyScratchSizeSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyPrivateScratchSizeSupport());
+
+    EXPECT_TRUE(hwInfoConfig.getPreemptionDbgPropertyPreemptionModeSupport());
+    EXPECT_TRUE(hwInfoConfig.getPreemptionDbgPropertyStateSipSupport());
+    EXPECT_FALSE(hwInfoConfig.getPreemptionDbgPropertyCsrSurfaceSupport());
+
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyComputeDispatchAllWalkerSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyDisableEuFusionSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyDisableOverDispatchSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertySingleSliceDispatchCcsModeSupport());
+
+    EXPECT_TRUE(hwInfoConfig.getPipelineSelectPropertyModeSelectedSupport());
+    EXPECT_FALSE(hwInfoConfig.getPipelineSelectPropertyMediaSamplerDopClockGateSupport());
+    EXPECT_FALSE(hwInfoConfig.getPipelineSelectPropertySystolicModeSupport());
 }

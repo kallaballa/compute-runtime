@@ -1,12 +1,13 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
+
 #pragma once
-#include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace aub_stream {
 
@@ -16,4 +17,7 @@ struct PageInfo {
     bool isLocalMemory;
     uint32_t memoryBank;
 };
+
+static_assert(std::is_pod<PageInfo>::value, "PageInfo is not POD type");
+
 } // namespace aub_stream

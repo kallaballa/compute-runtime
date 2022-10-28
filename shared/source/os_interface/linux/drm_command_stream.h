@@ -8,8 +8,7 @@
 #pragma once
 #include "shared/source/command_stream/device_command_stream.h"
 #include "shared/source/os_interface/linux/drm_gem_close_worker.h"
-
-#include "drm/i915_drm.h"
+#include "shared/source/os_interface/linux/ioctl_helper.h"
 
 #include <vector>
 
@@ -43,9 +42,10 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
                              uint32_t rootDeviceIndex,
                              const DeviceBitfield deviceBitfield,
                              gemCloseWorkerMode mode = gemCloseWorkerMode::gemCloseWorkerActive);
+    ~DrmCommandStreamReceiver() override;
 
     SubmissionStatus flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
-    MOCKABLE_VIRTUAL void processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) override;
+    bool processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
     bool waitForFlushStamp(FlushStamp &flushStampToWait) override;
     bool isKmdWaitModeActive() override;
@@ -66,16 +66,18 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
     using CommandStreamReceiver::pageTableManager;
 
   protected:
-    MOCKABLE_VIRTUAL int flushInternal(const BatchBuffer &batchBuffer, const ResidencyContainer &allocationsForResidency);
+    MOCKABLE_VIRTUAL SubmissionStatus flushInternal(const BatchBuffer &batchBuffer, const ResidencyContainer &allocationsForResidency);
     MOCKABLE_VIRTUAL int exec(const BatchBuffer &batchBuffer, uint32_t vmHandleId, uint32_t drmContextId, uint32_t index);
     MOCKABLE_VIRTUAL int waitUserFence(uint32_t waitValue);
+    MOCKABLE_VIRTUAL void readBackAllocation(void *source);
     bool isUserFenceWaitActive();
 
     std::vector<BufferObject *> residency;
-    std::vector<drm_i915_gem_exec_object2> execObjectsStorage;
+    std::vector<ExecObject> execObjectsStorage;
     Drm *drm;
     gemCloseWorkerMode gemCloseWorkerOperationMode;
 
+    volatile uint32_t reserved = 0;
     int32_t kmdWaitTimeout = -1;
 
     bool useUserFenceWait = true;

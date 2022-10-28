@@ -5,16 +5,13 @@
  *
  */
 
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
+#include "level_zero/core/source/cmdlist/cmdlist.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 
 namespace L0 {
 namespace ult {
-
-using ::testing::_;
-using ::testing::AnyNumber;
-using ::testing::Return;
 
 using DevicePropertyTest = Test<DeviceFixture>;
 
@@ -82,6 +79,12 @@ HWTEST2_F(CommandQueueGroupTest, givenQueueGroupsReturnedThenCommandListIsCreate
     commandList->destroy();
 
     context->destroy();
+}
+
+HWTEST2_F(DevicePropertyTest, GivenGen9WhenGettingPhysicalEuSimdWidthThenReturn8, IsGen9) {
+    ze_device_properties_t properties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
+    device->getProperties(&properties);
+    EXPECT_EQ(8u, properties.physicalEUSimdWidth);
 }
 
 } // namespace ult

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,21 +21,23 @@ void DiagnosticsHandleContext::releaseDiagnosticsHandles() {
     }
     handleList.clear();
 }
-void DiagnosticsHandleContext::createHandle(ze_device_handle_t deviceHandle, const std::string &diagTests) {
-    Diagnostics *pDiagnostics = new DiagnosticsImp(pOsSysman, diagTests, deviceHandle);
+void DiagnosticsHandleContext::createHandle(const std::string &diagTests) {
+    Diagnostics *pDiagnostics = new DiagnosticsImp(pOsSysman, diagTests);
     handleList.push_back(pDiagnostics);
 }
 
-void DiagnosticsHandleContext::init(std::vector<ze_device_handle_t> &deviceHandles) {
+void DiagnosticsHandleContext::init() {
     OsDiagnostics::getSupportedDiagTestsFromFW(pOsSysman, supportedDiagTests);
-    for (const auto &deviceHandle : deviceHandles) {
-        for (const std::string &diagTests : supportedDiagTests) {
-            createHandle(deviceHandle, diagTests);
-        }
+    for (const std::string &diagTests : supportedDiagTests) {
+        createHandle(diagTests);
     }
 }
 
 ze_result_t DiagnosticsHandleContext::diagnosticsGet(uint32_t *pCount, zes_diag_handle_t *phDiagnostics) {
+    std::call_once(initDiagnosticsOnce, [this]() {
+        this->init();
+        this->diagnosticsInitDone = true;
+    });
     uint32_t handleListSize = static_cast<uint32_t>(handleList.size());
     uint32_t numToCopy = std::min(*pCount, handleListSize);
     if (0 == *pCount || *pCount > handleListSize) {

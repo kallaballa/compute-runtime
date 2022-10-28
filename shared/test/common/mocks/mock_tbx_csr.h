@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,8 +13,6 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/hw_info.h"
 
-#include "gmock/gmock.h"
-
 #include <string>
 
 namespace NEO {
@@ -25,7 +23,14 @@ class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
     using TbxCommandStreamReceiverHw<GfxFamily>::writeMemory;
     using TbxCommandStreamReceiverHw<GfxFamily>::allocationsForDownload;
     MockTbxCsr(ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
-        : TbxCommandStreamReceiverHw<GfxFamily>(executionEnvironment, 0, deviceBitfield) {}
+        : TbxCommandStreamReceiverHw<GfxFamily>(executionEnvironment, 0, deviceBitfield) {
+        this->downloadAllocationImpl = [this](GraphicsAllocation &gfxAllocation) {
+            this->downloadAllocationTbxMock(gfxAllocation);
+        };
+    }
+    ~MockTbxCsr() override {
+        this->downloadAllocationImpl = nullptr;
+    }
 
     void initializeEngine() override {
         TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine();
@@ -50,8 +55,8 @@ class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
         TbxCommandStreamReceiverHw<GfxFamily>::pollForCompletion();
         pollForCompletionCalled = true;
     }
-    void downloadAllocation(GraphicsAllocation &gfxAllocation) override {
-        TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocation(gfxAllocation);
+    void downloadAllocationTbxMock(GraphicsAllocation &gfxAllocation) {
+        TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocationTbx(gfxAllocation);
         makeCoherentCalled = true;
     }
     void dumpAllocation(GraphicsAllocation &gfxAllocation) override {
@@ -74,9 +79,18 @@ template <typename GfxFamily>
 struct MockTbxCsrRegisterDownloadedAllocations : TbxCommandStreamReceiverHw<GfxFamily> {
     using CommandStreamReceiver::latestFlushedTaskCount;
     using CommandStreamReceiver::tagsMultiAllocation;
-    using TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw;
     using TbxCommandStreamReceiverHw<GfxFamily>::flushSubmissionsAndDownloadAllocations;
-    void downloadAllocation(GraphicsAllocation &gfxAllocation) override {
+
+    MockTbxCsrRegisterDownloadedAllocations(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex, const DeviceBitfield deviceBitfield)
+        : TbxCommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield) {
+        this->downloadAllocationImpl = [this](GraphicsAllocation &gfxAllocation) {
+            this->downloadAllocationTbxMock(gfxAllocation);
+        };
+    }
+    ~MockTbxCsrRegisterDownloadedAllocations() override {
+        this->downloadAllocationImpl = nullptr;
+    }
+    void downloadAllocationTbxMock(GraphicsAllocation &gfxAllocation) {
         *reinterpret_cast<uint32_t *>(CommandStreamReceiver::getTagAllocation()->getUnderlyingBuffer()) = this->latestFlushedTaskCount;
         downloadedAllocations.insert(&gfxAllocation);
     }
@@ -87,8 +101,14 @@ struct MockTbxCsrRegisterDownloadedAllocations : TbxCommandStreamReceiverHw<GfxF
     void flushTagUpdate() override {
         flushTagCalled = true;
     }
+
+    std::unique_lock<CommandStreamReceiver::MutexType> obtainUniqueOwnership() override {
+        obtainUniqueOwnershipCalled++;
+        return TbxCommandStreamReceiverHw<GfxFamily>::obtainUniqueOwnership();
+    }
     std::set<GraphicsAllocation *> downloadedAllocations;
     bool flushBatchedSubmissionsCalled = false;
     bool flushTagCalled = false;
+    size_t obtainUniqueOwnershipCalled = 0;
 };
 } // namespace NEO

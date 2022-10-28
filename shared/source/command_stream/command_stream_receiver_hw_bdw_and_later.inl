@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,14 +7,13 @@
 
 #include "shared/source/command_stream/command_stream_receiver_hw_base.inl"
 #include "shared/source/helpers/address_patch.h"
-
-#include "hw_cmds.h"
+#include "shared/source/helpers/state_base_address_bdw_and_later.inl"
 
 namespace NEO {
 
 template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getSshHeapSize() {
-    return defaultHeapSize;
+    return getDefaultHeapSize();
 }
 
 template <typename GfxFamily>
@@ -25,12 +24,10 @@ inline void CommandStreamReceiverHw<GfxFamily>::programL3(LinearStream &csr, uin
     typedef typename GfxFamily::PIPE_CONTROL PIPE_CONTROL;
     if (csrSizeRequestFlags.l3ConfigChanged && this->isPreambleSent) {
         // Add a PIPE_CONTROL w/ CS_stall
-        auto pCmd = (PIPE_CONTROL *)csr.getSpace(sizeof(PIPE_CONTROL));
-        PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
-        cmd.setCommandStreamerStallEnable(true);
-        cmd.setDcFlushEnable(true);
-        addClearSLMWorkAround(&cmd);
-        *pCmd = cmd;
+        PipeControlArgs args = {};
+        args.dcFlushEnable = true;
+        setClearSlmWorkAroundParameter(args);
+        MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(csr, args);
 
         PreambleHelper<GfxFamily>::programL3(&csr, newL3Config);
         this->lastSentL3Config = newL3Config;
@@ -62,11 +59,14 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForL3Config() const 
 
 template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &commandStream, PipelineSelectArgs &pipelineSelectArgs) {
-    if (csrSizeRequestFlags.mediaSamplerConfigChanged || !isPreambleSent) {
+    if (csrSizeRequestFlags.mediaSamplerConfigChanged || csrSizeRequestFlags.systolicPipelineSelectMode || !isPreambleSent) {
+        auto &hwInfo = peekHwInfo();
         if (!isPipelineSelectAlreadyProgrammed()) {
-            PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, pipelineSelectArgs, peekHwInfo());
+            PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, pipelineSelectArgs, hwInfo);
         }
         this->lastMediaSamplerConfig = pipelineSelectArgs.mediaSamplerRequired;
+        this->lastSystolicPipelineSelectMode = pipelineSelectArgs.systolicPipelineSelectMode;
+        this->streamProperties.pipelineSelect.setProperties(true, this->lastMediaSamplerConfig, this->lastSystolicPipelineSelectMode, hwInfo);
     }
 }
 
@@ -88,23 +88,6 @@ size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForEpilogueCommands(const D
 template <typename GfxFamily>
 bool CommandStreamReceiverHw<GfxFamily>::isMultiOsContextCapable() const {
     return false;
-}
-
-template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::setPipeControlPriorToNonPipelinedStateCommandExtraProperties(PipeControlArgs &args) {}
-
-template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlPriorToNonPipelinedStateCommand(LinearStream &commandStream, PipeControlArgs args) {
-    MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStream, args);
-}
-
-template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlBeforeStateBaseAddress(LinearStream &commandStream) {
-    PipeControlArgs args;
-    args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, peekHwInfo());
-    args.textureCacheInvalidationEnable = true;
-
-    addPipeControlPriorToNonPipelinedStateCommand(commandStream, args);
 }
 
 template <typename GfxFamily>
@@ -162,13 +145,13 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForStallingNoPostSyn
 
 template <typename GfxFamily>
 inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForStallingPostSyncCommands() const {
-    return MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(peekHwInfo());
+    return MemorySynchronizationCommands<GfxFamily>::getSizeForBarrierWithPostSyncOperation(peekHwInfo(), false);
 }
 
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::programStallingNoPostSyncCommandsForBarrier(LinearStream &cmdStream) {
     PipeControlArgs args;
-    MemorySynchronizationCommands<GfxFamily>::addPipeControl(cmdStream, args);
+    MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(cmdStream, args);
 }
 
 template <typename GfxFamily>
@@ -176,10 +159,10 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStallingPostSyncCommandsF
     auto barrierTimestampPacketGpuAddress = TimestampPacketHelper::getContextEndGpuAddress(tagNode);
     const auto &hwInfo = peekHwInfo();
     PipeControlArgs args;
-    args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
-    MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+    args.dcFlushEnable = this->dcFlushSupport;
+    MemorySynchronizationCommands<GfxFamily>::addBarrierWithPostSyncOperation(
         cmdStream,
-        PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+        PostSyncMode::ImmediateData,
         barrierTimestampPacketGpuAddress,
         0,
         hwInfo,

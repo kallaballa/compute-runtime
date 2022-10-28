@@ -9,14 +9,18 @@
 #include "shared/source/helpers/state_base_address.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/libult/ult_command_stream_receiver.h"
 #include "shared/test/common/mocks/mock_csr.h"
 #include "shared/test/common/mocks/mock_debugger.h"
+#include "shared/test/common/mocks/mock_os_context.h"
 #include "shared/test/common/mocks/mock_submissions_aggregator.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
+
+#include "test_traits_common.h"
 
 using namespace NEO;
 
@@ -67,7 +71,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, wh
 
     auto offset = commandStreamReceiver.getCS(0).getUsed();
     // make SBA dirty (using ioh as dsh and dsh as ioh just to force SBA reprogramming)
-    commandStreamReceiver.flushTask(commandStream, 0, ioh, dsh, ssh, taskLevel, flushTaskFlags, *pDevice);
+    commandStreamReceiver.flushTask(commandStream, 0, &ioh, &dsh, &ssh, taskLevel, flushTaskFlags, *pDevice);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(commandStreamReceiver.getCS(0), offset);
@@ -95,9 +99,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
     EXPECT_TRUE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControlCmd));
 }
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramPipeControlPriorToNonPipelinedStateCommandDebugKeyAndStateBaseAddressWhenItIsRequiredThenThereIsPipeControlPriorToIt) {
+HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramExtendedPipeControlPriorToNonPipelinedStateCommandEnabledAndStateBaseAddressWhenItIsRequiredThenThereIsPipeControlPriorToIt) {
     DebugManagerStateRestore dbgRestorer;
-    DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.set(true);
+    DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.set(true);
 
     using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
@@ -121,9 +125,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
     EXPECT_TRUE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControlCmd));
 }
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramPipeControlPriorToNonPipelinedStateCommandDebugKeyAndStateSipWhenItIsRequiredThenThereIsPipeControlPriorToIt) {
+HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramExtendedPipeControlPriorToNonPipelinedStateCommandEnabledAndStateSipWhenItIsRequiredThenThereIsPipeControlPriorToIt) {
     DebugManagerStateRestore dbgRestorer;
-    DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.set(true);
+    DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.set(true);
 
     using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
     using STATE_SIP = typename FamilyType::STATE_SIP;
@@ -137,9 +141,13 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
 
     configureCSRtoNonDirtyState<FamilyType>(false);
-    ioh.replaceBuffer(ptrOffset(ioh.getCpuBase(), +1u), ioh.getMaxAvailableSpace() + MemoryConstants::pageSize * 3);
+    commandStreamReceiver.isStateSipSent = false;
     flushTask(commandStreamReceiver);
     parseCommands<FamilyType>(commandStreamReceiver.getCS(0));
+
+    auto requiredCmdSize = PreemptionHelper::getRequiredStateSipCmdSize<FamilyType>(*pDevice, false);
+    auto cmdSize = sizeof(STATE_SIP) + sizeof(PIPE_CONTROL);
+    EXPECT_EQ(cmdSize, requiredCmdSize);
 
     auto pipeControlIterator = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
     auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*pipeControlIterator);
@@ -160,9 +168,52 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
     EXPECT_EQ(sipAllocation->getGpuAddressToPatch(), sipCmd->getSystemInstructionPointer());
 }
 
-HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramPipeControlPriorToNonPipelinedStateCommandDebugKeyAndStateSipWhenA0SteppingIsActivatedThenOnlyGlobalSipIsProgrammed, IsXEHP) {
+HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramPipeControlPriorToNonPipelinedStateCommandAndStateSipWhenItIsRequiredThenThereIsPipeControlPriorToIt, IsXeHpgCore) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+    using STATE_SIP = typename FamilyType::STATE_SIP;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    pDevice->executionEnvironment->rootDeviceEnvironments[0]->debugger.reset(new MockDebugger);
+
+    auto sipType = SipKernel::getSipKernelType(*pDevice);
+    SipKernel::initSipKernel(sipType, *pDevice);
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    configureCSRtoNonDirtyState<FamilyType>(false);
+    commandStreamReceiver.isStateSipSent = false;
+    flushTask(commandStreamReceiver);
+    parseCommands<FamilyType>(commandStreamReceiver.getCS(0));
+
+    auto requiredCmdSize = PreemptionHelper::getRequiredStateSipCmdSize<FamilyType>(*pDevice, false);
+    auto cmdSize = sizeof(STATE_SIP) + sizeof(PIPE_CONTROL);
+    EXPECT_EQ(cmdSize, requiredCmdSize);
+
+    // first PC prior SBA
+    auto pipeControlIterator = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+    pipeControlIterator = find<PIPE_CONTROL *>(++pipeControlIterator, cmdList.end());
+    auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*pipeControlIterator);
+
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControlCmd));
+    EXPECT_TRUE(pipeControlCmd->getUnTypedDataPortCacheFlush());
+
+    EXPECT_FALSE(pipeControlCmd->getAmfsFlushEnable());
+    EXPECT_FALSE(pipeControlCmd->getInstructionCacheInvalidateEnable());
+    EXPECT_FALSE(pipeControlCmd->getTextureCacheInvalidationEnable());
+    EXPECT_FALSE(pipeControlCmd->getConstantCacheInvalidationEnable());
+    EXPECT_FALSE(pipeControlCmd->getStateCacheInvalidationEnable());
+
+    auto sipIterator = find<STATE_SIP *>(cmdList.begin(), cmdList.end());
+    auto sipCmd = genCmdCast<STATE_SIP *>(*sipIterator);
+
+    auto sipAllocation = SipKernel::getSipKernel(*pDevice).getSipAllocation();
+
+    EXPECT_EQ(sipAllocation->getGpuAddressToPatch(), sipCmd->getSystemInstructionPointer());
+}
+
+HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramExtendedPipeControlPriorToNonPipelinedStateCommandEnabledAndStateSipWhenA0SteppingIsActivatedThenOnlyGlobalSipIsProgrammed, IsXEHP) {
     DebugManagerStateRestore dbgRestorer;
-    DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.set(true);
+    DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.set(true);
 
     using STATE_SIP = typename FamilyType::STATE_SIP;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
@@ -189,9 +240,9 @@ HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramPipeContr
     commandStreamReceiver.flushTask(
         commandStream,
         0,
-        dsh,
-        ioh,
-        ssh,
+        &dsh,
+        &ioh,
+        &ssh,
         taskLevel,
         flushTaskFlags,
         *mockDevice);
@@ -206,6 +257,27 @@ HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenProgramPipeContr
     auto sipAllocation = SipKernel::getSipKernel(*mockDevice).getSipAllocation();
 
     EXPECT_EQ(sipAllocation->getGpuAddressToPatch(), sipAddress);
+}
+
+HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenSBACommandToProgramOnSingleCCSSetupThenThereIsPipeControlPriorToIt, IsWithinXeGfxFamily) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    hardwareInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 1;
+
+    auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hardwareInfo, 0u));
+    auto &commandStreamReceiver = mockDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    MockOsContext ccsOsContext(0, EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_CCS, EngineUsage::Regular}));
+    commandStreamReceiver.setupContext(ccsOsContext);
+
+    configureCSRtoNonDirtyState<FamilyType>(false);
+    flushTask(commandStreamReceiver);
+    parseCommands<FamilyType>(commandStreamReceiver.getCS(0));
+
+    auto stateBaseAddressItor = find<STATE_BASE_ADDRESS *>(cmdList.begin(), cmdList.end());
+    auto pipeControlItor = find<typename FamilyType::PIPE_CONTROL *>(cmdList.begin(), stateBaseAddressItor);
+    EXPECT_NE(stateBaseAddressItor, pipeControlItor);
 }
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, whenNotReprogrammingSshButInitProgrammingFlagsThenBindingTablePoolIsProgrammed) {
@@ -234,61 +306,6 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, wh
     EXPECT_NE(nullptr, bindingTablePoolAlloc);
 }
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, givenNoHeapsProvidedWhenSBAIsProgrammedThenBaseAddressesAreNotSetAndBindlessSurfaceStateSizeSetToMax) {
-    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
-    DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
-
-    uint64_t instructionHeapBase = 0x10000;
-    uint64_t internalHeapBase = 0x10000;
-    uint64_t generalStateBase = 0x30000;
-    STATE_BASE_ADDRESS sbaCmd;
-    StateBaseAddressHelper<FamilyType>::programStateBaseAddress(&sbaCmd,
-                                                                nullptr,
-                                                                nullptr,
-                                                                nullptr,
-                                                                generalStateBase,
-                                                                true,
-                                                                0,
-                                                                internalHeapBase,
-                                                                instructionHeapBase,
-                                                                0,
-                                                                true,
-                                                                false,
-                                                                pDevice->getGmmHelper(),
-                                                                false,
-                                                                MemoryCompressionState::NotApplicable,
-                                                                false,
-                                                                1u);
-
-    EXPECT_FALSE(sbaCmd.getDynamicStateBaseAddressModifyEnable());
-    EXPECT_FALSE(sbaCmd.getDynamicStateBufferSizeModifyEnable());
-    EXPECT_EQ(0u, sbaCmd.getDynamicStateBaseAddress());
-    EXPECT_EQ(0u, sbaCmd.getDynamicStateBufferSize());
-
-    EXPECT_FALSE(sbaCmd.getSurfaceStateBaseAddressModifyEnable());
-    EXPECT_EQ(0u, sbaCmd.getSurfaceStateBaseAddress());
-
-    EXPECT_TRUE(sbaCmd.getInstructionBaseAddressModifyEnable());
-    EXPECT_EQ(instructionHeapBase, sbaCmd.getInstructionBaseAddress());
-    EXPECT_TRUE(sbaCmd.getInstructionBufferSizeModifyEnable());
-    EXPECT_EQ(MemoryConstants::sizeOf4GBinPageEntities, sbaCmd.getInstructionBufferSize());
-
-    EXPECT_TRUE(sbaCmd.getGeneralStateBaseAddressModifyEnable());
-    EXPECT_TRUE(sbaCmd.getGeneralStateBufferSizeModifyEnable());
-    if constexpr (is64bit) {
-        EXPECT_EQ(GmmHelper::decanonize(internalHeapBase), sbaCmd.getGeneralStateBaseAddress());
-    } else {
-        EXPECT_EQ(generalStateBase, sbaCmd.getGeneralStateBaseAddress());
-    }
-    EXPECT_EQ(0xfffffu, sbaCmd.getGeneralStateBufferSize());
-
-    EXPECT_EQ(0u, sbaCmd.getBindlessSurfaceStateBaseAddress());
-    EXPECT_FALSE(sbaCmd.getBindlessSurfaceStateBaseAddressModifyEnable());
-
-    auto surfaceStateCount = StateBaseAddressHelper<FamilyType>::getMaxBindlessSurfaceStates();
-    EXPECT_EQ(surfaceStateCount, sbaCmd.getBindlessSurfaceStateSize());
-}
-
 using isXeHPOrAbove = IsAtLeastProduct<IGFX_XE_HP_SDV>;
 HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, whenFlushAllCachesVariableIsSetAndAddPipeControlIsCalledThenFieldsAreProperlySet, isXeHPOrAbove) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
@@ -299,7 +316,7 @@ HWTEST2_F(CommandStreamReceiverFlushTaskXeHPAndLaterTests, whenFlushAllCachesVar
     LinearStream stream(buff, sizeof(PIPE_CONTROL) * 3);
 
     PipeControlArgs args;
-    MemorySynchronizationCommands<FamilyType>::addPipeControl(stream, args);
+    MemorySynchronizationCommands<FamilyType>::addSingleBarrier(stream, args);
 
     parseCommands<FamilyType>(stream, 0);
 
@@ -355,7 +372,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
 
     //we do level change that will emit PPC, fill all the space so only BB end fits.
     taskLevel++;
-    auto ppcSize = MemorySynchronizationCommands<FamilyType>::getSizeForSinglePipeControl();
+    auto ppcSize = MemorySynchronizationCommands<FamilyType>::getSizeForSingleBarrier(false);
     auto fillSize = MemoryConstants::cacheLineSize - ppcSize - sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
     csrCommandStream.getSpace(fillSize);
     auto expectedUsedSize = 2 * MemoryConstants::cacheLineSize;
@@ -596,9 +613,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, Gi
     commandStreamReceiver->flushTask(
         commandStreamTask,
         0,
-        dsh,
-        ioh,
-        ssh,
+        &dsh,
+        &ioh,
+        &ssh,
         taskLevel,
         dispatchFlags,
         *pDevice);
@@ -634,9 +651,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
 
     mockCsr->flushTask(commandStream,
                        0,
-                       dsh,
-                       ioh,
-                       ssh,
+                       &dsh,
+                       &ioh,
+                       &ssh,
                        taskLevel,
                        dispatchFlags,
                        *pDevice);
@@ -663,9 +680,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
 
     mockCsr->flushTask(commandStream,
                        0,
-                       dsh,
-                       ioh,
-                       ssh,
+                       &dsh,
+                       &ioh,
+                       &ssh,
                        taskLevel,
                        dispatchFlags,
                        *pDevice);
@@ -704,9 +721,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
 
     mockCsr->flushTask(commandStream,
                        4,
-                       dsh,
-                       ioh,
-                       ssh,
+                       &dsh,
+                       &ioh,
+                       &ssh,
                        taskLevel,
                        dispatchFlags,
                        *pDevice);
@@ -722,8 +739,10 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
 
     //preemption allocation + sip kernel
     size_t csrSurfaceCount = (pDevice->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
+    csrSurfaceCount -= pDevice->getHardwareInfo().capabilityTable.supportsImages ? 0 : 1;
     csrSurfaceCount += mockCsr->globalFenceAllocation ? 1 : 0;
     csrSurfaceCount += mockCsr->clearColorAllocation ? 1 : 0;
+    csrSurfaceCount += mockCsr->getKernelArgsBufferAllocation() ? 1 : 0;
 
     EXPECT_EQ(4u + csrSurfaceCount, cmdBuffer->surfaces.size());
 
@@ -784,9 +803,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandStreamReceiverFlushTaskXeHPAndLaterTests, gi
     commandStreamReceiver.storeMakeResidentAllocations = true;
     commandStreamReceiver.flushTask(commandStream,
                                     0,
-                                    dsh,
-                                    ioh,
-                                    ssh,
+                                    &dsh,
+                                    &ioh,
+                                    &ssh,
                                     taskLevel,
                                     dispatchFlags,
                                     *pDevice);

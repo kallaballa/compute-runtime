@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,7 +16,7 @@
 typedef HelloWorldTest<HelloWorldFixtureFactory> EventTests;
 
 TEST_F(MockEventTests, GivenEventCreatedFromUserEventsThatIsNotSignaledThenDoNotFlushToCsr) {
-    uEvent = make_releaseable<UserEvent>();
+    uEvent = makeReleaseable<UserEvent>();
     cl_event retEvent = nullptr;
     cl_event eventWaitList[] = {uEvent.get()};
     int sizeOfWaitList = sizeof(eventWaitList) / sizeof(cl_event);
@@ -29,25 +29,25 @@ TEST_F(MockEventTests, GivenEventCreatedFromUserEventsThatIsNotSignaledThenDoNot
     auto taskLevelBeforeWaitForEvents = csr.peekTaskLevel();
 
     int counter = 0;
-    int Deadline = 20000;
+    int deadline = 20000;
 
-    std::atomic<bool> ThreadStarted(false);
-    std::atomic<bool> WaitForEventsCompleted(false);
+    std::atomic<bool> threadStarted(false);
+    std::atomic<bool> waitForEventsCompleted(false);
 
     std::thread t([&]() {
-        ThreadStarted = true;
+        threadStarted = true;
         //call WaitForEvents
         clWaitForEvents(1, &retEvent);
-        WaitForEventsCompleted = true;
+        waitForEventsCompleted = true;
     });
     //wait for the thread to start
-    while (!ThreadStarted)
+    while (!threadStarted)
         ;
     //now wait a while.
-    while (!WaitForEventsCompleted && counter++ < Deadline)
+    while (!waitForEventsCompleted && counter++ < deadline)
         ;
 
-    ASSERT_EQ(WaitForEventsCompleted, false) << "WaitForEvents returned while user event is not signaled!";
+    ASSERT_EQ(waitForEventsCompleted, false) << "WaitForEvents returned while user event is not signaled!";
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 

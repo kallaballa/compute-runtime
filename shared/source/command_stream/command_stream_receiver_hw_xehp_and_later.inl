@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -30,7 +30,7 @@ template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getRequiredStateBaseAddressSize(const Device &device) const {
     size_t size = sizeof(typename GfxFamily::STATE_BASE_ADDRESS);
     size += sizeof(typename GfxFamily::_3DSTATE_BINDING_TABLE_POOL_ALLOC);
-    size += sizeof(PIPE_CONTROL);
+    size += MemorySynchronizationCommands<GfxFamily>::getSizeForSingleBarrier(false);
 
     auto &hwInfo = *device.getRootDeviceEnvironment().getHardwareInfo();
     auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
@@ -45,37 +45,13 @@ template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForL3Config() const { return 0; }
 
 template <typename GfxFamily>
-size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForComputeMode() {
-    if (!csrSizeRequestFlags.hasSharedHandles) {
-        for (const auto &allocation : this->getResidencyAllocations()) {
-            if (allocation->peekSharedHandle()) {
-                csrSizeRequestFlags.hasSharedHandles = true;
-                break;
-            }
-        }
-    }
-
-    size_t size = 0;
-    auto &hwInfo = peekHwInfo();
-    if (isComputeModeNeeded()) {
-        auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
-        if (hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs())) {
-            size += sizeof(typename GfxFamily::PIPE_CONTROL);
-        }
-        size += sizeof(typename GfxFamily::STATE_COMPUTE_MODE);
-        if (csrSizeRequestFlags.hasSharedHandles) {
-            size += sizeof(typename GfxFamily::PIPE_CONTROL);
-        }
-    }
-    return size;
-}
-
-template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &commandStream, PipelineSelectArgs &pipelineSelectArgs) {
-    if (csrSizeRequestFlags.mediaSamplerConfigChanged || csrSizeRequestFlags.specialPipelineSelectModeChanged || !isPreambleSent) {
-        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, pipelineSelectArgs, peekHwInfo());
+    if (csrSizeRequestFlags.mediaSamplerConfigChanged || csrSizeRequestFlags.systolicPipelineSelectMode || !isPreambleSent) {
+        auto &hwInfo = peekHwInfo();
+        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, pipelineSelectArgs, hwInfo);
         this->lastMediaSamplerConfig = pipelineSelectArgs.mediaSamplerRequired;
-        this->lastSpecialPipelineSelectMode = pipelineSelectArgs.specialPipelineSelectMode;
+        this->lastSystolicPipelineSelectMode = pipelineSelectArgs.systolicPipelineSelectMode;
+        this->streamProperties.pipelineSelect.setProperties(true, this->lastMediaSamplerConfig, this->lastSystolicPipelineSelectMode, hwInfo);
     }
 }
 
@@ -161,38 +137,18 @@ inline void CommandStreamReceiverHw<GfxFamily>::programActivePartitionConfig(Lin
 }
 
 template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlPriorToNonPipelinedStateCommand(LinearStream &commandStream, PipeControlArgs args) {
-    auto &hwInfo = peekHwInfo();
-    auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
-
-    if (hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs())) {
-        args.textureCacheInvalidationEnable = true;
-        args.hdcPipelineFlush = true;
-        args.amfsFlushEnable = true;
-        args.instructionCacheInvalidateEnable = true;
-        args.constantCacheInvalidationEnable = true;
-        args.stateCacheInvalidationEnable = true;
-
-        args.dcFlushEnable = false;
-
-        setPipeControlPriorToNonPipelinedStateCommandExtraProperties(args);
-    }
-
-    MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStream, args);
-}
-
-template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlBeforeStateSip(LinearStream &commandStream, Device &device) {
     auto &hwInfo = peekHwInfo();
     HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
     bool debuggingEnabled = device.getDebugger() != nullptr;
     PipeControlArgs args;
-    args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
+    args.dcFlushEnable = this->dcFlushSupport;
+    const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs());
+    std::ignore = isExtendedWARequired;
 
-    if (hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs()) && debuggingEnabled &&
-        !hwHelper.isSipWANeeded(hwInfo)) {
-        addPipeControlPriorToNonPipelinedStateCommand(commandStream, args);
+    if (isBasicWARequired && debuggingEnabled && !hwHelper.isSipWANeeded(hwInfo)) {
+        NEO::EncodeWA<GfxFamily>::addPipeControlPriorToNonPipelinedStateCommand(commandStream, args, hwInfo, isRcs());
     }
 }
 
@@ -203,7 +159,7 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForStallingNoPostSyn
                                                                   false,
                                                                   false);
     } else {
-        return sizeof(typename GfxFamily::PIPE_CONTROL);
+        return MemorySynchronizationCommands<GfxFamily>::getSizeForSingleBarrier(false);
     }
 }
 
@@ -214,7 +170,7 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForStallingPostSyncC
                                                                   false,
                                                                   true);
     } else {
-        return MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(peekHwInfo());
+        return MemorySynchronizationCommands<GfxFamily>::getSizeForBarrierWithPostSyncOperation(peekHwInfo(), false);
     }
 }
 
@@ -232,7 +188,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStallingNoPostSyncCommand
                                                                     false,
                                                                     false);
     } else {
-        MemorySynchronizationCommands<GfxFamily>::addPipeControl(cmdStream, args);
+        MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(cmdStream, args);
     }
 }
 
@@ -241,7 +197,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStallingPostSyncCommandsF
     auto barrierTimestampPacketGpuAddress = TimestampPacketHelper::getContextEndGpuAddress(tagNode);
     const auto &hwInfo = peekHwInfo();
     PipeControlArgs args;
-    args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
+    args.dcFlushEnable = this->dcFlushSupport;
     if (isMultiTileOperationEnabled()) {
         args.workloadPartitionOffset = true;
         ImplicitScalingDispatch<GfxFamily>::dispatchBarrierCommands(cmdStream,
@@ -254,9 +210,9 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStallingPostSyncCommandsF
                                                                     false);
         tagNode.setPacketsUsed(this->activePartitions);
     } else {
-        MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+        MemorySynchronizationCommands<GfxFamily>::addBarrierWithPostSyncOperation(
             cmdStream,
-            PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+            PostSyncMode::ImmediateData,
             barrierTimestampPacketGpuAddress,
             0,
             hwInfo,

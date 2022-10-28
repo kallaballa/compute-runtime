@@ -8,6 +8,7 @@
 #pragma once
 
 #include "shared/source/command_container/implicit_scaling.h"
+#include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/program/kernel_info.h"
@@ -16,7 +17,7 @@
 #include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
-#include "shared/test/unit_test/device_binary_format/zebin_tests.h"
+#include "shared/test/common/mocks/mock_modules_zebin.h"
 
 #include "level_zero/core/source/module/module.h"
 #include "level_zero/core/source/module/module_imp.h"
@@ -61,13 +62,18 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
                 device->getNEODevice()->getMemoryManager()->freeGraphicsMemory(&*isaGraphicsAllocation);
                 isaGraphicsAllocation.release();
             }
+            auto ptr = reinterpret_cast<void *>(0x1234);
+            auto gmmHelper = std::make_unique<GmmHelper>(nullptr, defaultHwInfo.get());
+            auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(ptr));
             isaGraphicsAllocation.reset(new NEO::MockGraphicsAllocation(0,
                                                                         NEO::AllocationType::KERNEL_ISA,
-                                                                        reinterpret_cast<void *>(0x1234),
+                                                                        ptr,
                                                                         0x1000,
-                                                                        0,
-                                                                        sizeof(uint32_t),
-                                                                        MemoryPool::System4KBPages));
+                                                                        0u,
+                                                                        MemoryPool::System4KBPages,
+                                                                        MemoryManager::maxOsContextCount,
+                                                                        canonizedGpuAddress));
+            kernelInfo->kernelAllocation = isaGraphicsAllocation.get();
         }
 
         void setDevice(L0::Device *inDevice) {
@@ -101,10 +107,10 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
             mockKernelImmData->setDevice(device);
         }
 
-        ~MockModule() {
+        ~MockModule() override {
         }
 
-        const KernelImmutableData *getKernelImmutableData(const char *functionName) const override {
+        const KernelImmutableData *getKernelImmutableData(const char *kernelName) const override {
             return mockKernelImmData;
         }
 
@@ -120,11 +126,15 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
       public:
         using KernelImp::crossThreadData;
         using KernelImp::crossThreadDataSize;
+        using KernelImp::dynamicStateHeapData;
+        using KernelImp::dynamicStateHeapDataSize;
         using KernelImp::kernelArgHandlers;
         using KernelImp::kernelHasIndirectAccess;
         using KernelImp::kernelRequiresGenerationOfLocalIdsByRuntime;
         using KernelImp::privateMemoryGraphicsAllocation;
         using KernelImp::requiredWorkgroupOrder;
+        using KernelImp::surfaceStateHeapData;
+        using KernelImp::surfaceStateHeapDataSize;
 
         MockKernel(MockModule *mockModule) : WhiteBox<L0::KernelImp>(mockModule) {
         }
@@ -143,29 +153,22 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
         }
     };
 
-    void SetUp() {
+    void setUp() {
         auto executionEnvironment = MockDevice::prepareExecutionEnvironment(NEO::defaultHwInfo.get(), 0u);
         memoryManager = new MockImmutableMemoryManager(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
         DeviceFixture::setupWithExecutionEnvironment(*executionEnvironment);
     }
 
-    void createModuleFromBinary(uint32_t perHwThreadPrivateMemorySize, bool isInternal, MockImmutableData *mockKernelImmData) {
-        std::string testFile;
-        retrieveBinaryKernelFilenameNoRevision(testFile, binaryFilename + "_", ".bin");
-
-        size_t size = 0;
-        auto src = loadDataFromFile(
-            testFile.c_str(),
-            size);
-
-        ASSERT_NE(0u, size);
-        ASSERT_NE(nullptr, src);
+    void createModuleFromMockBinary(uint32_t perHwThreadPrivateMemorySize, bool isInternal, MockImmutableData *mockKernelImmData,
+                                    std::initializer_list<ZebinTestData::appendElfAdditionalSection> additionalSections = {}) {
+        zebinData = std::make_unique<ZebinTestData::ZebinWithL0TestCommonModule>(device->getHwInfo(), additionalSections);
+        const auto &src = zebinData->storage;
 
         ze_module_desc_t moduleDesc = {};
         moduleDesc.format = ZE_MODULE_FORMAT_NATIVE;
-        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.get());
-        moduleDesc.inputSize = size;
+        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.data());
+        moduleDesc.inputSize = src.size();
 
         ModuleBuildLog *moduleBuildLog = nullptr;
 
@@ -176,8 +179,9 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
                                               mockKernelImmData);
 
         module->type = isInternal ? ModuleType::Builtin : ModuleType::User;
-        bool result = module->initialize(&moduleDesc, device->getNEODevice());
-        EXPECT_TRUE(result);
+        ze_result_t result = ZE_RESULT_ERROR_MODULE_BUILD_FAILURE;
+        result = module->initialize(&moduleDesc, device->getNEODevice());
+        EXPECT_EQ(result, ZE_RESULT_SUCCESS);
     }
 
     void createKernel(MockKernel *kernel) {
@@ -186,44 +190,37 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
         kernel->initialize(&desc);
     }
 
-    void TearDown() {
-        DeviceFixture::TearDown();
+    void tearDown() {
+        module.reset(nullptr);
+        DeviceFixture::tearDown();
     }
 
-    const std::string binaryFilename = "test_kernel";
     const std::string kernelName = "test";
     const uint32_t numKernelArguments = 6;
     std::unique_ptr<MockModule> module;
+    std::unique_ptr<ZebinTestData::ZebinWithL0TestCommonModule> zebinData;
     MockImmutableMemoryManager *memoryManager;
 };
 
 struct ModuleFixture : public DeviceFixture {
-    void SetUp() {
-        NEO::MockCompilerEnableGuard mock(true);
-        DeviceFixture::SetUp();
-        createModuleFromBinary();
+    void setUp() {
+
+        DeviceFixture::setUp();
+        createModuleFromMockBinary();
     }
 
-    void createModuleFromBinary(ModuleType type = ModuleType::User) {
-        std::string testFile;
-        retrieveBinaryKernelFilenameNoRevision(testFile, binaryFilename + "_", ".bin");
-
-        size_t size = 0;
-        auto src = loadDataFromFile(
-            testFile.c_str(),
-            size);
-
-        ASSERT_NE(0u, size);
-        ASSERT_NE(nullptr, src);
+    void createModuleFromMockBinary(ModuleType type = ModuleType::User) {
+        zebinData = std::make_unique<ZebinTestData::ZebinWithL0TestCommonModule>(device->getHwInfo());
+        const auto &src = zebinData->storage;
 
         ze_module_desc_t moduleDesc = {};
         moduleDesc.format = ZE_MODULE_FORMAT_NATIVE;
-        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.get());
-        moduleDesc.inputSize = size;
+        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.data());
+        moduleDesc.inputSize = src.size();
 
         ModuleBuildLog *moduleBuildLog = nullptr;
-
-        module.reset(Module::create(device, &moduleDesc, moduleBuildLog, type));
+        ze_result_t result = ZE_RESULT_SUCCESS;
+        module.reset(Module::create(device, &moduleDesc, moduleBuildLog, type, &result));
     }
 
     void createKernel() {
@@ -235,44 +232,41 @@ struct ModuleFixture : public DeviceFixture {
         kernel->initialize(&desc);
     }
 
-    void TearDown() {
-        DeviceFixture::TearDown();
+    void tearDown() {
+        kernel.reset(nullptr);
+        module.reset(nullptr);
+        DeviceFixture::tearDown();
     }
 
-    const std::string binaryFilename = "test_kernel";
     const std::string kernelName = "test";
     const uint32_t numKernelArguments = 6;
     std::unique_ptr<L0::Module> module;
     std::unique_ptr<WhiteBox<::L0::Kernel>> kernel;
+    std::unique_ptr<ZebinTestData::ZebinWithL0TestCommonModule> zebinData;
 };
 
 struct MultiDeviceModuleFixture : public MultiDeviceFixture {
-    void SetUp() {
-        MultiDeviceFixture::SetUp();
+    void setUp() {
+        MultiDeviceFixture::setUp();
         modules.resize(numRootDevices);
     }
 
-    void createModuleFromBinary(uint32_t rootDeviceIndex) {
-        std::string testFile;
-        retrieveBinaryKernelFilenameNoRevision(testFile, binaryFilename + "_", ".bin");
-
-        size_t size = 0;
-        auto src = loadDataFromFile(testFile.c_str(), size);
-
-        ASSERT_NE(0u, size);
-        ASSERT_NE(nullptr, src);
+    void createModuleFromMockBinary(uint32_t rootDeviceIndex) {
+        auto device = driverHandle->devices[rootDeviceIndex];
+        zebinData = std::make_unique<ZebinTestData::ZebinWithL0TestCommonModule>(device->getHwInfo());
+        const auto &src = zebinData->storage;
 
         ze_module_desc_t moduleDesc = {};
         moduleDesc.format = ZE_MODULE_FORMAT_NATIVE;
-        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.get());
-        moduleDesc.inputSize = size;
+        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.data());
+        moduleDesc.inputSize = src.size();
 
         ModuleBuildLog *moduleBuildLog = nullptr;
+        ze_result_t result = ZE_RESULT_SUCCESS;
 
-        auto device = driverHandle->devices[rootDeviceIndex];
         modules[rootDeviceIndex].reset(Module::create(device,
                                                       &moduleDesc,
-                                                      moduleBuildLog, ModuleType::User));
+                                                      moduleBuildLog, ModuleType::User, &result));
     }
 
     void createKernel(uint32_t rootDeviceIndex) {
@@ -284,15 +278,19 @@ struct MultiDeviceModuleFixture : public MultiDeviceFixture {
         kernel->initialize(&desc);
     }
 
-    void TearDown() {
-        MultiDeviceFixture::TearDown();
+    void tearDown() {
+        kernel.reset(nullptr);
+        for (auto &module : modules) {
+            module.reset(nullptr);
+        }
+        MultiDeviceFixture::tearDown();
     }
 
-    const std::string binaryFilename = "test_kernel";
     const std::string kernelName = "test";
     const uint32_t numKernelArguments = 6;
     std::vector<std::unique_ptr<L0::Module>> modules;
     std::unique_ptr<WhiteBox<::L0::Kernel>> kernel;
+    std::unique_ptr<ZebinTestData::ZebinWithL0TestCommonModule> zebinData;
 };
 
 struct ModuleWithZebinFixture : public DeviceFixture {
@@ -303,19 +301,23 @@ struct ModuleWithZebinFixture : public DeviceFixture {
         MockImmutableData(L0::Device *device) {
 
             auto mockKernelDescriptor = new NEO::KernelDescriptor;
-            mockKernelDescriptor->kernelMetadata.kernelName = "kernel";
+            mockKernelDescriptor->kernelMetadata.kernelName = ZebinTestData::ValidEmptyProgram<>::kernelName;
             kernelDescriptor = mockKernelDescriptor;
             this->device = device;
+            auto ptr = reinterpret_cast<void *>(0x1234);
+            auto gmmHelper = device->getNEODevice()->getGmmHelper();
+            auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(ptr));
             isaGraphicsAllocation.reset(new NEO::MockGraphicsAllocation(0,
                                                                         NEO::AllocationType::KERNEL_ISA,
-                                                                        reinterpret_cast<void *>(0x1234),
+                                                                        ptr,
                                                                         0x1000,
-                                                                        0,
-                                                                        sizeof(uint32_t),
-                                                                        MemoryPool::System4KBPages));
+                                                                        0u,
+                                                                        MemoryPool::System4KBPages,
+                                                                        MemoryManager::maxOsContextCount,
+                                                                        canonizedGpuAddress));
         }
 
-        ~MockImmutableData() {
+        ~MockImmutableData() override {
             delete kernelDescriptor;
         }
     };
@@ -323,27 +325,35 @@ struct ModuleWithZebinFixture : public DeviceFixture {
     struct MockModuleWithZebin : public L0::ModuleImp {
         using ModuleImp::getDebugInfo;
         using ModuleImp::getZebinSegments;
+        using ModuleImp::isZebinBinary;
         using ModuleImp::kernelImmDatas;
         using ModuleImp::passDebugData;
         using ModuleImp::translationUnit;
-        MockModuleWithZebin(L0::Device *device) : ModuleImp(device, nullptr, ModuleType::User) {}
+        MockModuleWithZebin(L0::Device *device) : ModuleImp(device, nullptr, ModuleType::User) {
+            isZebinBinary = true;
+        }
 
         void addSegments() {
             kernelImmDatas.push_back(std::make_unique<MockImmutableData>(device));
+            auto ptr = reinterpret_cast<void *>(0x1234);
+            auto gmmHelper = device->getNEODevice()->getGmmHelper();
+            auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(ptr));
             translationUnit->globalVarBuffer = new NEO::MockGraphicsAllocation(0,
                                                                                NEO::AllocationType::GLOBAL_SURFACE,
-                                                                               reinterpret_cast<void *>(0x1234),
+                                                                               ptr,
                                                                                0x1000,
-                                                                               0,
-                                                                               sizeof(uint32_t),
-                                                                               MemoryPool::System4KBPages);
+                                                                               0u,
+                                                                               MemoryPool::System4KBPages,
+                                                                               MemoryManager::maxOsContextCount,
+                                                                               canonizedGpuAddress);
             translationUnit->globalConstBuffer = new NEO::MockGraphicsAllocation(0,
                                                                                  NEO::AllocationType::GLOBAL_SURFACE,
-                                                                                 reinterpret_cast<void *>(0x1234),
+                                                                                 ptr,
                                                                                  0x1000,
-                                                                                 0,
-                                                                                 sizeof(uint32_t),
-                                                                                 MemoryPool::System4KBPages);
+                                                                                 0u,
+                                                                                 MemoryPool::System4KBPages,
+                                                                                 MemoryManager::maxOsContextCount,
+                                                                                 canonizedGpuAddress);
 
             translationUnit->programInfo.globalStrings.initData = &strings;
             translationUnit->programInfo.globalStrings.size = sizeof(strings);
@@ -353,7 +363,7 @@ struct ModuleWithZebinFixture : public DeviceFixture {
         }
 
         void addEmptyZebin() {
-            auto zebin = ZebinTestData::ValidEmptyProgram();
+            auto zebin = ZebinTestData::ValidEmptyProgram<>();
 
             translationUnit->unpackedDeviceBinarySize = zebin.storage.size();
             translationUnit->unpackedDeviceBinary.reset(new char[zebin.storage.size()]);
@@ -361,34 +371,35 @@ struct ModuleWithZebinFixture : public DeviceFixture {
                      zebin.storage.data(), zebin.storage.size());
         }
 
-        ~MockModuleWithZebin() {
+        ~MockModuleWithZebin() override {
         }
 
         const char strings[12] = "Hello olleH";
     };
-    void SetUp() {
-        NEO::MockCompilerEnableGuard mock(true);
-        DeviceFixture::SetUp();
+    void setUp() {
+
+        DeviceFixture::setUp();
         module = std::make_unique<MockModuleWithZebin>(device);
     }
 
-    void TearDown() {
-        DeviceFixture::TearDown();
+    void tearDown() {
+        module.reset(nullptr);
+        DeviceFixture::tearDown();
     }
     std::unique_ptr<MockModuleWithZebin> module;
 };
 
 struct ImportHostPointerModuleFixture : public ModuleFixture {
-    void SetUp() {
+    void setUp() {
         DebugManager.flags.EnableHostPointerImport.set(1);
-        ModuleFixture::SetUp();
+        ModuleFixture::setUp();
 
         hostPointer = driverHandle->getMemoryManager()->allocateSystemMemory(MemoryConstants::pageSize, MemoryConstants::pageSize);
     }
 
-    void TearDown() {
+    void tearDown() {
         driverHandle->getMemoryManager()->freeSystemMemory(hostPointer);
-        ModuleFixture::TearDown();
+        ModuleFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestore;
@@ -396,19 +407,19 @@ struct ImportHostPointerModuleFixture : public ModuleFixture {
 };
 
 struct MultiTileModuleFixture : public MultiDeviceModuleFixture {
-    void SetUp() {
+    void setUp() {
         DebugManager.flags.EnableImplicitScaling.set(1);
         MultiDeviceFixture::numRootDevices = 1u;
         MultiDeviceFixture::numSubDevices = 2u;
 
-        MultiDeviceModuleFixture::SetUp();
-        createModuleFromBinary(0);
+        MultiDeviceModuleFixture::setUp();
+        createModuleFromMockBinary(0);
 
         device = driverHandle->devices[0];
     }
 
-    void TearDown() {
-        MultiDeviceModuleFixture::TearDown();
+    void tearDown() {
+        MultiDeviceModuleFixture::tearDown();
     }
 
     DebugManagerStateRestore debugRestore;

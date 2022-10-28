@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,20 +8,17 @@
 #pragma once
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/ptr_math.h"
-#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "opencl/test/unit_test/command_queue/command_enqueue_fixture.h"
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-
-#include "gtest/gtest.h"
 
 namespace NEO {
 
 struct EnqueueReadBufferRectTest : public CommandEnqueueFixture,
                                    public ::testing::Test {
     void SetUp() override {
-        CommandEnqueueFixture::SetUp();
+        CommandEnqueueFixture::setUp();
         context.reset(new MockContext(pCmdQ->getDevice().getSpecializedDevice<ClDevice>()));
         BufferDefaults::context = context.get();
 
@@ -46,7 +43,7 @@ struct EnqueueReadBufferRectTest : public CommandEnqueueFixture,
         ::alignedFree(hostPtr);
 
         context.reset();
-        CommandEnqueueFixture::TearDown();
+        CommandEnqueueFixture::tearDown();
     }
 
   protected:

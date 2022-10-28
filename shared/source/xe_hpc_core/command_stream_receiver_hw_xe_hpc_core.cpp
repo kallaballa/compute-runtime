@@ -5,18 +5,16 @@
  *
  */
 
-#include "shared/source/command_container/memory_fence_encoder.h"
-#include "shared/source/xe_hpc_core/hw_cmds.h"
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
 #include "shared/source/xe_hpc_core/hw_info.h"
 
-using Family = NEO::XE_HPC_COREFamily;
+using Family = NEO::XeHpcCoreFamily;
 
 #include "shared/source/command_stream/command_stream_receiver_hw_dg2_and_later.inl"
-#include "shared/source/command_stream/command_stream_receiver_hw_tgllp_and_later.inl"
 #include "shared/source/command_stream/command_stream_receiver_hw_xehp_and_later.inl"
 #include "shared/source/helpers/blit_commands_helper_xehp_and_later.inl"
 #include "shared/source/helpers/populate_factory.h"
-#include "shared/source/helpers/state_compute_mode_helper.h"
+#include "shared/source/helpers/state_base_address_xehp_and_later.inl"
 
 namespace NEO {
 static auto gfxCore = IGFX_XE_HPC_CORE;
@@ -37,7 +35,7 @@ template <>
 void CommandStreamReceiverHw<Family>::programEnginePrologue(LinearStream &csr) {
     if (!this->isEnginePrologueSent) {
         if (globalFenceAllocation) {
-            EncodeMemoryFence<Family>::encodeSystemMemoryFence(csr, globalFenceAllocation);
+            EncodeMemoryFence<Family>::encodeSystemMemoryFence(csr, globalFenceAllocation, nullptr);
         }
         this->isEnginePrologueSent = true;
     }
@@ -77,7 +75,13 @@ void BlitCommandsHelper<Family>::appendBlitCommandsMemCopy(const BlitProperties 
         blitCmd.setCopyType(MEM_COPY::COPY_TYPE::COPY_TYPE_LINEAR_COPY);
     }
 
-    auto mocsL3enabled = rootDeviceEnvironment.getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto cachePolicy = GMM_RESOURCE_USAGE_OCL_BUFFER;
+    //if transfer size bigger then L3 size, copy with L3 disabled
+    if (blitProperites.copySize.x * blitProperites.copySize.y * blitProperites.copySize.z * blitProperites.bytesPerPixel >= (rootDeviceEnvironment.getHardwareInfo()->gtSystemInfo.L3CacheSizeInKb * KB / 2)) {
+        cachePolicy = GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED;
+    }
+
+    auto mocsL3enabled = rootDeviceEnvironment.getGmmHelper()->getMOCS(cachePolicy);
     blitCmd.setDestinationMOCS(mocsL3enabled);
     blitCmd.setSourceMOCS(mocsL3enabled);
     if (DebugManager.flags.OverrideBlitterMocs.get() != -1) {
@@ -99,11 +103,11 @@ void BlitCommandsHelper<Family>::appendBlitCommandsMemCopy(const BlitProperties 
     }
 
     if (DebugManager.flags.EnableStatelessCompressionWithUnifiedMemory.get()) {
-        if (!MemoryPool::isSystemMemoryPool(srcAllocation->getMemoryPool())) {
+        if (!MemoryPoolHelper::isSystemMemoryPool(srcAllocation->getMemoryPool())) {
             blitCmd.setSourceCompressible(MEM_COPY::SOURCE_COMPRESSIBLE::SOURCE_COMPRESSIBLE_COMPRESSIBLE);
             blitCmd.setCompressionFormat(DebugManager.flags.FormatForStatelessCompressionWithUnifiedMemory.get());
         }
-        if (!MemoryPool::isSystemMemoryPool(dstAllocation->getMemoryPool())) {
+        if (!MemoryPoolHelper::isSystemMemoryPool(dstAllocation->getMemoryPool())) {
             blitCmd.setDestinationCompressible(MEM_COPY::DESTINATION_COMPRESSIBLE::DESTINATION_COMPRESSIBLE_COMPRESSIBLE);
             blitCmd.setCompressionFormat(DebugManager.flags.FormatForStatelessCompressionWithUnifiedMemory.get());
         }
@@ -139,7 +143,7 @@ void BlitCommandsHelper<Family>::dispatchBlitMemoryFill<1>(NEO::GraphicsAllocati
         blitCmd.setCompressionFormat40(compressionFormat);
     }
     if (DebugManager.flags.EnableStatelessCompressionWithUnifiedMemory.get()) {
-        if (!MemoryPool::isSystemMemoryPool(dstAlloc->getMemoryPool())) {
+        if (!MemoryPoolHelper::isSystemMemoryPool(dstAlloc->getMemoryPool())) {
             blitCmd.setDestinationCompressible(MEM_SET::DESTINATION_COMPRESSIBLE::DESTINATION_COMPRESSIBLE_COMPRESSIBLE);
             blitCmd.setCompressionFormat40(DebugManager.flags.FormatForStatelessCompressionWithUnifiedMemory.get());
         }
@@ -201,6 +205,56 @@ void BlitCommandsHelper<Family>::appendColorDepth(const BlitProperties &blitProp
 template <>
 template <>
 void BlitCommandsHelper<Family>::appendColorDepth(const BlitProperties &blitProperites, typename Family::XY_COPY_BLT &blitCmd) {}
+
+template <>
+void BlitCommandsHelper<Family>::encodeWa(LinearStream &cmdStream, const BlitProperties &blitProperties, uint32_t &latestSentBcsWaValue) {
+    using MI_LOAD_REGISTER_IMM = typename Family::MI_LOAD_REGISTER_IMM;
+
+    if (DebugManager.flags.EnableBcsSwControlWa.get() <= 0) {
+        return;
+    }
+
+    constexpr int32_t srcInSystemMemOnly = 1;
+    constexpr int32_t dstInSystemMemOnly = 2;
+    constexpr int32_t enableAlways = 4;
+    constexpr uint32_t waEnabledMMioValue = 0x40004;
+    constexpr uint32_t waDisabledMMioValue = 0x40000;
+
+    const bool applyForSrc = (DebugManager.flags.EnableBcsSwControlWa.get() & srcInSystemMemOnly);
+    const bool applyForDst = (DebugManager.flags.EnableBcsSwControlWa.get() & dstInSystemMemOnly);
+    const bool applyAlways = (DebugManager.flags.EnableBcsSwControlWa.get() == enableAlways);
+
+    const bool enableWa = (!blitProperties.srcAllocation->isAllocatedInLocalMemoryPool() && applyForSrc) ||
+                          (!blitProperties.dstAllocation->isAllocatedInLocalMemoryPool() && applyForDst) ||
+                          applyAlways;
+
+    uint32_t newValue = enableWa ? waEnabledMMioValue : waDisabledMMioValue;
+
+    if (newValue == latestSentBcsWaValue) {
+        return;
+    }
+
+    latestSentBcsWaValue = newValue;
+
+    MI_LOAD_REGISTER_IMM cmd = Family::cmdInitLoadRegisterImm;
+    cmd.setRegisterOffset(0x22200);
+    cmd.setDataDword(newValue);
+    cmd.setMmioRemapEnable(true);
+
+    auto lri = cmdStream.getSpaceForCmd<MI_LOAD_REGISTER_IMM>();
+    *lri = cmd;
+}
+
+template <>
+size_t BlitCommandsHelper<Family>::getWaCmdsSize(const BlitPropertiesContainer &blitPropertiesContainer) {
+    using MI_LOAD_REGISTER_IMM = typename Family::MI_LOAD_REGISTER_IMM;
+
+    if (DebugManager.flags.EnableBcsSwControlWa.get() <= 0) {
+        return 0;
+    }
+
+    return (blitPropertiesContainer.size() * sizeof(MI_LOAD_REGISTER_IMM));
+}
 
 template class CommandStreamReceiverHw<Family>;
 template struct BlitCommandsHelper<Family>;

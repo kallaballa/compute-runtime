@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,6 +12,7 @@
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/tools/source/sysman/sysman_imp.h"
 
+#include <cstring>
 #include <vector>
 
 namespace L0 {
@@ -113,6 +114,14 @@ ze_result_t SysmanDevice::powerGet(zes_device_handle_t hDevice, uint32_t *pCount
         return ZE_RESULT_ERROR_UNINITIALIZED;
     }
     return pSysmanDevice->powerGet(pCount, phPower);
+}
+
+ze_result_t SysmanDevice::powerGetCardDomain(zes_device_handle_t hDevice, zes_pwr_handle_t *phPower) {
+    auto pSysmanDevice = L0::SysmanDevice::fromHandle(hDevice);
+    if (pSysmanDevice == nullptr) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
+    }
+    return pSysmanDevice->powerGetCardDomain(phPower);
 }
 
 ze_result_t SysmanDevice::frequencyGet(zes_device_handle_t hDevice, uint32_t *pCount, zes_freq_handle_t *phFrequency) {
@@ -272,6 +281,38 @@ ze_result_t SysmanDevice::deviceEventRegister(zes_device_handle_t hDevice, zes_e
         return ZE_RESULT_ERROR_UNINITIALIZED;
     }
     return pSysmanDevice->deviceEventRegister(events);
+}
+
+ze_result_t SysmanDevice::deviceEccAvailable(zes_device_handle_t hDevice, ze_bool_t *pAvailable) {
+    auto pSysmanDevice = L0::SysmanDevice::fromHandle(hDevice);
+    if (pSysmanDevice == nullptr) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
+    }
+    return pSysmanDevice->deviceEccAvailable(pAvailable);
+}
+
+ze_result_t SysmanDevice::deviceEccConfigurable(zes_device_handle_t hDevice, ze_bool_t *pConfigurable) {
+    auto pSysmanDevice = L0::SysmanDevice::fromHandle(hDevice);
+    if (pSysmanDevice == nullptr) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
+    }
+    return pSysmanDevice->deviceEccConfigurable(pConfigurable);
+}
+
+ze_result_t SysmanDevice::deviceGetEccState(zes_device_handle_t hDevice, zes_device_ecc_properties_t *pState) {
+    auto pSysmanDevice = L0::SysmanDevice::fromHandle(hDevice);
+    if (pSysmanDevice == nullptr) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
+    }
+    return pSysmanDevice->deviceGetEccState(pState);
+}
+
+ze_result_t SysmanDevice::deviceSetEccState(zes_device_handle_t hDevice, const zes_device_ecc_desc_t *newState, zes_device_ecc_properties_t *pState) {
+    auto pSysmanDevice = L0::SysmanDevice::fromHandle(hDevice);
+    if (pSysmanDevice == nullptr) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
+    }
+    return pSysmanDevice->deviceSetEccState(newState, pState);
 }
 
 } // namespace L0

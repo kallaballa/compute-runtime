@@ -11,9 +11,8 @@
 #include "shared/test/common/helpers/default_hw_info.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_host_ptr_manager.h"
+#include "shared/test/common/mocks/mock_os_context.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
-
-#include "gmock/gmock.h"
 
 namespace NEO {
 
@@ -45,6 +44,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     using MemoryManager::multiContextResourceDestructor;
     using MemoryManager::overrideAllocationData;
     using MemoryManager::pageFaultManager;
+    using MemoryManager::prefetchManager;
     using MemoryManager::registeredEngines;
     using MemoryManager::supportsMultiStorageResources;
     using MemoryManager::useNonSvmHostPtrAlloc;
@@ -82,6 +82,8 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) override;
     GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptr) override;
     GraphicsAllocation *createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation) override;
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override;
+    GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, AllocationType allocType) override;
 
     void *allocateSystemMemory(size_t size, size_t alignment) override;
 
@@ -105,7 +107,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     void waitForEnginesCompletion(GraphicsAllocation &graphicsAllocation) override {
         waitForEnginesCompletionCalled++;
         if (waitAllocations.get()) {
-            waitAllocations.get()->addAllocation(&graphicsAllocation);
+            waitAllocations->addAllocation(&graphicsAllocation);
         }
         MemoryManager::waitForEnginesCompletion(graphicsAllocation);
     }
@@ -122,7 +124,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
         return OsAgnosticMemoryManager::reserveCpuAddressRange(size, rootDeviceIndex);
     }
 
-    void *createMultiGraphicsAllocationInSystemMemoryPool(std::vector<uint32_t> &rootDeviceIndices,
+    void *createMultiGraphicsAllocationInSystemMemoryPool(RootDeviceIndicesContainer &rootDeviceIndices,
                                                           AllocationProperties &properties,
                                                           MultiGraphicsAllocation &multiGraphicsAllocation) override {
         if (isMockEventPoolCreateMemoryManager) {
@@ -147,6 +149,19 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
             return false;
         }
         return MemoryManager::setMemAdvise(gfxAllocation, flags, rootDeviceIndex);
+    }
+
+    bool setMemPrefetch(GraphicsAllocation *gfxAllocation, uint32_t subDeviceId, uint32_t rootDeviceIndex) override {
+        memPrefetchSubDeviceId = subDeviceId;
+        setMemPrefetchCalled = true;
+        return MemoryManager::setMemPrefetch(gfxAllocation, subDeviceId, rootDeviceIndex);
+    }
+
+    bool isKmdMigrationAvailable(uint32_t rootDeviceIndex) override {
+        if (DebugManager.flags.UseKmdMigration.get() != -1) {
+            return !!DebugManager.flags.UseKmdMigration.get();
+        }
+        return false;
     }
 
     struct CopyMemoryToAllocationBanksParams {
@@ -207,6 +222,8 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     uint32_t handleFenceCompletionCalled = 0u;
     uint32_t waitForEnginesCompletionCalled = 0u;
     uint32_t allocateGraphicsMemoryWithPropertiesCount = 0;
+    osHandle capturedSharedHandle = 0u;
+    osHandle invalidSharedHandle = -1;
     bool allocationCreated = false;
     bool allocation64kbPageCreated = false;
     bool allocationInDevicePoolCreated = false;
@@ -221,6 +238,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     bool failAllocateSystemMemory = false;
     bool failAllocate32Bit = false;
     bool failSetMemAdvise = false;
+    bool setMemPrefetchCalled = false;
     bool cpuCopyRequired = false;
     bool forceCompressed = false;
     bool forceFailureInPrimaryAllocation = false;
@@ -234,6 +252,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     std::unique_ptr<MockExecutionEnvironment> mockExecutionEnvironment;
     DeviceBitfield recentlyPassedDeviceBitfield{};
     std::unique_ptr<MultiGraphicsAllocation> waitAllocations = nullptr;
+    uint32_t memPrefetchSubDeviceId = 0;
     MemAdviseFlags memAdviseFlags{};
     MemoryManager::AllocationStatus populateOsHandlesResult = MemoryManager::AllocationStatus::Success;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtrResult = nullptr;
@@ -284,6 +303,10 @@ class FailMemoryManager : public MockMemoryManager {
         return nullptr;
     }
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) override {
+        return nullptr;
+    }
+
+    GraphicsAllocation *createGraphicsAllocationFromMultipleSharedHandles(std::vector<osHandle> handles, AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override {
         return nullptr;
     }
 
@@ -356,6 +379,63 @@ class MockMemoryManagerFailFirstAllocation : public MockMemoryManager {
         static_cast<MemoryAllocation *>(allocation)->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
         return allocation;
     }
+};
+
+class MockMemoryManagerOsAgnosticContext : public MockMemoryManager {
+  public:
+    MockMemoryManagerOsAgnosticContext(NEO::ExecutionEnvironment &executionEnvironment) : MockMemoryManager(executionEnvironment) {}
+    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver,
+                                          const EngineDescriptor &engineDescriptor) override {
+        auto osContext = new OsContext(0, engineDescriptor);
+        osContext->incRefInternal();
+        registeredEngines.emplace_back(commandStreamReceiver, osContext);
+        return osContext;
+    }
+};
+
+class MockMemoryManagerWithDebuggableOsContext : public MockMemoryManager {
+  public:
+    MockMemoryManagerWithDebuggableOsContext(NEO::ExecutionEnvironment &executionEnvironment) : MockMemoryManager(executionEnvironment) {}
+    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver,
+                                          const EngineDescriptor &engineDescriptor) override {
+        auto osContext = new MockOsContext(0, engineDescriptor);
+        osContext->debuggableContext = true;
+        osContext->incRefInternal();
+        registeredEngines.emplace_back(commandStreamReceiver, osContext);
+        return osContext;
+    }
+};
+
+class MockMemoryManagerWithCapacity : public MockMemoryManager {
+  public:
+    MockMemoryManagerWithCapacity(NEO::ExecutionEnvironment &executionEnvironment) : MockMemoryManager(executionEnvironment) {}
+    GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptr) override {
+        if (this->capacity >= properties.size) {
+            this->capacity -= properties.size;
+            return MockMemoryManager::allocateGraphicsMemoryWithProperties(properties, ptr);
+        }
+        return nullptr;
+    }
+
+    GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) override {
+        return this->allocateGraphicsMemoryWithProperties(properties, nullptr);
+    }
+
+    void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override {
+        this->capacity += gfxAllocation->getUnderlyingBufferSize();
+        MockMemoryManager::freeGraphicsMemoryImpl(gfxAllocation);
+    };
+
+    size_t capacity = 0u;
+};
+
+class MemoryManagerMemHandleMock : public MockMemoryManager {
+  public:
+    bool isNTHandle(osHandle handle, uint32_t rootDeviceIndex) override {
+        return NTHandle;
+    };
+
+    bool NTHandle = false;
 };
 
 } // namespace NEO

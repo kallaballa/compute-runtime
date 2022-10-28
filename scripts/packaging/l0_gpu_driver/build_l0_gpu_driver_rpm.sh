@@ -49,13 +49,15 @@ if [ "${BUILD_SRPM}" == "1" ]; then
     get_api_version                # API_VERSION-API_VERSION_SRC and API_RPM_MODEL_LINK
     get_l0_gpu_driver_version      # NEO_L0_VERSION_MAJOR.NEO_L0_VERSION_MINOR.NEO_L0_VERSION_PATCH
 
-    VERSION="${NEO_L0_VERSION_MAJOR}.${NEO_L0_VERSION_MINOR}.${NEO_L0_VERSION_PATCH}.${API_VERSION}"
-    RELEASE="${API_VERSION_SRC}${API_RPM_MODEL_LINK}"
+    VERSION="${NEO_L0_VERSION_MAJOR}.${NEO_L0_VERSION_MINOR}.${NEO_L0_VERSION_PATCH}${API_VERSION}"
+    RELEASE="${NEO_L0_VERSION_HOTFIX}${API_VERSION_SRC}${API_RPM_MODEL_LINK}"
+
+    RELEASE_WITH_REGKEYS="${RELEASE_WITH_REGKEYS:-FALSE}"
 
     #setup rpm build tree
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-    tar -c -I 'xz -6 -T0' -f $BUILD_DIR/SOURCES/compute-runtime-$VERSION.tar.xz -C $REPO_DIR --transform "s,${REPO_DIR:1},compute-runtime-$VERSION," --exclude=.git\* $REPO_DIR
+    tar -c -I 'xz -6 -T0' -f $BUILD_DIR/SOURCES/compute-runtime.tar.xz -C $REPO_DIR --transform "s,${REPO_DIR:1},compute-runtime," --exclude=.git\* $REPO_DIR
     cp $COPYRIGHT $BUILD_DIR/SOURCES/
     cp $SPEC_SRC $BUILD_DIR/SPECS/
 
@@ -68,6 +70,7 @@ if [ "${BUILD_SRPM}" == "1" ]; then
     # Update spec file with new version
     perl -pi -e "s/^%global ver .*/%global ver ${VERSION}/" $SPEC
     perl -pi -e "s/^%global rel .*/%global rel ${RELEASE}/" $SPEC
+    perl -pi -e "s/^%global NEO_RELEASE_WITH_REGKEYS .*/%global NEO_RELEASE_WITH_REGKEYS ${RELEASE_WITH_REGKEYS}/" $SPEC
     perl -pi -e "s/^%global build_id .*/%global build_id ${NEO_L0_VERSION_PATCH}/" $SPEC
 
     rpmbuild --define "_topdir $BUILD_DIR" -bs $SPEC --define 'build_type ${CMAKE_BUILD_TYPE}' "${build_args[@]}"
@@ -90,6 +93,7 @@ if [ "${BUILD_RPM}" == "1" ]; then
   if [ "${LOG_CCACHE_STATS}" == "1" ]; then
     ccache -z
   fi
+  export CCACHE_BASEDIR=$(readlink -m $BUILD_DIR/BUILD/compute-runtime/)
   rpmbuild --rebuild ${REPO_DIR}/../output/SRPMS/intel-level-zero-gpu-${VERSION}*.src.rpm "${build_args[@]}"
   if [ "${LOG_CCACHE_STATS}" == "1" ]; then
     ccache -s

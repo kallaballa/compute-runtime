@@ -7,34 +7,36 @@
 
 #pragma once
 
-#include "shared/source/execution_environment/root_device_environment.h"
-#include "shared/source/os_interface/linux/ioctl_helper.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 #include "shared/test/common/libult/linux/drm_mock.h"
-#include "shared/test/common/libult/linux/drm_query_mock_context.h"
+#include "shared/test/common/libult/linux/drm_mock_prelim_context.h"
 
 using namespace NEO;
 
 class DrmQueryMock : public DrmMock {
   public:
+    using Drm::rootDeviceEnvironment;
+
     DrmQueryMock(RootDeviceEnvironment &rootDeviceEnvironment) : DrmQueryMock(rootDeviceEnvironment, defaultHwInfo.get()) {}
-    DrmQueryMock(RootDeviceEnvironment &rootDeviceEnvironment, const HardwareInfo *inputHwInfo) : DrmMock(rootDeviceEnvironment) {
-        rootDeviceEnvironment.setHwInfo(inputHwInfo);
-        context.hwInfo = rootDeviceEnvironment.getHardwareInfo();
+    DrmQueryMock(RootDeviceEnvironment &rootDeviceEnvironment, const HardwareInfo *inputHwInfo);
 
-        setupIoctlHelper(IGFX_UNKNOWN);
-    }
-
-    void getPrelimVersion(std::string &prelimVersion) override {
-        prelimVersion = "2.0";
-    }
-
-    DrmQueryMockContext context{
-        .hwInfo = nullptr,
-        .rootDeviceEnvironment = rootDeviceEnvironment,
-        .failRetTopology = failRetTopology,
+    DrmMockPrelimContext context{
+        nullptr,
+        rootDeviceEnvironment,
+        getCacheInfo(),
+        failRetTopology,
+        supportedCopyEnginesMask,
+        contextDebugSupported,
     };
 
-    int handleRemainingRequests(unsigned long request, void *arg) override;
+    static constexpr uint32_t maxEngineCount{9};
+    ContextEnginesLoadBalance<maxEngineCount> receivedContextEnginesLoadBalance{};
+    ContextParamEngines<1 + maxEngineCount> receivedContextParamEngines{};
+
+    BcsInfoMask supportedCopyEnginesMask = 1;
+    uint32_t i915QuerySuccessCount = std::numeric_limits<uint32_t>::max();
+    int storedRetValForSetParamEngines{0};
+
+    int handleRemainingRequests(DrmIoctl request, void *arg) override;
     virtual bool handleQueryItem(void *queryItem);
 };

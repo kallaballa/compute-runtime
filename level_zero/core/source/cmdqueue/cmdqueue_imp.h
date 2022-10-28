@@ -7,15 +7,17 @@
 
 #pragma once
 
-#include "shared/source/command_stream/csr_definitions.h"
+#include "shared/source/command_container/cmdcontainer.h"
+#include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/command_stream/submission_status.h"
-#include "shared/source/command_stream/submissions_aggregator.h"
-#include "shared/source/helpers/constants.h"
-#include "shared/source/indirect_heap/indirect_heap.h"
+#include "shared/source/command_stream/wait_status.h"
+#include "shared/source/helpers/completion_stamp.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue.h"
 
 #include <vector>
+
+struct UnifiedMemoryControls;
 
 namespace NEO {
 class LinearStream;
@@ -38,7 +40,7 @@ struct CommandQueueImp : public CommandQueue {
 
         ze_result_t initialize(Device *device, size_t sizeRequested);
         void destroy(Device *device);
-        void switchBuffers(NEO::CommandStreamReceiver *csr);
+        NEO::WaitStatus switchBuffers(NEO::CommandStreamReceiver *csr);
 
         NEO::GraphicsAllocation *getCurrentBufferAllocation() {
             return buffers[bufferUse];
@@ -78,10 +80,10 @@ struct CommandQueueImp : public CommandQueue {
 
     NEO::CommandStreamReceiver *getCsr() { return csr; }
 
-    void reserveLinearStreamSize(size_t size);
+    MOCKABLE_VIRTUAL NEO::WaitStatus reserveLinearStreamSize(size_t size);
     ze_command_queue_mode_t getSynchronousMode() const;
-    virtual void dispatchTaskCountWrite(NEO::LinearStream &commandStream, bool flushDataCache) = 0;
     virtual bool getPreemptionCmdProgramming() = 0;
+    void handleIndirectAllocationResidency(UnifiedMemoryControls unifiedMemoryControls, std::unique_lock<std::mutex> &lockForIndirect) override;
 
   protected:
     MOCKABLE_VIRTUAL NEO::SubmissionStatus submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr,
@@ -89,22 +91,21 @@ struct CommandQueueImp : public CommandQueue {
 
     ze_result_t synchronizeByPollingForTaskCount(uint64_t timeout);
 
-    void printFunctionsPrintfOutput();
+    void printKernelsPrintfOutput();
 
     void postSyncOperations();
 
     CommandBufferManager buffers;
     NEO::HeapContainer heapContainer;
     ze_command_queue_desc_t desc;
-    std::vector<Kernel *> printfFunctionContainer;
+    std::vector<Kernel *> printfKernelContainer;
 
     Device *device = nullptr;
     NEO::CommandStreamReceiver *csr = nullptr;
-    NEO::LinearStream *commandStream = nullptr;
+    NEO::LinearStream commandStream{};
 
     std::atomic<uint32_t> taskCount{0};
 
-    bool gpgpuEnabled = false;
     bool useKmdWaitFunction = false;
 };
 

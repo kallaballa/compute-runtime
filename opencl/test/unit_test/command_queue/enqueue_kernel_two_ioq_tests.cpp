@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,12 +27,12 @@ struct TwoIOQsTwoDependentWalkers : public HelloWorldTest<HelloWorldFixtureFacto
 
     void SetUp() override {
         Parent::SetUp();
-        ClHardwareParse::SetUp();
+        ClHardwareParse::setUp();
     }
 
     void TearDown() override {
         delete pCmdQ2;
-        ClHardwareParse::TearDown();
+        ClHardwareParse::tearDown();
         Parent::TearDown();
     }
 
@@ -75,12 +75,12 @@ struct TwoIOQsTwoDependentWalkers : public HelloWorldTest<HelloWorldFixtureFacto
         ASSERT_EQ(CL_SUCCESS, retVal);
         ClHardwareParse::parseCommands<FamilyType>(*pCmdQ2);
 
-        Event *E1 = castToObject<Event>(event1);
-        ASSERT_NE(nullptr, E1);
-        Event *E2 = castToObject<Event>(event2);
-        ASSERT_NE(nullptr, E2);
-        delete E1;
-        delete E2;
+        Event *e1 = castToObject<Event>(event1);
+        ASSERT_NE(nullptr, e1);
+        Event *e2 = castToObject<Event>(event2);
+        ASSERT_NE(nullptr, e2);
+        delete e1;
+        delete e2;
 
         typedef typename FamilyType::WALKER_TYPE GPGPU_WALKER;
         itorWalker1 = find<GPGPU_WALKER *>(cmdList.begin(), cmdList.end());
@@ -102,7 +102,7 @@ HWTEST_F(TwoIOQsTwoDependentWalkers, GivenTwoCommandQueuesWhenEnqueuingKernelThe
     EXPECT_NE(itorWalker1, itorWalker2);
 }
 
-HWTEST_F(TwoIOQsTwoDependentWalkers, GivenTwoCommandQueuesWhenEnqueuingKernelThenOnePipelineSelectExists) {
+HWTEST2_F(TwoIOQsTwoDependentWalkers, GivenTwoCommandQueuesWhenEnqueuingKernelThenOnePipelineSelectExists, IsAtMostXeHpcCore) {
     parseWalkers<FamilyType>();
     int numCommands = getNumberOfPipelineSelectsThatEnablePipelineSelect<FamilyType>();
     EXPECT_EQ(1, numCommands);

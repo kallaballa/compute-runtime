@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,7 +17,7 @@
 
 namespace NEO {
 
-static const size_t maxFlushSubrangeCount = 126;
+inline const size_t maxFlushSubrangeCount = 126;
 struct L3Range {
     static constexpr uint64_t minAlignment = MemoryConstants::pageSize;
     static constexpr uint64_t minAlignmentMask = minAlignment - 1ULL;
@@ -64,7 +64,7 @@ struct L3Range {
     }
 
     uint64_t getSizeInBytes() const {
-        return (1ULL << (minAlignmentBitOffset + getMask()));
+        return (1ULL << (minAlignmentBitOffset + getMask())); // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
     }
 
     uint64_t getMaskedAddress() const {
@@ -72,7 +72,7 @@ struct L3Range {
     }
 
     static L3Range fromAddressSize(uint64_t address, uint64_t size) {
-        L3Range ret;
+        L3Range ret{};
         ret.setAddress(address);
         ret.setMask(getMaskFromSize(size));
         return ret;
@@ -84,7 +84,7 @@ struct L3Range {
         return ret;
     }
     static L3Range fromAddressMask(uint64_t address, uint64_t mask) {
-        L3Range ret;
+        L3Range ret{};
         ret.setAddress(address);
         ret.setMask(mask);
         return ret;

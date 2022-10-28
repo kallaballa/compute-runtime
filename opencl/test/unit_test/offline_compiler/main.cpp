@@ -9,10 +9,11 @@
 #include "shared/test/common/helpers/custom_event_listener.h"
 #include "shared/test/common/helpers/test_files.h"
 #include "shared/test/common/libult/signal_utils.h"
-#include "shared/test/unit_test/test_stats.h"
+#include "shared/test/common/test_stats.h"
 
 #include "environment.h"
 #include "limits.h"
+#include "test_files_setup.h"
 
 #ifdef WIN32
 const char *fSeparator = "\\";
@@ -40,8 +41,12 @@ std::string getRunPath() {
 int main(int argc, char **argv) {
     int retVal = 0;
     bool useDefaultListener = false;
+    bool enableAbrt = true;
     bool enableAlarm = true;
+    bool enableSegv = true;
     bool showTestStats = false;
+    bool dumpTestStats = false;
+    std::string dumpTestStatsFileName = "";
 
     std::string devicePrefix("skl");
     std::string familyNameWithType("Gen9core");
@@ -86,13 +91,12 @@ int main(int argc, char **argv) {
                 revId = argv[i];
             } else if (!strcmp("--show_test_stats", argv[i])) {
                 showTestStats = true;
+            } else if (!strcmp("--dump_test_stats", argv[i])) {
+                dumpTestStats = true;
+                ++i;
+                dumpTestStatsFileName = std::string(argv[i]);
             }
         }
-    }
-
-    if (showTestStats) {
-        std::cout << getTestStats() << std::endl;
-        return 0;
     }
 
     for (unsigned int productId = 0; productId < IGFX_MAX_PRODUCT; ++productId) {
@@ -117,6 +121,10 @@ int main(int argc, char **argv) {
     nTestFiles.append(testFiles);
     testFiles = nTestFiles;
     binaryNameSuffix.append(familyNameWithType);
+
+    std::string nClFiles = NEO_OPENCL_TEST_FILES_DIR;
+    nClFiles.append("/");
+    clFiles = nClFiles;
 
 #ifdef WIN32
 #include <direct.h>
@@ -143,10 +151,32 @@ int main(int argc, char **argv) {
     gEnvironment = reinterpret_cast<Environment *>(::testing::AddGlobalTestEnvironment(new Environment(devicePrefix, familyNameWithType)));
 
     int sigOut = setAlarm(enableAlarm);
-    if (sigOut != 0)
+    if (sigOut != 0) {
         return sigOut;
+    }
+
+    sigOut = setSegv(enableSegv);
+    if (sigOut != 0) {
+        return sigOut;
+    }
+
+    sigOut = setAbrt(enableAbrt);
+    if (sigOut != 0) {
+        return sigOut;
+    }
 
     retVal = RUN_ALL_TESTS();
+
+    if (showTestStats) {
+        std::cout << getTestStats() << std::endl;
+    }
+
+    if (dumpTestStats) {
+        std::ofstream dumpTestStatsFile;
+        dumpTestStatsFile.open(dumpTestStatsFileName);
+        dumpTestStatsFile << getTestStatsJson();
+        dumpTestStatsFile.close();
+    }
 
     return retVal;
 }

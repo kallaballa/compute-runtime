@@ -8,6 +8,7 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/helpers/local_memory_access_modes.h"
 #include "shared/source/memory_manager/allocations_list.h"
+#include "shared/test/common/fixtures/cpu_page_fault_manager_tests_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
@@ -15,8 +16,7 @@
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_svm_manager.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/page_fault_manager/cpu_page_fault_manager_tests_fixture.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
@@ -36,7 +36,7 @@ template <bool enableLocalMemory>
 struct SVMMemoryAllocatorFixture {
     SVMMemoryAllocatorFixture() : executionEnvironment(defaultHwInfo.get()) {}
 
-    virtual void SetUp() {
+    void setUp() {
         bool svmSupported = executionEnvironment.rootDeviceEnvironments[0]->getHardwareInfo()->capabilityTable.ftrSvm;
         if (!svmSupported) {
             GTEST_SKIP();
@@ -48,13 +48,13 @@ struct SVMMemoryAllocatorFixture {
             memoryManager->pageFaultManager.reset(new MockPageFaultManager);
         }
     }
-    virtual void TearDown() {
+    void tearDown() {
     }
 
     MockExecutionEnvironment executionEnvironment;
     std::unique_ptr<MockMemoryManager> memoryManager;
     std::unique_ptr<MockSVMAllocsManager> svmManager;
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, mockDeviceBitfield}};
 };
 
@@ -578,7 +578,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithMultipleBitsSetWhenSharedUnifiedM
     auto memoryManager = std::make_unique<MemoryManagerPropertiesCheck>(false, true, executionEnvironment);
     auto svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager.reset(new MockPageFaultManager);
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xf)}};
 
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
@@ -594,7 +594,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithMultipleBitsSetWhenSharedUnifiedM
 
 TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithSingleBitSetWhenSharedUnifiedMemoryAllocationIsCreatedThenProperPropertiesArePassedToMemoryManager) {
     MockCommandQueue cmdQ;
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x8)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -616,7 +616,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithMultipleBitsSetWhenMultiOsContext
     auto svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xf)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
     svmManager->multiOsContextSupport = true;
@@ -640,7 +640,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithMultipleBitsSetWhenMultiOsContext
     auto svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xE)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
     svmManager->multiOsContextSupport = false;
@@ -664,7 +664,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithMultipleBitsSetWhenMultiOsContext
     auto memoryManager = std::make_unique<MemoryManagerPropertiesCheck>(false, true, executionEnvironment);
     auto svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xf)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
     unifiedMemoryProperties.device = &device->getDevice();
@@ -680,7 +680,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithMultipleBitsSetWhenMultiOsContext
 
 TEST(UnifiedMemoryTest, givenDeviceBitfieldWithTwoBitsSetWhenMultiOsContextFlagTrueAndDeviceMemoryThenProperPropertiesArePassedToMemoryManager) {
     MockContext mockContext;
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     MockExecutionEnvironment executionEnvironment;
     auto memoryManager = std::make_unique<MemoryManagerPropertiesCheck>(false, true, executionEnvironment);
     auto svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
@@ -710,7 +710,7 @@ TEST(UnifiedMemoryTest, givenDeviceBitfieldWithSingleBitsSetWhenMultiOsContextFl
     auto svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
     svmManager->multiOsContextSupport = true;
@@ -731,7 +731,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationWhenItIsMadeResidentThenNewTracki
     auto unifiedMemoryManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -765,7 +765,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationWhenItIsMadeResidentThenSubsequen
     auto unifiedMemoryManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -778,18 +778,18 @@ TEST(UnifiedMemoryTest, givenInternalAllocationWhenItIsMadeResidentThenSubsequen
 
     EXPECT_TRUE(graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
 
-    //now call with task count 2 , allocations shouldn't change
+    // now call with task count 2 , allocations shouldn't change
     unifiedMemoryManager->makeIndirectAllocationsResident(commandStreamReceiver, 2u);
     auto internalEntry = unifiedMemoryManager->indirectAllocationsResidency.find(&commandStreamReceiver)->second;
 
     EXPECT_EQ(2u, internalEntry.latestSentTaskCount);
     EXPECT_TRUE(graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
 
-    //force Graphics Allocation to be non resident
+    // force Graphics Allocation to be non resident
     graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->updateResidencyTaskCount(GraphicsAllocation::objectNotResident, commandStreamReceiver.getOsContext().getContextId());
     EXPECT_FALSE(graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
 
-    //now call with task count 3 , allocations shouldn't change
+    // now call with task count 3 , allocations shouldn't change
     unifiedMemoryManager->makeIndirectAllocationsResident(commandStreamReceiver, 2u);
     EXPECT_FALSE(graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
     unifiedMemoryManager->freeSVMAlloc(ptr);
@@ -803,7 +803,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationWhenNewAllocationIsCreatedThenItI
     auto unifiedMemoryManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -815,7 +815,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationWhenNewAllocationIsCreatedThenItI
     unifiedMemoryManager->makeIndirectAllocationsResident(commandStreamReceiver, 1u);
 
     EXPECT_TRUE(graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
-    //force to non resident
+    // force to non resident
     graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->updateResidencyTaskCount(GraphicsAllocation::objectNotResident, commandStreamReceiver.getOsContext().getContextId());
 
     auto ptr2 = unifiedMemoryManager->createSharedUnifiedMemoryAllocation(4096u, unifiedMemoryProperties, &cmdQ);
@@ -825,7 +825,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationWhenNewAllocationIsCreatedThenItI
 
     EXPECT_FALSE(graphicsAllocation2->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
 
-    //now call with task count 2, both allocations needs to be made resident
+    // now call with task count 2, both allocations needs to be made resident
     unifiedMemoryManager->makeIndirectAllocationsResident(commandStreamReceiver, 2u);
 
     EXPECT_TRUE(graphicsAllocation->gpuAllocations.getDefaultGraphicsAllocation()->isResident(commandStreamReceiver.getOsContext().getContextId()));
@@ -843,7 +843,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationsWhenTheyArePreparedForFreeingThe
     auto unifiedMemoryManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get(), false);
     memoryManager->pageFaultManager = std::make_unique<MockPageFaultManager>();
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -868,7 +868,7 @@ TEST(UnifiedMemoryTest, givenInternalAllocationsWhenTheyArePreparedForFreeingThe
 
 TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithSingleBitSetWhenDeviceUnifiedMemoryAllocationIsCreatedThenProperPropertiesArePassedToMemoryManager) {
     MockCommandQueue cmdQ;
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x8)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -882,7 +882,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithSingleBitSetWh
 }
 
 TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithMultiDeviceBitSetWhenMultiOsContextFlagTrueThenProperPropertiesArePassedToMemoryManager) {
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xF)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -900,7 +900,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithMultiDeviceBit
     DebugManagerStateRestore restorer;
     DebugManager.flags.OverrideLeastOccupiedBank.set(1);
 
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xE)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -919,7 +919,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithMultiDeviceBit
 }
 
 TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithSingleDeviceBitSetWhenMultiOsContextFlagTrueThenProperPropertiesArePassedToMemoryManager) {
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -935,7 +935,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithSingleDeviceBi
 
 TEST_F(UnifiedMemoryManagerPropertiesTest,
        givenSvmManagerMultiOsContextSupportFlagTrueWhenRootDeviceIsSingleThenMultiStorageFlagFalse) {
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -951,7 +951,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest,
 
 TEST_F(UnifiedMemoryManagerPropertiesTest,
        given1ByteAsAllocationSizeWhenHostMemAllocIsCreatedItIsAlignedTo4k) {
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0x1)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -966,7 +966,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest,
 
 TEST_F(UnifiedMemoryManagerPropertiesTest,
        givenSvmManagerMultiOsContextSupportFlagFalseWhenRootDeviceIsMultiThenMultiStorageFlagFalse) {
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xF)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -982,7 +982,7 @@ TEST_F(UnifiedMemoryManagerPropertiesTest,
 
 TEST_F(UnifiedMemoryManagerPropertiesTest,
        givenSvmManagerMultiOsContextSupportFlagTrueWhenRootDeviceIsMultiThenMultiStorageFlagTrue) {
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, DeviceBitfield(0xF)}};
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
 
@@ -1011,7 +1011,7 @@ struct ShareableUnifiedMemoryManagerPropertiesTest : public ::testing::Test {
     ExecutionEnvironment *executionEnvironment;
     std::unique_ptr<MemoryManagerPropertiesCheck> memoryManager;
     std::unique_ptr<MockSVMAllocsManager> svmManager;
-    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    RootDeviceIndicesContainer rootDeviceIndices = {mockRootDeviceIndex};
     std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, mockDeviceBitfield}};
 };
 
@@ -1362,7 +1362,9 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenDeviceUsmAllocationWhenWriteBufferThenC
     auto gpuAddress = gpuAllocation->getGpuAddress();
     void *gpuPtr = reinterpret_cast<void *>(gpuAddress);
     char *shiftedPtr = cpuPtr + 0x10;
-    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, reinterpret_cast<uint64_t>(shiftedPtr));
+    auto gmmHelper = mockContext.getDevice(0)->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(reinterpret_cast<uint64_t>(shiftedPtr));
+    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, canonizedGpuAddress);
 
     cl_mem_flags flags = 0;
     auto status = CL_INVALID_PLATFORM;
@@ -1373,7 +1375,8 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenDeviceUsmAllocationWhenWriteBufferThenC
     myCmdQ.enqueueWriteBuffer(buffer, false, 0u, 4096u, deviceMemory, nullptr, 0u, nullptr, nullptr);
     EXPECT_EQ(gpuPtr, myCmdQ.srcPtr);
 
-    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, gpuAddress);
+    canonizedGpuAddress = gmmHelper->canonize(gpuAddress);
+    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, canonizedGpuAddress);
     delete buffer;
     clMemFreeINTEL(&mockContext, deviceMemory);
 }
@@ -1390,7 +1393,9 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenDeviceUsmAllocationWhenReadBufferThenCp
     auto gpuAddress = gpuAllocation->getGpuAddress();
     void *gpuPtr = reinterpret_cast<void *>(gpuAddress);
     char *shiftedPtr = cpuPtr + 0x10;
-    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, reinterpret_cast<uint64_t>(shiftedPtr));
+    auto gmmHelper = mockContext.getDevice(0)->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(reinterpret_cast<uint64_t>(shiftedPtr));
+    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, canonizedGpuAddress);
 
     cl_mem_flags flags = 0;
     auto status = CL_INVALID_PLATFORM;
@@ -1401,7 +1406,8 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenDeviceUsmAllocationWhenReadBufferThenCp
     myCmdQ.enqueueReadBuffer(buffer, false, 0u, 4096u, deviceMemory, nullptr, 0u, nullptr, nullptr);
     EXPECT_EQ(gpuPtr, myCmdQ.dstPtr);
 
-    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, gpuAddress);
+    canonizedGpuAddress = gmmHelper->canonize(gpuAddress);
+    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, canonizedGpuAddress);
     delete buffer;
     clMemFreeINTEL(&mockContext, deviceMemory);
 }
@@ -1417,7 +1423,9 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenSharedUsmAllocationWhenWriteBufferThenC
     auto gpuAddress = gpuAllocation->getGpuAddress();
     void *gpuPtr = reinterpret_cast<void *>(gpuAddress);
     char *shiftedPtr = cpuPtr + 0x10;
-    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, reinterpret_cast<uint64_t>(shiftedPtr));
+    auto gmmHelper = mockContext.getDevice(0)->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(reinterpret_cast<uint64_t>(shiftedPtr));
+    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, canonizedGpuAddress);
 
     cl_mem_flags flags = 0;
     auto status = CL_INVALID_PLATFORM;
@@ -1428,7 +1436,8 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenSharedUsmAllocationWhenWriteBufferThenC
     myCmdQ.enqueueWriteBuffer(buffer, false, 0u, 4096u, sharedMemory, nullptr, 0u, nullptr, nullptr);
     EXPECT_EQ(gpuPtr, myCmdQ.srcPtr);
 
-    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, gpuAddress);
+    canonizedGpuAddress = gmmHelper->canonize(gpuAddress);
+    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, canonizedGpuAddress);
     delete buffer;
     clMemFreeINTEL(&mockContext, sharedMemory);
 }
@@ -1444,7 +1453,9 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenSharedUsmAllocationWhenReadBufferThenCp
     auto gpuAddress = gpuAllocation->getGpuAddress();
     void *gpuPtr = reinterpret_cast<void *>(gpuAddress);
     char *shiftedPtr = cpuPtr + 0x10;
-    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, reinterpret_cast<uint64_t>(shiftedPtr));
+    auto gmmHelper = mockContext.getDevice(0)->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(reinterpret_cast<uint64_t>(shiftedPtr));
+    gpuAllocation->setCpuPtrAndGpuAddress(shiftedPtr, canonizedGpuAddress);
 
     cl_mem_flags flags = 0;
     auto status = CL_INVALID_PLATFORM;
@@ -1455,7 +1466,8 @@ HWTEST_F(UnifiedSharedMemoryHWTest, givenSharedUsmAllocationWhenReadBufferThenCp
     myCmdQ.enqueueReadBuffer(buffer, false, 0u, 4096u, sharedMemory, nullptr, 0u, nullptr, nullptr);
     EXPECT_EQ(gpuPtr, myCmdQ.dstPtr);
 
-    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, gpuAddress);
+    canonizedGpuAddress = gmmHelper->canonize(gpuAddress);
+    gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, canonizedGpuAddress);
     delete buffer;
     clMemFreeINTEL(&mockContext, sharedMemory);
 }

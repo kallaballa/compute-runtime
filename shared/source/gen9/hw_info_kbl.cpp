@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
-#include "shared/source/gen9/hw_cmds.h"
+#include "shared/source/gen9/hw_cmds_kbl.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
@@ -14,10 +14,6 @@
 namespace NEO {
 
 const char *HwMapper<IGFX_KABYLAKE>::abbreviation = "kbl";
-
-bool isSimulationKBL(unsigned short deviceId) {
-    return false;
-};
 
 const PLATFORM KBL::platform = {
     IGFX_KABYLAKE,
@@ -39,7 +35,6 @@ const RuntimeCapabilityTable KBL::capabilityTable{
     0,                                             // sharedSystemMemCapabilities
     83.333,                                        // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                     // requiredPreemptionSurfaceSize
-    &isSimulationKBL,                              // isSimulation
     "core",                                        // platformType
     "",                                            // deviceName
     PreemptionMode::MidThread,                     // defaultPreemptionMode
@@ -79,7 +74,8 @@ const RuntimeCapabilityTable KBL::capabilityTable{
     true,                                          // supportsMediaBlock
     false,                                         // p2pAccessSupported
     false,                                         // p2pAtomicAccessSupported
-    false                                          // fusedEuEnabled
+    false,                                         // fusedEuEnabled
+    false                                          // l0DebuggerSupported;
 };
 
 WorkaroundTable KBL::workaroundTable = {};
@@ -128,179 +124,134 @@ void KBL::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     }
 }
 
-const HardwareInfo KBL_1x2x6::hwInfo = {
+void KBL::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * KBL::threadsPerEu;
+    gtSysInfo->TotalVsThreads = 336;
+    gtSysInfo->TotalHsThreads = 336;
+    gtSysInfo->TotalDsThreads = 336;
+    gtSysInfo->TotalGsThreads = 336;
+    gtSysInfo->TotalPsThreadsWindowerRange = 64;
+    gtSysInfo->CsrSizeInMb = 8;
+    gtSysInfo->MaxEuPerSubSlice = KBL::maxEuPerSubslice;
+    gtSysInfo->MaxSlicesSupported = KBL::maxSlicesSupported;
+    gtSysInfo->MaxSubSlicesSupported = KBL::maxSubslicesSupported;
+    gtSysInfo->IsL3HashModeEnabled = false;
+    gtSysInfo->IsDynamicallyPopulated = false;
+
+    if (setupFeatureTableAndWorkaroundTable) {
+        setupFeatureAndWorkaroundTable(hwInfo);
+    }
+}
+
+const HardwareInfo KblHw1x2x6::hwInfo = {
     &KBL::platform,
     &KBL::featureTable,
     &KBL::workaroundTable,
-    &KBL_1x2x6::gtSystemInfo,
+    &KblHw1x2x6::gtSystemInfo,
     KBL::capabilityTable,
 };
-GT_SYSTEM_INFO KBL_1x2x6::gtSystemInfo = {0};
-void KBL_1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO KblHw1x2x6::gtSystemInfo = {0};
+void KblHw1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    KBL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 1;
     gtSysInfo->L3CacheSizeInKb = 384;
     gtSysInfo->L3BankCount = 2;
     gtSysInfo->MaxFillRate = 8;
-    gtSysInfo->TotalVsThreads = 336;
-    gtSysInfo->TotalHsThreads = 336;
-    gtSysInfo->TotalDsThreads = 336;
-    gtSysInfo->TotalGsThreads = 336;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = KBL::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = KBL::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = KBL::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo KBL_1x3x6::hwInfo = {
+const HardwareInfo KblHw1x3x6::hwInfo = {
     &KBL::platform,
     &KBL::featureTable,
     &KBL::workaroundTable,
-    &KBL_1x3x6::gtSystemInfo,
+    &KblHw1x3x6::gtSystemInfo,
     KBL::capabilityTable,
 };
 
-GT_SYSTEM_INFO KBL_1x3x6::gtSystemInfo = {0};
-void KBL_1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO KblHw1x3x6::gtSystemInfo = {0};
+void KblHw1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    KBL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 1;
     gtSysInfo->L3CacheSizeInKb = 768;
     gtSysInfo->L3BankCount = 4;
     gtSysInfo->MaxFillRate = 8;
-    gtSysInfo->TotalVsThreads = 336;
-    gtSysInfo->TotalHsThreads = 336;
-    gtSysInfo->TotalDsThreads = 336;
-    gtSysInfo->TotalGsThreads = 336;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = KBL::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = KBL::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = KBL::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo KBL_1x3x8::hwInfo = {
+const HardwareInfo KblHw1x3x8::hwInfo = {
     &KBL::platform,
     &KBL::featureTable,
     &KBL::workaroundTable,
-    &KBL_1x3x8::gtSystemInfo,
+    &KblHw1x3x8::gtSystemInfo,
     KBL::capabilityTable,
 };
-GT_SYSTEM_INFO KBL_1x3x8::gtSystemInfo = {0};
-void KBL_1x3x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO KblHw1x3x8::gtSystemInfo = {0};
+void KblHw1x3x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    KBL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 1;
     gtSysInfo->L3CacheSizeInKb = 768;
     gtSysInfo->L3BankCount = 4;
     gtSysInfo->MaxFillRate = 8;
-    gtSysInfo->TotalVsThreads = 336;
-    gtSysInfo->TotalHsThreads = 336;
-    gtSysInfo->TotalDsThreads = 336;
-    gtSysInfo->TotalGsThreads = 336;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = KBL::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = KBL::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = KBL::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo KBL_2x3x8::hwInfo = {
+const HardwareInfo KblHw2x3x8::hwInfo = {
     &KBL::platform,
     &KBL::featureTable,
     &KBL::workaroundTable,
-    &KBL_2x3x8::gtSystemInfo,
+    &KblHw2x3x8::gtSystemInfo,
     KBL::capabilityTable,
 };
-GT_SYSTEM_INFO KBL_2x3x8::gtSystemInfo = {0};
-void KBL_2x3x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO KblHw2x3x8::gtSystemInfo = {0};
+void KblHw2x3x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    KBL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 2;
     gtSysInfo->L3CacheSizeInKb = 1536;
     gtSysInfo->L3BankCount = 8;
     gtSysInfo->MaxFillRate = 16;
-    gtSysInfo->TotalVsThreads = 336;
-    gtSysInfo->TotalHsThreads = 336;
-    gtSysInfo->TotalDsThreads = 336;
-    gtSysInfo->TotalGsThreads = 336;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = KBL::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = KBL::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = KBL::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo KBL_3x3x8::hwInfo = {
+const HardwareInfo KblHw3x3x8::hwInfo = {
     &KBL::platform,
     &KBL::featureTable,
     &KBL::workaroundTable,
-    &KBL_3x3x8::gtSystemInfo,
+    &KblHw3x3x8::gtSystemInfo,
     KBL::capabilityTable,
 };
-GT_SYSTEM_INFO KBL_3x3x8::gtSystemInfo = {0};
-void KBL_3x3x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO KblHw3x3x8::gtSystemInfo = {0};
+void KblHw3x3x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    KBL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 3;
     gtSysInfo->L3CacheSizeInKb = 2304;
     gtSysInfo->L3BankCount = 12;
     gtSysInfo->MaxFillRate = 23;
-    gtSysInfo->TotalVsThreads = 336;
-    gtSysInfo->TotalHsThreads = 336;
-    gtSysInfo->TotalDsThreads = 336;
-    gtSysInfo->TotalGsThreads = 336;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = KBL::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = KBL::maxSlicesSupported;
-    gtSysInfo->MaxSubSlicesSupported = KBL::maxSubslicesSupported;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo KBL::hwInfo = KBL_1x3x6::hwInfo;
+const HardwareInfo KBL::hwInfo = KblHw1x3x6::hwInfo;
 const uint64_t KBL::defaultHardwareInfoConfig = 0x100030006;
 
 void setupKBLHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
     if (hwInfoConfig == 0x100030008) {
-        KBL_1x3x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        KblHw1x3x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x200030008) {
-        KBL_2x3x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        KblHw2x3x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x300030008) {
-        KBL_3x3x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        KblHw3x3x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x100020006) {
-        KBL_1x2x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        KblHw1x2x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x100030006) {
-        KBL_1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        KblHw1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x0) {
         // Default config
-        KBL_1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        KblHw1x3x6::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else {
         UNRECOVERABLE_IF(true);
     }

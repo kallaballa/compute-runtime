@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,8 +14,8 @@ class Device;
 
 class BuiltInFixture {
   public:
-    void SetUp(NEO::Device *pDevice);
-    void TearDown();
+    void setUp(NEO::Device *pDevice);
+    void tearDown();
 
     NEO::BuiltIns *pBuiltIns = nullptr;
 };

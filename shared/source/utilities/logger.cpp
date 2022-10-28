@@ -15,14 +15,14 @@
 
 namespace NEO {
 
-FileLogger<globalDebugFunctionalityLevel> &FileLoggerInstance() {
+FileLogger<globalDebugFunctionalityLevel> &fileLoggerInstance() {
     static FileLogger<globalDebugFunctionalityLevel> fileLoggerInstance(std::string("igdrcl.log"), DebugManager.flags);
     return fileLoggerInstance;
 }
 
 template <DebugFunctionalityLevel DebugLevel>
 FileLogger<DebugLevel>::FileLogger(std::string filename, const DebugVariables &flags) {
-    logFileName = filename;
+    logFileName = std::move(filename);
     std::remove(logFileName.c_str());
 
     dumpKernels = flags.DumpKernels.get();
@@ -37,7 +37,7 @@ FileLogger<DebugLevel>::~FileLogger() = default;
 
 template <DebugFunctionalityLevel DebugLevel>
 void FileLogger<DebugLevel>::writeToFile(std::string filename, const char *str, size_t length, std::ios_base::openmode mode) {
-    std::unique_lock<std::mutex> theLock(mutex);
+    std::lock_guard theLock(mutex);
     std::ofstream outFile(filename, mode);
     if (outFile.is_open()) {
         outFile.write(str, length);
@@ -85,32 +85,31 @@ void FileLogger<DebugLevel>::logAllocation(GraphicsAllocation const *graphicsAll
         printDebugString(true, stdout, "Created Graphics Allocation of type %s\n", getAllocationTypeString(graphicsAllocation));
     }
 
-    std::stringstream ss;
-    if (logAllocationMemoryPool || logAllocationType) {
-        std::thread::id thisThread = std::this_thread::get_id();
-
-        ss << " ThreadID: " << thisThread;
-        ss << " AllocationType: " << getAllocationTypeString(graphicsAllocation);
-        ss << " MemoryPool: " << graphicsAllocation->getMemoryPool();
-        ss << " Root device index: " << graphicsAllocation->getRootDeviceIndex();
-        ss << " GPU address: 0x" << std::hex << graphicsAllocation->getGpuAddress() << " - 0x" << std::hex << graphicsAllocation->getGpuAddress() + graphicsAllocation->getUnderlyingBufferSize() - 1;
-
-        ss << graphicsAllocation->getAllocationInfoString();
-        ss << std::endl;
-    }
-    auto str = ss.str();
-
-    if (logAllocationStdout) {
-        printf("%s", str.c_str());
-        return;
-    }
-
     if (false == enabled()) {
         return;
     }
 
     if (logAllocationMemoryPool || logAllocationType) {
-        writeToFile(logFileName, str.c_str(), str.size(), std::ios::app);
+        std::stringstream ss;
+        std::thread::id thisThread = std::this_thread::get_id();
+
+        ss << " ThreadID: " << thisThread;
+        ss << " AllocationType: " << getAllocationTypeString(graphicsAllocation);
+        ss << " MemoryPool: " << getMemoryPoolString(graphicsAllocation);
+        ss << " Root device index: " << graphicsAllocation->getRootDeviceIndex();
+        ss << " GPU address: 0x" << std::hex << graphicsAllocation->getGpuAddress() << " - 0x" << std::hex << graphicsAllocation->getGpuAddress() + graphicsAllocation->getUnderlyingBufferSize() - 1;
+
+        ss << graphicsAllocation->getAllocationInfoString();
+        ss << std::endl;
+        auto str = ss.str();
+        if (logAllocationStdout) {
+            printf("%s", str.c_str());
+            return;
+        }
+
+        if (logAllocationMemoryPool || logAllocationType) {
+            writeToFile(logFileName, str.c_str(), str.size(), std::ios::app);
+        }
     }
 }
 
@@ -163,6 +162,8 @@ const char *getAllocationTypeString(GraphicsAllocation const *graphicsAllocation
         return "INTERNAL_HEAP";
     case AllocationType::INTERNAL_HOST_MEMORY:
         return "INTERNAL_HOST_MEMORY";
+    case AllocationType::KERNEL_ARGS_BUFFER:
+        return "KERNEL_ARGS_BUFFER";
     case AllocationType::KERNEL_ISA:
         return "KERNEL_ISA";
     case AllocationType::KERNEL_ISA_INTERNAL:
@@ -232,6 +233,30 @@ const char *getAllocationTypeString(GraphicsAllocation const *graphicsAllocation
     default:
         return "ILLEGAL_VALUE";
     }
+}
+
+const char *getMemoryPoolString(GraphicsAllocation const *graphicsAllocation) {
+    auto pool = graphicsAllocation->getMemoryPool();
+
+    switch (pool) {
+    case MemoryPool::MemoryNull:
+        return "MemoryNull";
+    case MemoryPool::System4KBPages:
+        return "System4KBPages";
+    case MemoryPool::System64KBPages:
+        return "System64KBPages";
+    case MemoryPool::System4KBPagesWith32BitGpuAddressing:
+        return "System4KBPagesWith32BitGpuAddressing";
+    case MemoryPool::System64KBPagesWith32BitGpuAddressing:
+        return "System64KBPagesWith32BitGpuAddressing";
+    case MemoryPool::SystemCpuInaccessible:
+        return "SystemCpuInaccessible";
+    case MemoryPool::LocalMemory:
+        return "LocalMemory";
+    }
+
+    UNRECOVERABLE_IF(true);
+    return "ILLEGAL_VALUE";
 }
 
 template class FileLogger<DebugFunctionalityLevel::None>;

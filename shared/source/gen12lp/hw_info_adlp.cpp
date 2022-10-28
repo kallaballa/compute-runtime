@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
-#include "shared/source/gen12lp/hw_cmds.h"
+#include "shared/source/gen12lp/hw_cmds_adlp.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
@@ -14,10 +14,6 @@
 namespace NEO {
 
 const char *HwMapper<IGFX_ALDERLAKE_P>::abbreviation = "adlp";
-
-bool isSimulationADLP(unsigned short deviceId) {
-    return false;
-};
 
 const PLATFORM ADLP::platform = {
     IGFX_ALDERLAKE_P,
@@ -40,7 +36,6 @@ const RuntimeCapabilityTable ADLP::capabilityTable{
     0,                                              // sharedSystemMemCapabilities
     83.333,                                         // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                      // requiredPreemptionSurfaceSize
-    &isSimulationADLP,                              // isSimulation
     "lp",                                           // platformType
     "",                                             // deviceName
     PreemptionMode::MidThread,                      // defaultPreemptionMode
@@ -80,7 +75,8 @@ const RuntimeCapabilityTable ADLP::capabilityTable{
     true,                                           // supportsMediaBlock
     false,                                          // p2pAccessSupported
     false,                                          // p2pAtomicAccessSupported
-    true                                            // fusedEuEnabled
+    true,                                           // fusedEuEnabled
+    false                                           // l0DebuggerSupported;
 };
 
 WorkaroundTable ADLP::workaroundTable = {};
@@ -119,16 +115,34 @@ void ADLP::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waEnablePreemptionGranularityControlByUMD = true;
     workaroundTable->flags.waUntypedBufferCompression = true;
 };
-const HardwareInfo ADLP_CONFIG::hwInfo = {
+
+void ADLP::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * ADLP::threadsPerEu;
+    gtSysInfo->TotalPsThreadsWindowerRange = 64;
+    gtSysInfo->CsrSizeInMb = 8;
+    gtSysInfo->MaxEuPerSubSlice = ADLP::maxEuPerSubslice;
+    gtSysInfo->MaxSlicesSupported = ADLP::maxSlicesSupported;
+    gtSysInfo->MaxSubSlicesSupported = ADLP::maxSubslicesSupported;
+    gtSysInfo->MaxDualSubSlicesSupported = ADLP::maxDualSubslicesSupported;
+    gtSysInfo->IsL3HashModeEnabled = false;
+    gtSysInfo->IsDynamicallyPopulated = false;
+
+    if (setupFeatureTableAndWorkaroundTable) {
+        setupFeatureAndWorkaroundTable(hwInfo);
+    }
+}
+
+const HardwareInfo AdlpHwConfig::hwInfo = {
     &ADLP::platform,
     &ADLP::featureTable,
     &ADLP::workaroundTable,
-    &ADLP_CONFIG::gtSystemInfo,
+    &AdlpHwConfig::gtSystemInfo,
     ADLP::capabilityTable,
 };
 
-GT_SYSTEM_INFO ADLP_CONFIG::gtSystemInfo = {0};
-void ADLP_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO AdlpHwConfig::gtSystemInfo = {0};
+void AdlpHwConfig::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->CsrSizeInMb = 8;
     gtSysInfo->IsDynamicallyPopulated = false;
@@ -142,6 +156,7 @@ void ADLP_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTable
         gtSysInfo->MaxSlicesSupported = ADLP::maxSlicesSupported;
         gtSysInfo->MaxSubSlicesSupported = ADLP::maxSubslicesSupported;
 
+        gtSysInfo->L3CacheSizeInKb = 1;
         gtSysInfo->L3BankCount = 1;
 
         gtSysInfo->CCSInfo.IsValid = true;

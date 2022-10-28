@@ -1,16 +1,19 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#pragma once
+
 #include "shared/source/os_interface/windows/gdi_interface.h"
 #include "shared/source/os_interface/windows/wddm/adapter_info.h"
 
-static constexpr D3DKMT_HANDLE validHandle = 0x7;
-static constexpr auto error = STATUS_SUCCESS + 1;
-static const wchar_t *driverStorePathStr = L"some/path/fffff";
+constexpr D3DKMT_HANDLE validHandle = 0x7;
+constexpr auto error = STATUS_SUCCESS + 1;
+inline const wchar_t *driverStorePathStr = L"some/path/fffff";
+
 struct QueryAdapterInfoMock {
     static NTSTATUS(APIENTRY queryadapterinfo)(
         const D3DKMT_QUERYADAPTERINFO *queryAdapterInfo) {

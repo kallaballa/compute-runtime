@@ -26,6 +26,7 @@ struct MockCompilerDebugVars {
         bindless
     };
     bool shouldReturnInvalidTranslationOutput = false;
+    bool shouldFailCreationOfTranslationContext = false;
     bool forceBuildFailure = false;
     bool forceCreateFailure = false;
     bool forceRegisterFail = false;
@@ -45,14 +46,16 @@ struct MockCompilerDebugVars {
     std::string *receivedInput = nullptr;
 
     std::string fileName;
+    std::string fileNameSuffix;
+    std::string translationContextCreationError;
 };
 
 struct MockCompilerEnableGuard {
     MockCompilerEnableGuard(bool autoEnable = false);
     ~MockCompilerEnableGuard();
 
-    void Enable();
-    void Disable();
+    void Enable();  // NOLINT(readability-identifier-naming)
+    void Disable(); // NOLINT(readability-identifier-naming)
 
     const char *oldFclDllName;
     const char *oldIgcDllName;
@@ -192,7 +195,7 @@ struct MockOclTranslationOutput : MockCIF<IGC::OclTranslationOutputTagOCL> {
 };
 
 struct MockIgcOclDeviceCtx : MockCIF<IGC::IgcOclDeviceCtxTagOCL> {
-    static CIF::ICIF *Create(CIF::InterfaceId_t intId, CIF::Version_t version);
+    static CIF::ICIF *Create(CIF::InterfaceId_t intId, CIF::Version_t version); // NOLINT(readability-identifier-naming)
 
     MockIgcOclDeviceCtx();
     ~MockIgcOclDeviceCtx() override;
@@ -227,7 +230,7 @@ struct MockIgcOclDeviceCtx : MockCIF<IGC::IgcOclDeviceCtxTagOCL> {
                           CIF::Builtins::BufferSimple *outSystemRoutineBuffer,
                           CIF::Builtins::BufferSimple *stateSaveAreaHeaderInit) override;
 
-    void SetDebugVars(MockCompilerDebugVars &debugVars) {
+    void SetDebugVars(MockCompilerDebugVars &debugVars) { // NOLINT(readability-identifier-naming)
         this->debugVars = debugVars;
     }
 
@@ -257,7 +260,7 @@ struct MockFclOclDeviceCtx : MockCIF<IGC::FclOclDeviceCtxTagOCL> {
     MockFclOclDeviceCtx();
     ~MockFclOclDeviceCtx() override;
 
-    static CIF::ICIF *Create(CIF::InterfaceId_t intId, CIF::Version_t version);
+    static CIF::ICIF *Create(CIF::InterfaceId_t intId, CIF::Version_t version); // NOLINT(readability-identifier-naming)
     void SetOclApiVersion(uint32_t version) override {
         oclApiVersion = version;
     }
@@ -287,6 +290,9 @@ struct MockFclOclDeviceCtx : MockCIF<IGC::FclOclDeviceCtxTagOCL> {
 
     uint32_t oclApiVersion = 120;
     MockCIFPlatform *platform = nullptr;
+
+    using TranslationOpT = std::pair<IGC::CodeType::CodeType_t, IGC::CodeType::CodeType_t>;
+    std::vector<TranslationOpT> requestedTranslationCtxs;
 };
 
 } // namespace NEO

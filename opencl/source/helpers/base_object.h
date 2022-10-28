@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,7 +16,6 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <iostream>
 #include <mutex>
 #include <thread>
 
@@ -84,7 +83,7 @@ class ConditionVariableWithCounter {
         --waitersCount;
     }
 
-    void notify_one() { // NOLINT
+    void notify_one() { // NOLINT(readability-identifier-naming)
         cond.notify_one();
     }
 

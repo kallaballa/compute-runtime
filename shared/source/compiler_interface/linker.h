@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "shared/source/compiler_interface/external_functions.h"
 #include "shared/source/device_binary_format/elf/elf_decoder.h"
 
 #include <cstdint>
@@ -54,6 +55,12 @@ struct SymbolInfo {
     SegmentType segment = SegmentType::Unknown;
 };
 
+struct LocalFuncSymbolInfo {
+    uint32_t offset = std::numeric_limits<uint32_t>::max();
+    uint32_t size = std::numeric_limits<uint32_t>::max();
+    std::string targetedKernelSectionName;
+};
+
 struct LinkerInput {
     union Traits {
         enum PointerSize : uint8_t {
@@ -90,10 +97,13 @@ struct LinkerInput {
         uint64_t offset = std::numeric_limits<uint64_t>::max();
         Type type = Type::Unknown;
         SegmentType relocationSegment = SegmentType::Unknown;
+        int64_t addend = 0U;
     };
+
     using SectionNameToSegmentIdMap = std::unordered_map<std::string, uint32_t>;
     using Relocations = std::vector<RelocationInfo>;
     using SymbolMap = std::unordered_map<std::string, SymbolInfo>;
+    using LocalSymbolMap = std::unordered_map<std::string, LocalFuncSymbolInfo>;
     using RelocationsPerInstSegment = std::vector<Relocations>;
 
     virtual ~LinkerInput() = default;
@@ -106,7 +116,9 @@ struct LinkerInput {
     void addDataRelocationInfo(const RelocationInfo &relocationInfo);
 
     void addElfTextSegmentRelocation(RelocationInfo relocationInfo, uint32_t instructionsSegmentId);
-    void decodeElfSymbolTableAndRelocations(Elf::Elf<Elf::EI_CLASS_64> &elf, const SectionNameToSegmentIdMap &nameToSegmentId);
+
+    template <Elf::ELF_IDENTIFIER_CLASS numBits>
+    void decodeElfSymbolTableAndRelocations(Elf::Elf<numBits> &elf, const SectionNameToSegmentIdMap &nameToSegmentId);
 
     const Traits &getTraits() const {
         return traits;
@@ -120,12 +132,16 @@ struct LinkerInput {
         return symbols;
     }
 
+    const LocalSymbolMap &getLocalSymbols() const {
+        return localSymbols;
+    }
+
     void addSymbol(const std::string &symbolName, const SymbolInfo &symbolInfo) {
         symbols.emplace(std::make_pair(symbolName, symbolInfo));
     }
 
     const RelocationsPerInstSegment &getRelocationsInInstructionSegments() const {
-        return relocations;
+        return textRelocations;
     }
 
     const Relocations &getDataRelocations() const {
@@ -140,14 +156,26 @@ struct LinkerInput {
         return valid;
     }
 
-    bool undefinedSymbolsAllowed = false;
+    const std::vector<ExternalFunctionUsageKernel> &getKernelDependencies() const {
+        return kernelDependencies;
+    }
+
+    const std::vector<ExternalFunctionUsageExtFunc> &getFunctionDependencies() const {
+        return extFunDependencies;
+    }
 
   protected:
+    void parseRelocationForExtFuncUsage(const RelocationInfo &relocInfo, const std::string &kernelName);
+
     Traits traits;
     SymbolMap symbols;
-    RelocationsPerInstSegment relocations;
+    LocalSymbolMap localSymbols;
+    RelocationsPerInstSegment textRelocations;
     Relocations dataRelocations;
+    std::vector<std::pair<std::string, SymbolInfo>> extFuncSymbols;
     int32_t exportedFunctionsSegmentId = -1;
+    std::vector<ExternalFunctionUsageKernel> kernelDependencies;
+    std::vector<ExternalFunctionUsageExtFunc> extFunDependencies;
     bool valid = true;
 };
 
@@ -163,7 +191,9 @@ struct Linker {
 
     struct PatchableSegment {
         void *hostPointer = nullptr;
+        uintptr_t gpuAddress = 0;
         size_t segmentSize = std::numeric_limits<size_t>::max();
+        std::string kernelName;
     };
 
     struct UnresolvedExternal {
@@ -172,15 +202,18 @@ struct Linker {
         bool internalError = false;
     };
 
+    template <typename T>
     struct RelocatedSymbol {
-        SymbolInfo symbol;
+        T symbol;
         uintptr_t gpuAddress = std::numeric_limits<uintptr_t>::max();
     };
 
-    using RelocatedSymbolsMap = std::unordered_map<std::string, RelocatedSymbol>;
+    using RelocatedSymbolsMap = std::unordered_map<std::string, RelocatedSymbol<SymbolInfo>>;
+    using LocalsRelocatedSymbolsMap = std::unordered_map<std::string, RelocatedSymbol<LocalFuncSymbolInfo>>;
     using PatchableSegments = std::vector<PatchableSegment>;
     using UnresolvedExternals = std::vector<UnresolvedExternal>;
     using KernelDescriptorsT = std::vector<KernelDescriptor *>;
+    using ExternalFunctionsT = std::vector<ExternalFunctionInfo>;
 
     Linker(const LinkerInput &data)
         : data(data) {
@@ -188,14 +221,15 @@ struct Linker {
 
     LinkingStatus link(const SegmentInfo &globalVariablesSegInfo, const SegmentInfo &globalConstantsSegInfo, const SegmentInfo &exportedFunctionsSegInfo, const SegmentInfo &globalStringsSegInfo,
                        GraphicsAllocation *globalVariablesSeg, GraphicsAllocation *globalConstantsSeg, const PatchableSegments &instructionsSegments,
-                       UnresolvedExternals &outUnresolvedExternals, Device *pDevice, const void *constantsInitData, const void *variablesInitData, const KernelDescriptorsT &kernelDescriptors) {
+                       UnresolvedExternals &outUnresolvedExternals, Device *pDevice, const void *constantsInitData, const void *variablesInitData,
+                       const KernelDescriptorsT &kernelDescriptors, ExternalFunctionsT &externalFunctions) {
         bool success = data.isValid();
         auto initialUnresolvedExternalsCount = outUnresolvedExternals.size();
-        success = success && processRelocations(globalVariablesSegInfo, globalConstantsSegInfo, exportedFunctionsSegInfo, globalStringsSegInfo);
+        success = success && processRelocations(globalVariablesSegInfo, globalConstantsSegInfo, exportedFunctionsSegInfo, globalStringsSegInfo, instructionsSegments);
         if (!success) {
             return LinkingStatus::Error;
         }
-        patchInstructionsSegments(instructionsSegments, outUnresolvedExternals);
+        patchInstructionsSegments(instructionsSegments, outUnresolvedExternals, kernelDescriptors);
         patchDataSegments(globalVariablesSegInfo, globalConstantsSegInfo, globalVariablesSeg, globalConstantsSeg,
                           outUnresolvedExternals, pDevice, constantsInitData, variablesInitData);
         resolveImplicitArgs(kernelDescriptors, pDevice);
@@ -203,9 +237,13 @@ struct Linker {
         if (initialUnresolvedExternalsCount < outUnresolvedExternals.size()) {
             return LinkingStatus::LinkedPartially;
         }
+        success = resolveExternalFunctions(kernelDescriptors, externalFunctions);
+        if (!success) {
+            return LinkingStatus::Error;
+        }
         return LinkingStatus::LinkedFully;
     }
-    static void patchAddress(void *relocAddress, const RelocatedSymbol &symbol, const RelocationInfo &relocation);
+    static void patchAddress(void *relocAddress, const uint64_t value, const RelocationInfo &relocation);
     RelocatedSymbolsMap extractRelocatedSymbols() {
         return RelocatedSymbolsMap(std::move(relocatedSymbols));
     }
@@ -218,16 +256,18 @@ struct Linker {
   protected:
     const LinkerInput &data;
     RelocatedSymbolsMap relocatedSymbols;
+    LocalsRelocatedSymbolsMap localRelocatedSymbols;
 
-    bool processRelocations(const SegmentInfo &globalVariables, const SegmentInfo &globalConstants, const SegmentInfo &exportedFunctions, const SegmentInfo &globalStrings);
+    bool processRelocations(const SegmentInfo &globalVariables, const SegmentInfo &globalConstants, const SegmentInfo &exportedFunctions, const SegmentInfo &globalStrings, const PatchableSegments &instructionsSegments);
 
-    void patchInstructionsSegments(const std::vector<PatchableSegment> &instructionsSegments, std::vector<UnresolvedExternal> &outUnresolvedExternals);
+    void patchInstructionsSegments(const std::vector<PatchableSegment> &instructionsSegments, std::vector<UnresolvedExternal> &outUnresolvedExternals, const KernelDescriptorsT &kernelDescriptors);
 
     void patchDataSegments(const SegmentInfo &globalVariablesSegInfo, const SegmentInfo &globalConstantsSegInfo,
                            GraphicsAllocation *globalVariablesSeg, GraphicsAllocation *globalConstantsSeg,
                            std::vector<UnresolvedExternal> &outUnresolvedExternals, Device *pDevice,
                            const void *constantsInitData, const void *variablesInitData);
 
+    bool resolveExternalFunctions(const KernelDescriptorsT &kernelDescriptors, std::vector<ExternalFunctionInfo> &externalFunctions);
     void resolveImplicitArgs(const KernelDescriptorsT &kernelDescriptors, Device *pDevice);
     void resolveBuiltins(Device *pDevice, UnresolvedExternals &outUnresolvedExternals, const std::vector<PatchableSegment> &instructionsSegments);
 
@@ -239,8 +279,8 @@ struct Linker {
 
 std::string constructLinkerErrorMessage(const Linker::UnresolvedExternals &unresolvedExternals, const std::vector<std::string> &instructionsSegmentsNames);
 std::string constructRelocationsDebugMessage(const Linker::RelocatedSymbolsMap &relocatedSymbols);
-constexpr bool shouldIgnoreRelocation(const LinkerInput::RelocationInfo &relocation) {
-    return LinkerInput::RelocationInfo::Type::PerThreadPayloadOffset == relocation.type;
+inline bool isDataSegment(const SegmentType &segment) {
+    return segment == SegmentType::GlobalConstants || segment == SegmentType::GlobalVariables;
 }
 
 } // namespace NEO

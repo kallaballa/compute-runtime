@@ -74,7 +74,10 @@ void BlitCommandsHelper<GfxFamily>::appendSliceOffsets(const BlitProperties &bli
 }
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch, GMM_TILE_TYPE &tileType, uint32_t &mipTailLod, uint32_t &compressionDetails, const RootDeviceEnvironment &rootDeviceEnvironment) {
+void BlitCommandsHelper<GfxFamily>::getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch,
+                                                                GMM_TILE_TYPE &tileType, uint32_t &mipTailLod, uint32_t &compressionDetails,
+                                                                uint32_t &compressionType, const RootDeviceEnvironment &rootDeviceEnvironment,
+                                                                GMM_YUV_PLANE_ENUM plane) {
 }
 
 template <typename GfxFamily>
@@ -94,5 +97,8 @@ bool BlitCommandsHelper<GfxFamily>::miArbCheckWaRequired() {
 template <typename GfxFamily>
 void BlitCommandsHelper<GfxFamily>::appendClearColor(const BlitProperties &blitProperties, typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd) {
 }
+
+template <typename GfxFamily>
+void BlitCommandsHelper<GfxFamily>::printImageBlitBlockCopyCommand(const typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd, const uint32_t sliceIndex) {}
 
 } // namespace NEO

@@ -1,9 +1,11 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
+
+#include "shared/source/gen11/hw_cmds_base.h"
 
 #include "opencl/source/gtpin/gtpin_hw_helper.h"
 #include "opencl/source/gtpin/gtpin_hw_helper.inl"
@@ -15,7 +17,7 @@ namespace NEO {
 
 extern GTPinHwHelper *gtpinHwHelperFactory[IGFX_MAX_CORE];
 
-typedef ICLFamily Family;
+typedef Gen11Family Family;
 static const auto gfxFamily = IGFX_GEN11_CORE;
 
 template <>

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include <level_zero/zes_api.h>
 
 #include <map>
+#include <mutex>
 #include <vector>
 
 struct _zes_engine_handle_t {
@@ -28,6 +29,7 @@ class Engine : _zes_engine_handle_t {
         return static_cast<Engine *>(handle);
     }
     inline zes_engine_handle_t toHandle() { return this; }
+    bool initSuccess = false;
 };
 
 struct EngineHandleContext {
@@ -41,9 +43,14 @@ struct EngineHandleContext {
 
     OsSysman *pOsSysman = nullptr;
     std::vector<Engine *> handleList = {};
+    bool isEngineInitDone() {
+        return engineInitDone;
+    }
 
   private:
     void createHandle(zes_engine_group_t engineType, uint32_t engineInstance, uint32_t subDeviceId);
+    std::once_flag initEngineOnce;
+    bool engineInitDone = false;
 };
 
 } // namespace L0

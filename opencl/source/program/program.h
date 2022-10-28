@@ -30,6 +30,7 @@ namespace PatchTokenBinary {
 struct ProgramFromPatchtokens;
 }
 
+enum class BuildPhase;
 class BuiltinDispatchInfoBuilder;
 class ClDevice;
 class Context;
@@ -71,6 +72,14 @@ constexpr cl_int asClError(TranslationOutput::ErrorCode err) {
 class Program : public BaseObject<_cl_program> {
   public:
     static const cl_ulong objectMagic = 0x5651C89100AAACFELL;
+
+    enum class BuildPhase {
+        Init,
+        SourceCodeNotification,
+        BinaryCreation,
+        BinaryProcessing,
+        DebugDataNotification
+    };
 
     enum class CreatedFrom {
         SOURCE,
@@ -131,6 +140,7 @@ class Program : public BaseObject<_cl_program> {
     cl_int build(const ClDeviceVector &deviceVector, const char *buildOptions, bool enableCaching,
                  std::unordered_map<std::string, BuiltinDispatchInfoBuilder *> &builtinsMap);
 
+    cl_int processGenBinaries(const ClDeviceVector &clDevices, std::unordered_map<uint32_t, BuildPhase> &phaseReached);
     MOCKABLE_VIRTUAL cl_int processGenBinary(const ClDevice &clDevice);
     MOCKABLE_VIRTUAL cl_int processProgramInfo(ProgramInfo &dst, const ClDevice &clDevice);
 
@@ -276,7 +286,8 @@ class Program : public BaseObject<_cl_program> {
         this->context = pContext;
     }
 
-    void createDebugData(uint32_t rootDeviceIndex);
+    MOCKABLE_VIRTUAL void debugNotify(const ClDeviceVector &deviceVector, std::unordered_map<uint32_t, BuildPhase> &phasesReached);
+    void notifyDebuggerWithDebugData(ClDevice *clDevice);
     MOCKABLE_VIRTUAL void createDebugZebin(uint32_t rootDeviceIndex);
     Debug::Segments getZebinSegments(uint32_t rootDeviceIndex);
 
@@ -285,7 +296,8 @@ class Program : public BaseObject<_cl_program> {
 
     cl_int packDeviceBinary(ClDevice &clDevice);
 
-    MOCKABLE_VIRTUAL cl_int linkBinary(Device *pDevice, const void *constantsInitData, const void *variablesInitData, const ProgramInfo::GlobalSurfaceInfo &stringInfo);
+    MOCKABLE_VIRTUAL cl_int linkBinary(Device *pDevice, const void *constantsInitData, const void *variablesInitData,
+                                       const ProgramInfo::GlobalSurfaceInfo &stringInfo, std::vector<NEO::ExternalFunctionInfo> &extFuncInfos);
 
     void updateNonUniformFlag();
     void updateNonUniformFlag(const Program **inputProgram, size_t numInputPrograms);
@@ -293,7 +305,6 @@ class Program : public BaseObject<_cl_program> {
     void extractInternalOptions(const std::string &options, std::string &internalOptions);
     MOCKABLE_VIRTUAL bool isFlagOption(ConstStringRef option);
     MOCKABLE_VIRTUAL bool isOptionValueValid(ConstStringRef option, ConstStringRef value);
-    MOCKABLE_VIRTUAL void applyAdditionalOptions(std::string &internalOptions);
 
     MOCKABLE_VIRTUAL bool appendKernelDebugOptions(ClDevice &clDevice, std::string &internalOptions);
     void notifyDebuggerWithSourceCode(ClDevice &clDevice, std::string &filename);
@@ -317,7 +328,7 @@ class Program : public BaseObject<_cl_program> {
 
     std::unordered_map<ClDevice *, DeviceBuildInfo> deviceBuildInfos;
     bool isCreatedFromBinary = false;
-    bool shouldWarnAboutRebuild = false;
+    bool requiresRebuild = false;
 
     std::string sourceCode;
     std::string options;

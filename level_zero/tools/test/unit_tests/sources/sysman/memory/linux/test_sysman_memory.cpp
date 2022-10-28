@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -46,7 +46,7 @@ class SysmanDeviceMemoryFixture : public SysmanDeviceFixture {
             deviceHandles.resize(subDeviceCount, nullptr);
             Device::fromHandle(device->toHandle())->getSubDevices(&subDeviceCount, deviceHandles.data());
         }
-        pSysmanDeviceImp->pMemoryHandleContext->init(deviceHandles);
+        getMemoryHandles(0);
     }
 
     void TearDown() override {
@@ -54,11 +54,11 @@ class SysmanDeviceMemoryFixture : public SysmanDeviceFixture {
             GTEST_SKIP();
         }
         device->getDriverHandle()->setMemoryManager(pMemoryManagerOld);
-        SysmanDeviceFixture::TearDown();
         if (pMemoryManager != nullptr) {
             delete pMemoryManager;
             pMemoryManager = nullptr;
         }
+        SysmanDeviceFixture::TearDown();
     }
 
     void setLocalSupportedAndReinit(bool supported) {
@@ -82,7 +82,7 @@ class SysmanDeviceMemoryFixture : public SysmanDeviceFixture {
         pSysmanDeviceImp->pMemoryHandleContext->init(deviceHandles);
     }
 
-    std::vector<zes_mem_handle_t> get_memory_handles(uint32_t count) {
+    std::vector<zes_mem_handle_t> getMemoryHandles(uint32_t count) {
         std::vector<zes_mem_handle_t> handles(count, nullptr);
         EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, handles.data()), ZE_RESULT_SUCCESS);
         return handles;
@@ -92,14 +92,14 @@ class SysmanDeviceMemoryFixture : public SysmanDeviceFixture {
     MemoryManager *pMemoryManagerOld;
 };
 
-TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidCountIsReturned) {
     setLocalSupportedAndReinit(false);
     uint32_t count = 0;
     EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
     EXPECT_EQ(count, 0u);
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidCountIsReturned) {
     setLocalSupportedAndReinit(false);
     uint32_t count = 0;
     EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
@@ -110,14 +110,14 @@ TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemor
     EXPECT_EQ(count, 0u);
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenValidCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenValidCountIsReturned) {
     setLocalSupportedAndReinit(true);
     uint32_t count = 0;
     EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
     EXPECT_EQ(count, memoryHandleComponentCount);
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenValidCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenValidCountIsReturned) {
     setLocalSupportedAndReinit(true);
     uint32_t count = 0;
     EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
@@ -128,7 +128,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemor
     EXPECT_EQ(count, memoryHandleComponentCount);
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesThenValidPowerHandlesIsReturned) {
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesThenValidHandlesIsReturned) {
     setLocalSupportedAndReinit(true);
     uint32_t count = 0;
     EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
@@ -143,7 +143,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryMo
 
 TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingZetSysmanMemoryGetPropertiesThenVerifySysmanMemoryGetPropertiesCallReturnSuccess) {
     setLocalSupportedAndReinit(true);
-    auto handles = get_memory_handles(memoryHandleComponentCount);
+    auto handles = getMemoryHandles(memoryHandleComponentCount);
 
     for (auto handle : handles) {
         zes_mem_properties_t properties;
@@ -153,7 +153,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingZetSysmanMemo
 
 TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingZetSysmanMemoryGetStateThenVerifySysmanMemoryGetStateCallReturnUnsupportedFeature) {
     setLocalSupportedAndReinit(true);
-    auto handles = get_memory_handles(memoryHandleComponentCount);
+    auto handles = getMemoryHandles(memoryHandleComponentCount);
 
     for (auto handle : handles) {
         zes_mem_state_t state;
@@ -163,7 +163,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingZetSysmanMemo
 
 TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingZetSysmanMemoryGetBandwidthThenVerifySysmanMemoryGetBandwidthCallReturnUnsupportedFeature) {
     setLocalSupportedAndReinit(true);
-    auto handles = get_memory_handles(memoryHandleComponentCount);
+    auto handles = getMemoryHandles(memoryHandleComponentCount);
 
     for (auto handle : handles) {
         zes_mem_bandwidth_t bandwidth;

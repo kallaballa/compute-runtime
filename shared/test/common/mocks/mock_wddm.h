@@ -28,6 +28,8 @@ constexpr auto virtualAllocAddress = is64bit ? 0x7FFFF0000000 : 0xFF000000;
 class WddmMock : public Wddm {
   public:
     using Wddm::adapterBDF;
+    using Wddm::additionalAdapterInfoOptions;
+    using Wddm::adjustEvictNeededParameter;
     using Wddm::createPagingFenceLogger;
     using Wddm::currentPagingFenceValue;
     using Wddm::dedicatedVideoMemory;
@@ -35,6 +37,7 @@ class WddmMock : public Wddm {
     using Wddm::deviceRegistryPath;
     using Wddm::enablePreemptionRegValue;
     using Wddm::featureTable;
+    using Wddm::forceEvictOnlyIfNecessary;
     using Wddm::getSystemInfo;
     using Wddm::gmmMemory;
     using Wddm::hwDeviceId;
@@ -42,8 +45,11 @@ class WddmMock : public Wddm {
     using Wddm::minAddress;
     using Wddm::pagingFenceAddress;
     using Wddm::pagingQueue;
+    using Wddm::platformSupportsEvictIfNecessary;
+    using Wddm::populateAdditionalAdapterInfoOptions;
     using Wddm::residencyLogger;
     using Wddm::rootDeviceEnvironment;
+    using Wddm::setPlatformSupportEvictIfNecessaryFlag;
     using Wddm::temporaryResources;
     using Wddm::timestampFrequency;
     using Wddm::wddmInterface;
@@ -94,11 +100,12 @@ class WddmMock : public Wddm {
         }
         return verifyAdapterLuidReturnValue;
     }
+    LUID getAdapterLuid() { return hwDeviceId->getAdapterLuid(); }
     bool setAllocationPriority(const D3DKMT_HANDLE *handles, uint32_t allocationCount, uint32_t priority) override;
 
     bool configureDeviceAddressSpace() {
         configureDeviceAddressSpaceResult.called++;
-        //create context cant be called before configureDeviceAddressSpace
+        // create context cant be called before configureDeviceAddressSpace
         if (createContextResult.called > 0) {
             return configureDeviceAddressSpaceResult.success = false;
         } else {
@@ -123,7 +130,7 @@ class WddmMock : public Wddm {
 
     void resetGdi(Gdi *gdi);
     bool makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim, size_t totalSize) override;
-    bool evict(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim) override;
+    bool evict(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim, bool evictNeeded) override;
     NTSTATUS createAllocationsAndMapGpuVa(OsHandleStorage &osHandles) override;
 
     WddmMockHelpers::MakeResidentCall makeResidentResult;
@@ -164,6 +171,7 @@ class WddmMock : public Wddm {
     NTSTATUS createAllocationStatus = STATUS_SUCCESS;
     bool verifyAdapterLuidReturnValue = true;
     bool callBaseVerifyAdapterLuid = false;
+    LUID mockAdaperLuid = {0, 0};
     bool mapGpuVaStatus = true;
     bool callBaseDestroyAllocations = true;
     bool failOpenSharedHandle = false;
@@ -175,5 +183,6 @@ class WddmMock : public Wddm {
     bool callBaseCreatePagingLogger = true;
     bool shutdownStatus = false;
     bool callBaseSetAllocationPriority = true;
+    bool callBaseWaitFromCpu = true;
 };
 } // namespace NEO

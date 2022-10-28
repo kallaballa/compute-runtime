@@ -21,9 +21,10 @@
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/mock_os_context.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "driver_version.h"
+#include "gtest/gtest.h"
 #include "sys_calls.h"
 
 #include <fstream>
@@ -265,7 +266,7 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenDumpAllocationIsCa
     auto mockAubFileStream = std::make_unique<MockAubFileStream>();
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
-    GraphicsAllocation allocation{0, AllocationType::UNKNOWN, nullptr, 0, 0, 0, MemoryPool::MemoryNull};
+    GraphicsAllocation allocation{0, AllocationType::UNKNOWN, nullptr, 0, 0, 0, MemoryPool::MemoryNull, MemoryManager::maxOsContextCount};
 
     aubCsr->stream = static_cast<MockAubFileStream *>(mockAubFileStream.get());
 
@@ -315,14 +316,14 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithAubManagerWhenCall
 
     EXPECT_TRUE(aubCsr.addAubCommentCalled);
     EXPECT_TRUE(mockAubManager->addCommentCalled);
-    EXPECT_STREQ(comment, mockAubManager->receivedComment.c_str());
+    EXPECT_STREQ(comment, mockAubManager->receivedComments.c_str());
 }
 
 HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenCallingInsertAubWaitInstructionThenCallPollForCompletion) {
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
     ASSERT_FALSE(aubCsr->pollForCompletionCalled);
-    aubCsr->waitForTaskCountWithKmdNotifyFallback(0, 0, false, false);
+    aubCsr->waitForTaskCountWithKmdNotifyFallback(0, 0, false, QueueThrottle::MEDIUM);
     EXPECT_TRUE(aubCsr->pollForCompletionCalled);
 }
 
@@ -751,7 +752,7 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithAubManagerWhenInit
     aubCsr->initFile(fileName);
 
     std::string commentWithDriverVersion = "driver version: " + std::string(driverVersion);
-    EXPECT_EQ(mockAubManager->receivedComment, commentWithDriverVersion);
+    EXPECT_EQ(mockAubManager->receivedComments, commentWithDriverVersion);
 }
 
 HWTEST_F(AddPatchInfoCommentsAubTests, givenAddPatchInfoCommentsCalledWhenNoPatchInfoDataObjectsThenCommentsAreEmpty) {
@@ -992,4 +993,26 @@ HWTEST_F(AubFileStreamTests, givenGenerateAubFilePerProcessIdDebugFlagAndAubComm
     std::stringstream strExtendedFileName;
     strExtendedFileName << "_1_aubfile_PID_" << SysCalls::getProcessId() << ".aub";
     EXPECT_NE(std::string::npos, fullName.find(strExtendedFileName.str()));
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithAubManagerWhenInitFileIsCalledThenCommentWithNonDefaultFlagsAreAdded) {
+    DebugManagerStateRestore stateRestore;
+
+    DebugManager.flags.MakeAllBuffersResident.set(1);
+    DebugManager.flags.ZE_AFFINITY_MASK.set("non-default");
+
+    auto mockAubManager = std::make_unique<MockAubManager>();
+    auto aubExecutionEnvironment = getEnvironment<AUBCommandStreamReceiverHw<FamilyType>>(false, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<AUBCommandStreamReceiverHw<FamilyType>>();
+
+    aubCsr->aubManager = mockAubManager.get();
+
+    std::string fileName = "file_name.aub";
+    aubCsr->initFile(fileName);
+
+    std::string expectedAddedComments = std::string("driver version: ") + std::string(driverVersion) +
+                                        std::string("Non-default value of debug variable: MakeAllBuffersResident = 1") +
+                                        std::string("Non-default value of debug variable: ZE_AFFINITY_MASK = non-default");
+
+    EXPECT_EQ(expectedAddedComments, mockAubManager->receivedComments);
 }

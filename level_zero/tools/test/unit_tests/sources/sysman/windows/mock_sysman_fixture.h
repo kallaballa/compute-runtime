@@ -1,19 +1,22 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#pragma once
+
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/os_interface.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/tools/source/sysman/sysman.h"
 #include "level_zero/tools/test/unit_tests/sources/sysman/mocks/mock_sysman_env_vars.h"
 
+#include "gmock/gmock.h"
 #include "sysman/windows/os_sysman_imp.h"
 
 extern bool sysmanUltsEnable;
@@ -26,6 +29,7 @@ namespace ult {
 
 class PublicWddmSysmanImp : public L0::WddmSysmanImp {
   public:
+    using WddmSysmanImp::pFwUtilInterface;
     using WddmSysmanImp::pKmdSysManager;
 };
 
@@ -35,7 +39,7 @@ class SysmanDeviceFixture : public DeviceFixture, public SysmanEnabledFixture {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        DeviceFixture::SetUp();
+        DeviceFixture::setUp();
         neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->osInterface = std::make_unique<NEO::OSInterface>();
 
         SysmanEnabledFixture::SetUp();
@@ -51,7 +55,7 @@ class SysmanDeviceFixture : public DeviceFixture, public SysmanEnabledFixture {
             GTEST_SKIP();
         }
         SysmanEnabledFixture::TearDown();
-        DeviceFixture::TearDown();
+        DeviceFixture::tearDown();
     }
 
     SysmanDevice *pSysmanDevice = nullptr;

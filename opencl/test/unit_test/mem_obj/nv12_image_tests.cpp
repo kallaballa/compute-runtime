@@ -199,9 +199,9 @@ TEST_F(Nv12ImageTest, given1DImageWhenPassedAsParentImageThenValidateImageTraits
 }
 
 TEST_F(Nv12ImageTest, givenBufferWhenPassedAsNV12ParentImageThenValidateImageTraitsReturnsInvalidDesriptor) {
-    MockBuffer Buffer;
+    MockBuffer buffer;
 
-    imageDesc.mem_object = &Buffer;
+    imageDesc.mem_object = &buffer;
     imageDesc.image_depth = 0; // Plane of NV12 image
 
     retVal = Image::validateImageTraits(
@@ -242,6 +242,7 @@ TEST_F(Nv12ImageTest, WhenCreatingYPlaneImageThenDimensionsAreSetCorrectly) {
     EXPECT_EQ(true, imageYPlane->isImageFromImage());
     EXPECT_EQ(imageNV12->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()),
               imageYPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()));
+    EXPECT_EQ(GMM_PLANE_Y, imageYPlane->getPlane());
 
     cl_image_desc parentDimensions, planeDimensions;
     parentDimensions = imageNV12->getImageDesc();
@@ -277,6 +278,7 @@ TEST_F(Nv12ImageTest, WhenCreatingUVPlaneImageThenDimensionsAreSetCorrectly) {
     EXPECT_EQ(true, imageUVPlane->isImageFromImage());
     EXPECT_EQ(imageNV12->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()),
               imageUVPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()));
+    EXPECT_EQ(GMM_PLANE_U, imageUVPlane->getPlane());
 
     cl_image_desc parentDimensions, planeDimensions;
     parentDimensions = imageNV12->getImageDesc();

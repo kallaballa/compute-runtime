@@ -135,6 +135,7 @@ std::string asString(DATA_PARAMETER_TOKEN dataParameter) {
         CASE_TOK_STR(DATA_PARAMETER_STAGE_IN_GRID_SIZE);
         CASE_TOK_STR(DATA_PARAMETER_BUFFER_OFFSET);
         CASE_TOK_STR(DATA_PARAMETER_BUFFER_STATEFUL);
+        CASE_TOK_STR(DATA_PARAMETER_IMPL_ARG_BUFFER);
     }
 }
 #undef CASE_TOK_STR
@@ -285,19 +286,6 @@ void dump(const SPatchMediaInterfaceDescriptorLoad &value, std::stringstream &ou
     out << indent << "}\n";
 }
 
-void dump(const SPatchInterfaceDescriptorData &value, std::stringstream &out, const std::string &indent) {
-    out << indent << "struct SPatchInterfaceDescriptorData :\n";
-    out << indent << "       SPatchItemHeader (";
-    dumpPatchItemHeaderInline(value, out, "");
-    out << ")\n"
-        << indent << "{\n";
-    out << indent << "    uint32_t   Offset;// = " << value.Offset << "\n";
-    out << indent << "    uint32_t   SamplerStateOffset;// = " << value.SamplerStateOffset << "\n";
-    out << indent << "    uint32_t   KernelOffset;// = " << value.KernelOffset << "\n";
-    out << indent << "    uint32_t   BindingTableOffset;// = " << value.BindingTableOffset << "\n";
-    out << indent << "}\n";
-}
-
 void dump(const SPatchDataParameterStream &value, std::stringstream &out, const std::string &indent) {
     out << indent << "struct SPatchDataParameterStream :\n";
     out << indent << "       SPatchItemHeader (";
@@ -418,6 +406,7 @@ void dump(const SPatchExecutionEnvironment &value, std::stringstream &out, const
     out << indent << "    uint32_t    WorkgroupWalkOrderDims;// = " << value.WorkgroupWalkOrderDims << "\n";
     out << indent << "    uint32_t    HasGlobalAtomics;// = " << value.HasGlobalAtomics << "\n";
     out << indent << "    uint32_t    HasStackCalls;// = " << value.HasStackCalls << "\n";
+    out << indent << "    uint32_t    RequireDisableEUFusion;// = " << value.RequireDisableEUFusion << "\n";
     out << indent << "}\n";
 }
 
@@ -746,7 +735,6 @@ std::string asString(const KernelFromPatchtokens &kern) {
     dumpOrNull(kern.tokens.allocateLocalSurface, "", stream, indentLevel1);
     dumpOrNullArrayIfNotEmpty(kern.tokens.mediaVfeState, "mediaVfeState", stream, indentLevel1);
     dumpOrNull(kern.tokens.mediaInterfaceDescriptorLoad, "", stream, indentLevel1);
-    dumpOrNull(kern.tokens.interfaceDescriptorData, "", stream, indentLevel1);
     dumpOrNull(kern.tokens.kernelAttributesInfo, "", stream, indentLevel1);
     dumpOrNull(kern.tokens.allocateStatelessPrivateSurface, "", stream, indentLevel1);
     dumpOrNull(kern.tokens.allocateStatelessConstantMemorySurfaceWithInitialization, "", stream, indentLevel1);
@@ -777,8 +765,7 @@ std::string asString(const KernelFromPatchtokens &kern) {
     dumpOrNull(kern.tokens.crossThreadPayloadArgs.localMemoryStatelessWindowSize, "", stream, indentLevel1);
     dumpOrNull(kern.tokens.crossThreadPayloadArgs.localMemoryStatelessWindowStartAddress, "", stream, indentLevel1);
     dumpOrNull(kern.tokens.crossThreadPayloadArgs.preferredWorkgroupMultiple, "", stream, indentLevel1);
-    dumpVecIfNotEmpty(kern.tokens.crossThreadPayloadArgs.childBlockSimdSize, "Child block simd size(s)", stream, indentLevel1);
-
+    dumpOrNull(kern.tokens.crossThreadPayloadArgs.implicitArgsBufferOffset, "", stream, indentLevel1);
     if (kern.tokens.kernelArgs.size() != 0) {
         stream << "Kernel arguments [" << kern.tokens.kernelArgs.size() << "] :\n";
         for (size_t i = 0; i < kern.tokens.kernelArgs.size(); ++i) {
@@ -827,7 +814,6 @@ std::string asString(const KernelArgFromPatchtokens &arg, const std::string &ind
     std::string indentLevel2 = indentLevel1 + "  ";
     dumpOrNull(arg.argInfo, "", stream, indentLevel1);
     dumpOrNullObjArg(arg.objectArg, stream, indentLevel1);
-    dumpOrNull(arg.objectId, "", stream, indentLevel1);
     switch (arg.objectType) {
     default:
         break;

@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 
 namespace NEO {
@@ -59,4 +60,41 @@ inline bool UnitTestHelper<GfxFamily>::getPipeControlHdcPipelineFlush(const type
 
 template <typename GfxFamily>
 inline void UnitTestHelper<GfxFamily>::setPipeControlHdcPipelineFlush(typename GfxFamily::PIPE_CONTROL &pipeControl, bool hdcPipelineFlush) {}
+
+template <typename GfxFamily>
+inline void UnitTestHelper<GfxFamily>::adjustKernelDescriptorForImplicitArgs(KernelDescriptor &kernelDescriptor) {
+    kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs = true;
+    kernelDescriptor.payloadMappings.implicitArgs.implicitArgsBuffer = 0u;
+}
+
+template <typename GfxFamily>
+std::vector<bool> UnitTestHelper<GfxFamily>::getProgrammedLargeGrfValues(CommandStreamReceiver &csr, LinearStream &linearStream) {
+    return {};
+}
+
+template <typename GfxFamily>
+inline bool UnitTestHelper<GfxFamily>::getWorkloadPartitionForStoreRegisterMemCmd(typename GfxFamily::MI_STORE_REGISTER_MEM &storeRegisterMem) {
+    return false;
+}
+
+template <typename GfxFamily>
+GenCmdList::iterator UnitTestHelper<GfxFamily>::findMidThreadPreemptionAllocationCommand(GenCmdList::iterator begin, GenCmdList::iterator end) {
+    return find<typename GfxFamily::GPGPU_CSR_BASE_ADDRESS *>(begin, end);
+}
+
+template <typename GfxFamily>
+std::vector<GenCmdList::iterator> UnitTestHelper<GfxFamily>::findAllMidThreadPreemptionAllocationCommand(GenCmdList::iterator begin, GenCmdList::iterator end) {
+    return findAll<typename GfxFamily::GPGPU_CSR_BASE_ADDRESS *>(begin, end);
+}
+
+template <typename GfxFamily>
+bool UnitTestHelper<GfxFamily>::getSystolicFlagValueFromPipelineSelectCommand(const typename GfxFamily::PIPELINE_SELECT &pipelineSelectCmd) {
+    return false;
+}
+
+template <typename GfxFamily>
+size_t UnitTestHelper<GfxFamily>::getAdditionalDshSize() {
+    return sizeof(typename GfxFamily::INTERFACE_DESCRIPTOR_DATA);
+}
+
 } // namespace NEO

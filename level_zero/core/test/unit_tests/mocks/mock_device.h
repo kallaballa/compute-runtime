@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/device/device.h"
+#include "shared/source/memory_manager/allocations_list.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
 
 #include "level_zero/core/source/device/device_imp.h"
@@ -82,7 +83,7 @@ struct Mock<Device> : public Device {
     ADDMETHOD_NOBASE(obtainReusableAllocation, NEO::GraphicsAllocation *, nullptr, (size_t requiredSize, NEO::AllocationType type))
     ADDMETHOD_NOBASE_VOIDRETURN(storeReusableAllocation, (NEO::GraphicsAllocation & alloc));
 
-    DebugSession *createDebugSession(const zet_debug_config_t &config, ze_result_t &result) override {
+    DebugSession *createDebugSession(const zet_debug_config_t &config, ze_result_t &result, bool isRootAttach) override {
         result = ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
         return nullptr;
     }
@@ -98,8 +99,13 @@ struct Mock<Device> : public Device {
 template <>
 struct Mock<L0::DeviceImp> : public L0::DeviceImp {
     using Base = L0::DeviceImp;
+    using Base::adjustCommandQueueDesc;
     using Base::debugSession;
+    using Base::getNEODevice;
     using Base::implicitScalingCapable;
+    using Base::neoDevice;
+
+    Mock() = default;
 
     explicit Mock(NEO::Device *device, NEO::ExecutionEnvironment *execEnv) {
         device->incRefInternal();

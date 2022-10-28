@@ -4,6 +4,7 @@
 %global NEO_OCL_VERSION_MAJOR xxx
 %global NEO_OCL_VERSION_MINOR xxx
 %global NEO_OCL_VERSION_BUILD xxx
+%global NEO_RELEASE_WITH_REGKEYS FALSE
 
 %define _source_payload w5T16.xzdio
 %define _binary_payload w5T16.xzdio
@@ -17,13 +18,13 @@ Summary: Intel(R) Graphics Compute Runtime for OpenCL(TM)
 Group: System Environment/Libraries
 License: MIT
 URL: https://github.com/intel/compute-runtime
-Source0: %{url}/archive/%{version}/compute-runtime-%{version}.tar.xz
+Source0: %{url}/archive/%{version}/compute-runtime.tar.xz
 Source1: copyright
 
 Requires:      intel-gmmlib
 Requires:      intel-igc-opencl
 
-BuildRequires: make libva-devel gcc-c++ cmake
+BuildRequires: libva-devel gcc-c++ cmake ninja-build make
 BuildRequires: intel-gmmlib-devel
 BuildRequires: intel-igc-opencl-devel
 
@@ -39,35 +40,38 @@ Intel(R) Graphics Compute Runtime for OpenCL(TM) is a open source project to con
 %define debug_package %{nil}
 
 %prep
-%autosetup -p1 -n compute-runtime-%{ver}
+%autosetup -p1 -n compute-runtime
 
 %build
 mkdir build
 cd build
 %cmake .. \
+   -GNinja ${NEO_BUILD_EXTRA_OPTS} \
    -DNEO_OCL_VERSION_MAJOR=%{NEO_OCL_VERSION_MAJOR} \
    -DNEO_OCL_VERSION_MINOR=%{NEO_OCL_VERSION_MINOR} \
    -DNEO_VERSION_BUILD=%{NEO_OCL_VERSION_BUILD} \
    -DCMAKE_BUILD_TYPE=Release \
    -DBUILD_WITH_L0=FALSE \
    -DNEO_SKIP_UNIT_TESTS=TRUE \
-   -DCMAKE_INSTALL_PREFIX=/usr \
-   -DRELEASE_WITH_REGKEYS=1
-%make_build
+   -DNEO_ENABLE_i915_PRELIM_DETECTION=TRUE \
+   -DRELEASE_WITH_REGKEYS=%{NEO_RELEASE_WITH_REGKEYS} \
+   -DCMAKE_VERBOSE_MAKEFILE=FALSE
+%ninja_build
 
 %install
 cd build
-%make_install
+%ninja_install
+
 chmod +x %{buildroot}/%{_libdir}/intel-opencl/libigdrcl.so
 chmod +x %{buildroot}/%{_libdir}/libocloc.so
-rm -f %{buildroot}/%{_libdir}/intel-opencl/libigdrcl.so.debug
-rm -f %{buildroot}/%{_libdir}/libocloc.so.debug
-rm -rf %{buildroot}/usr/lib/debug/
+rm -vf %{buildroot}/%{_libdir}/intel-opencl/libigdrcl.so.debug
+rm -vf %{buildroot}/%{_libdir}/libocloc.so.debug
+rm -rvf %{buildroot}/usr/lib/debug/
 #insert license into package
 mkdir -p %{buildroot}/usr/share/doc/intel-opencl/
-cp -pR %{_sourcedir}/copyright %{buildroot}/usr/share/doc/intel-opencl/.
+cp -pvR %{_sourcedir}/copyright %{buildroot}/usr/share/doc/intel-opencl/.
 mkdir -p %{buildroot}/usr/share/doc/intel-ocloc/
-cp -pR %{_sourcedir}/copyright %{buildroot}/usr/share/doc/intel-ocloc/.
+cp -pvR %{_sourcedir}/copyright %{buildroot}/usr/share/doc/intel-ocloc/.
 
 %files
 %defattr(-,root,root)

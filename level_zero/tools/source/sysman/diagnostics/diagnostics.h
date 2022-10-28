@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "level_zero/core/source/device/device.h"
 #include <level_zero/zes_api.h>
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -22,7 +23,7 @@ struct OsSysman;
 
 class Diagnostics : _zes_diag_handle_t {
   public:
-    virtual ~Diagnostics() {}
+    ~Diagnostics() override {}
     virtual ze_result_t diagnosticsGetProperties(zes_diag_properties_t *pProperties) = 0;
     virtual ze_result_t diagnosticsGetTests(uint32_t *pCount, zes_diag_test_t *pTests) = 0;
     virtual ze_result_t diagnosticsRunTests(uint32_t start, uint32_t end, zes_diag_result_t *pResult) = 0;
@@ -38,15 +39,20 @@ struct DiagnosticsHandleContext {
     void releaseDiagnosticsHandles();
     MOCKABLE_VIRTUAL ~DiagnosticsHandleContext();
 
-    MOCKABLE_VIRTUAL void init(std::vector<ze_device_handle_t> &deviceHandles);
+    MOCKABLE_VIRTUAL void init();
 
     ze_result_t diagnosticsGet(uint32_t *pCount, zes_diag_handle_t *phDiagnostics);
     std::vector<std::string> supportedDiagTests = {};
     OsSysman *pOsSysman = nullptr;
     std::vector<Diagnostics *> handleList = {};
+    bool isDiagnosticsInitDone() {
+        return diagnosticsInitDone;
+    }
 
   private:
-    void createHandle(ze_device_handle_t deviceHandle, const std::string &DiagTests);
+    void createHandle(const std::string &diagTests);
+    std::once_flag initDiagnosticsOnce;
+    bool diagnosticsInitDone = false;
 };
 
 } // namespace L0

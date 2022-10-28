@@ -8,19 +8,29 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/command_stream/csr_definitions.h"
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/command_stream/queue_throttle.h"
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/debugger/debugger_l0.h"
 #include "shared/source/memory_manager/memory_manager.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist_hw.h"
 #include "level_zero/core/source/cmdqueue/cmdqueue_imp.h"
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/device/device_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
+#include "level_zero/core/source/hw_helpers/l0_hw_helper.h"
+#include "level_zero/core/source/kernel/kernel.h"
 
 #include "igfxfmid.h"
 
 namespace L0 {
 
 CommandQueueAllocatorFn commandQueueFactory[IGFX_MAX_PRODUCT] = {};
+
+bool CommandQueue::frontEndTrackingEnabled() const {
+    return NEO::DebugManager.flags.AllowPatchingVfeStateInCommandLists.get() || this->frontEndStateTracking;
+}
 
 CommandQueueImp::CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc)
     : desc(*desc), device(device), csr(csr) {
@@ -36,6 +46,7 @@ CommandQueueImp::CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr
 }
 
 ze_result_t CommandQueueImp::destroy() {
+    this->csr->unregisterClient();
     delete this;
     return ZE_RESULT_SUCCESS;
 }
@@ -47,45 +58,57 @@ ze_result_t CommandQueueImp::initialize(bool copyOnly, bool isInternal) {
     if (returnValue == ZE_RESULT_SUCCESS) {
         NEO::GraphicsAllocation *bufferAllocation = buffers.getCurrentBufferAllocation();
         UNRECOVERABLE_IF(bufferAllocation == nullptr);
-        commandStream = new NEO::LinearStream(bufferAllocation->getUnderlyingBuffer(),
-                                              defaultQueueCmdBufferSize);
-        UNRECOVERABLE_IF(commandStream == nullptr);
-        commandStream->replaceGraphicsAllocation(bufferAllocation);
+        commandStream.replaceBuffer(bufferAllocation->getUnderlyingBuffer(),
+                                    defaultQueueCmdBufferSize);
+        commandStream.replaceGraphicsAllocation(bufferAllocation);
         isCopyOnlyCommandQueue = copyOnly;
         preemptionCmdSyncProgramming = getPreemptionCmdProgramming();
         activeSubDevices = static_cast<uint32_t>(csr->getOsContext().getDeviceBitfield().count());
         if (!isInternal) {
             partitionCount = csr->getActivePartitions();
         }
+        if (NEO::Debugger::isDebugEnabled(internalUsage) && device->getL0Debugger()) {
+            device->getL0Debugger()->notifyCommandQueueCreated(device->getNEODevice());
+        }
+        auto &hwInfo = device->getHwInfo();
+        this->stateComputeModeTracking = L0HwHelper::enableStateComputeModeTracking(hwInfo);
+        this->frontEndStateTracking = L0HwHelper::enableFrontEndStateTracking(hwInfo);
+        this->pipelineSelectStateTracking = L0HwHelper::enablePipelineSelectStateTracking(hwInfo);
     }
     return returnValue;
 }
 
-void CommandQueueImp::reserveLinearStreamSize(size_t size) {
-    UNRECOVERABLE_IF(commandStream == nullptr);
-    if (commandStream->getAvailableSpace() < size) {
-        buffers.switchBuffers(csr);
+NEO::WaitStatus CommandQueueImp::reserveLinearStreamSize(size_t size) {
+    auto waitStatus{NEO::WaitStatus::Ready};
+
+    if (commandStream.getAvailableSpace() < size) {
+        waitStatus = buffers.switchBuffers(csr);
+
         NEO::GraphicsAllocation *nextBufferAllocation = buffers.getCurrentBufferAllocation();
-        commandStream->replaceBuffer(nextBufferAllocation->getUnderlyingBuffer(),
-                                     defaultQueueCmdBufferSize);
-        commandStream->replaceGraphicsAllocation(nextBufferAllocation);
+        commandStream.replaceBuffer(nextBufferAllocation->getUnderlyingBuffer(),
+                                    defaultQueueCmdBufferSize);
+        commandStream.replaceGraphicsAllocation(nextBufferAllocation);
     }
+
+    return waitStatus;
 }
 
 NEO::SubmissionStatus CommandQueueImp::submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr,
                                                          bool isCooperative) {
     UNRECOVERABLE_IF(csr == nullptr);
 
-    NEO::BatchBuffer batchBuffer(commandStream->getGraphicsAllocation(), offset, 0u, nullptr, false, false,
+    NEO::BatchBuffer batchBuffer(commandStream.getGraphicsAllocation(), offset, 0u, nullptr, false, false,
                                  NEO::QueueThrottle::HIGH, NEO::QueueSliceCount::defaultSliceCount,
-                                 commandStream->getUsed(), commandStream, endingCmdPtr, isCooperative);
+                                 commandStream.getUsed(), &commandStream, endingCmdPtr, isCooperative);
 
-    commandStream->getGraphicsAllocation()->updateTaskCount(csr->peekTaskCount() + 1, csr->getOsContext().getContextId());
-    commandStream->getGraphicsAllocation()->updateResidencyTaskCount(csr->peekTaskCount() + 1, csr->getOsContext().getContextId());
+    commandStream.getGraphicsAllocation()->updateTaskCount(csr->peekTaskCount() + 1, csr->getOsContext().getContextId());
+    commandStream.getGraphicsAllocation()->updateResidencyTaskCount(csr->peekTaskCount() + 1, csr->getOsContext().getContextId());
 
     csr->setActivePartitions(partitionCount);
     auto ret = csr->submitBatchBuffer(batchBuffer, csr->getResidencyAllocations());
     if (ret != NEO::SubmissionStatus::SUCCESS) {
+        commandStream.getGraphicsAllocation()->updateTaskCount(csr->peekTaskCount(), csr->getOsContext().getContextId());
+        commandStream.getGraphicsAllocation()->updateResidencyTaskCount(csr->peekTaskCount(), csr->getOsContext().getContextId());
         return ret;
     }
 
@@ -97,7 +120,7 @@ NEO::SubmissionStatus CommandQueueImp::submitBatchBuffer(size_t offset, NEO::Res
 ze_result_t CommandQueueImp::synchronize(uint64_t timeout) {
     if ((timeout == std::numeric_limits<uint64_t>::max()) && useKmdWaitFunction) {
         auto &waitPair = buffers.getCurrentFlushStamp();
-        const auto waitStatus = csr->waitForTaskCountWithKmdNotifyFallback(waitPair.first, waitPair.second, false, false);
+        const auto waitStatus = csr->waitForTaskCountWithKmdNotifyFallback(waitPair.first, waitPair.second, false, NEO::QueueThrottle::MEDIUM);
         if (waitStatus == NEO::WaitStatus::GpuHang) {
             return ZE_RESULT_ERROR_DEVICE_LOST;
         }
@@ -120,7 +143,7 @@ ze_result_t CommandQueueImp::synchronizeByPollingForTaskCount(uint64_t timeout) 
         timeoutMicroseconds = NEO::TimeoutControls::maxTimeout;
     }
 
-    const auto waitStatus = csr->waitForCompletionWithTimeout(enableTimeout, timeoutMicroseconds, taskCountToWait);
+    const auto waitStatus = csr->waitForCompletionWithTimeout(NEO::WaitParams{false, enableTimeout, timeoutMicroseconds}, taskCountToWait);
     if (waitStatus == NEO::WaitStatus::NotReady) {
         return ZE_RESULT_NOT_READY;
     }
@@ -132,16 +155,16 @@ ze_result_t CommandQueueImp::synchronizeByPollingForTaskCount(uint64_t timeout) 
     return ZE_RESULT_SUCCESS;
 }
 
-void CommandQueueImp::printFunctionsPrintfOutput() {
-    size_t size = this->printfFunctionContainer.size();
+void CommandQueueImp::printKernelsPrintfOutput() {
+    size_t size = this->printfKernelContainer.size();
     for (size_t i = 0; i < size; i++) {
-        this->printfFunctionContainer[i]->printPrintfOutput();
+        this->printfKernelContainer[i]->printPrintfOutput();
     }
-    this->printfFunctionContainer.clear();
+    this->printfKernelContainer.clear();
 }
 
 void CommandQueueImp::postSyncOperations() {
-    printFunctionsPrintfOutput();
+    printKernelsPrintfOutput();
 
     if (NEO::Debugger::isDebugEnabled(internalUsage) && device->getL0Debugger() && NEO::DebugManager.flags.DebuggerLogBitmask.get()) {
         device->getL0Debugger()->printTrackedAddresses(csr->getOsContext().getContextId());
@@ -174,7 +197,8 @@ CommandQueue *CommandQueue::create(uint32_t productFamily, Device *device, NEO::
         osContext.reInitializeContext();
     }
     osContext.ensureContextInitialized();
-    csr->initDirectSubmission(*device->getNEODevice(), osContext);
+    csr->initDirectSubmission();
+    csr->registerClient();
     return commandQueue;
 }
 
@@ -207,8 +231,6 @@ ze_result_t CommandQueueImp::CommandBufferManager::initialize(Device *device, si
         return ZE_RESULT_ERROR_OUT_OF_DEVICE_MEMORY;
     }
 
-    memset(buffers[BUFFER_ALLOCATION::FIRST]->getUnderlyingBuffer(), 0, buffers[BUFFER_ALLOCATION::FIRST]->getUnderlyingBufferSize());
-    memset(buffers[BUFFER_ALLOCATION::SECOND]->getUnderlyingBuffer(), 0, buffers[BUFFER_ALLOCATION::SECOND]->getUnderlyingBufferSize());
     flushId[BUFFER_ALLOCATION::FIRST] = std::make_pair(0u, 0u);
     flushId[BUFFER_ALLOCATION::SECOND] = std::make_pair(0u, 0u);
     return ZE_RESULT_SUCCESS;
@@ -225,17 +247,38 @@ void CommandQueueImp::CommandBufferManager::destroy(Device *device) {
     }
 }
 
-void CommandQueueImp::CommandBufferManager::switchBuffers(NEO::CommandStreamReceiver *csr) {
+NEO::WaitStatus CommandQueueImp::CommandBufferManager::switchBuffers(NEO::CommandStreamReceiver *csr) {
     if (bufferUse == BUFFER_ALLOCATION::FIRST) {
         bufferUse = BUFFER_ALLOCATION::SECOND;
     } else {
         bufferUse = BUFFER_ALLOCATION::FIRST;
     }
 
+    auto waitStatus{NEO::WaitStatus::Ready};
     auto completionId = flushId[bufferUse];
     if (completionId.second != 0u) {
         UNRECOVERABLE_IF(csr == nullptr);
-        csr->waitForTaskCountWithKmdNotifyFallback(completionId.first, completionId.second, false, false);
+        waitStatus = csr->waitForTaskCountWithKmdNotifyFallback(completionId.first, completionId.second, false, NEO::QueueThrottle::MEDIUM);
+    }
+
+    return waitStatus;
+}
+
+void CommandQueueImp::handleIndirectAllocationResidency(UnifiedMemoryControls unifiedMemoryControls, std::unique_lock<std::mutex> &lockForIndirect) {
+    NEO::Device *neoDevice = this->device->getNEODevice();
+    auto svmAllocsManager = this->device->getDriverHandle()->getSvmAllocsManager();
+    auto submitAsPack = this->device->getDriverHandle()->getMemoryManager()->allowIndirectAllocationsAsPack(neoDevice->getRootDeviceIndex());
+    if (NEO::DebugManager.flags.MakeIndirectAllocationsResidentAsPack.get() != -1) {
+        submitAsPack = !!NEO::DebugManager.flags.MakeIndirectAllocationsResidentAsPack.get();
+    }
+
+    if (submitAsPack) {
+        svmAllocsManager->makeIndirectAllocationsResident(*(this->csr), this->csr->peekTaskCount() + 1u);
+    } else {
+        lockForIndirect = this->device->getDriverHandle()->getSvmAllocsManager()->obtainOwnership();
+        svmAllocsManager->addInternalAllocationsToResidencyContainer(neoDevice->getRootDeviceIndex(),
+                                                                     this->csr->getResidencyAllocations(),
+                                                                     unifiedMemoryControls.generateMask());
     }
 }
 

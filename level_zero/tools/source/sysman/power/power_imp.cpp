@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,8 +12,21 @@
 namespace L0 {
 
 ze_result_t PowerImp::powerGetProperties(zes_power_properties_t *pProperties) {
+    ze_result_t result = ZE_RESULT_SUCCESS;
+    void *pNext = pProperties->pNext;
     *pProperties = powerProperties;
-    return ZE_RESULT_SUCCESS;
+    pProperties->pNext = pNext;
+    while (pNext) {
+        zes_power_ext_properties_t *pExtProps = reinterpret_cast<zes_power_ext_properties_t *>(pNext);
+        if (pExtProps->stype == ZES_STRUCTURE_TYPE_POWER_EXT_PROPERTIES) {
+            result = pOsPower->getPropertiesExt(pExtProps);
+            if (result != ZE_RESULT_SUCCESS) {
+                return result;
+            }
+        }
+        pNext = pExtProps->pNext;
+    }
+    return result;
 }
 
 ze_result_t PowerImp::powerGetEnergyCounter(zes_power_energy_counter_t *pEnergy) {
@@ -27,6 +40,15 @@ ze_result_t PowerImp::powerGetLimits(zes_power_sustained_limit_t *pSustained, ze
 ze_result_t PowerImp::powerSetLimits(const zes_power_sustained_limit_t *pSustained, const zes_power_burst_limit_t *pBurst, const zes_power_peak_limit_t *pPeak) {
     return pOsPower->setLimits(pSustained, pBurst, pPeak);
 }
+
+ze_result_t PowerImp::powerGetLimitsExt(uint32_t *pCount, zes_power_limit_ext_desc_t *pSustained) {
+    return pOsPower->getLimitsExt(pCount, pSustained);
+}
+
+ze_result_t PowerImp::powerSetLimitsExt(uint32_t *pCount, zes_power_limit_ext_desc_t *pSustained) {
+    return pOsPower->setLimitsExt(pCount, pSustained);
+}
+
 ze_result_t PowerImp::powerGetEnergyThreshold(zes_energy_threshold_t *pThreshold) {
     return pOsPower->getEnergyThreshold(pThreshold);
 }
@@ -47,6 +69,7 @@ void PowerImp::init() {
     if (pOsPower->isPowerModuleSupported()) {
         pOsPower->getProperties(&powerProperties);
         this->initSuccess = true;
+        this->isCardPower = powerProperties.onSubdevice ? false : true;
     }
 }
 

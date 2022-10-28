@@ -1,28 +1,30 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#pragma once
+
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_builtins.h"
 #include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_l0_debugger.h"
 #include "shared/test/common/mocks/mock_memory_operations_handler.h"
 #include "shared/test/common/mocks/mock_sip.h"
 
-#include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
-#include "level_zero/core/test/unit_tests/mocks/mock_built_ins.h"
-#include "level_zero/core/test/unit_tests/mocks/mock_l0_debugger.h"
+#include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
 
 namespace L0 {
 namespace ult {
 
 struct L0DebuggerFixture {
-    void SetUp() {
-        NEO::MockCompilerEnableGuard mock(true);
+    void setUp() {
+
         auto executionEnvironment = new NEO::ExecutionEnvironment();
-        auto mockBuiltIns = new MockBuiltins();
+        auto mockBuiltIns = new NEO::MockBuiltins();
         executionEnvironment->prepareRootDeviceEnvironments(1);
         executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
         memoryOperationsHandler = new NEO::MockMemoryOperations();
@@ -38,6 +40,7 @@ struct L0DebuggerFixture {
         }
 
         executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+        executionEnvironment->rootDeviceEnvironments[0]->initGmm();
         executionEnvironment->initializeMemoryManager();
 
         neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u);
@@ -51,7 +54,7 @@ struct L0DebuggerFixture {
         device = driverHandle->devices[0];
     }
 
-    void TearDown() {
+    void tearDown() {
     }
 
     std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
@@ -65,14 +68,14 @@ struct L0DebuggerFixture {
 };
 
 struct L0DebuggerHwFixture : public L0DebuggerFixture {
-    void SetUp() {
-        L0DebuggerFixture::SetUp();
+    void setUp() {
+        L0DebuggerFixture::setUp();
         debuggerHw = static_cast<DebuggerL0 *>(neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger.get());
         neoDevice->setPreemptionMode(PreemptionMode::Disabled);
     }
 
-    void TearDown() {
-        L0DebuggerFixture::TearDown();
+    void tearDown() {
+        L0DebuggerFixture::tearDown();
         debuggerHw = nullptr;
     }
     template <typename GfxFamily>
@@ -80,6 +83,28 @@ struct L0DebuggerHwFixture : public L0DebuggerFixture {
         return static_cast<MockDebuggerL0Hw<GfxFamily> *>(debuggerHw);
     }
     DebuggerL0 *debuggerHw = nullptr;
+};
+
+struct L0DebuggerPerContextAddressSpaceFixture : public L0DebuggerHwFixture {
+    void setUp() {
+        NEO::DebugManager.flags.DebuggerForceSbaTrackingMode.set(0);
+        L0DebuggerHwFixture::setUp();
+    }
+    void tearDown() {
+        L0DebuggerHwFixture::tearDown();
+    }
+    DebugManagerStateRestore restorer;
+};
+
+struct L0DebuggerHwParameterizedFixture : ::testing::TestWithParam<int>, public L0DebuggerHwFixture {
+    void SetUp() override {
+        NEO::DebugManager.flags.DebuggerForceSbaTrackingMode.set(GetParam());
+        L0DebuggerHwFixture::setUp();
+    }
+    void TearDown() override {
+        L0DebuggerHwFixture::tearDown();
+    }
+    DebugManagerStateRestore restorer;
 };
 
 } // namespace ult

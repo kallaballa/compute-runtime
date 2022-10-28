@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,16 +13,18 @@ namespace NEO {
 
 HwDeviceIdWddm::~HwDeviceIdWddm() {
     [[maybe_unused]] NTSTATUS status = STATUS_UNSUCCESSFUL;
-    D3DKMT_CLOSEADAPTER CloseAdapter = {0};
-    CloseAdapter.hAdapter = adapter;
-    status = static_cast<OsEnvironmentWin *>(osEnvironment)->gdi->closeAdapter(&CloseAdapter);
+    D3DKMT_CLOSEADAPTER closeAdapter = {0};
+    closeAdapter.hAdapter = adapter;
+    status = static_cast<OsEnvironmentWin *>(osEnvironment)->gdi->closeAdapter(&closeAdapter);
     DEBUG_BREAK_IF(status != STATUS_SUCCESS);
 }
 HwDeviceIdWddm::HwDeviceIdWddm(D3DKMT_HANDLE adapterIn, LUID adapterLuidIn,
                                OsEnvironment *osEnvironmentIn, std::unique_ptr<UmKmDataTranslator> umKmDataTranslator)
     : HwDeviceId(DriverModelType::WDDM),
-      adapter(adapterIn), adapterLuid(adapterLuidIn), osEnvironment(osEnvironmentIn),
-      umKmDataTranslator(std::move(umKmDataTranslator)) {}
+      adapterLuid(adapterLuidIn), umKmDataTranslator(std::move(umKmDataTranslator)),
+      osEnvironment(osEnvironmentIn), adapter(adapterIn) {
+}
+
 Gdi *HwDeviceIdWddm::getGdi() const {
     return static_cast<OsEnvironmentWin *>(osEnvironment)->gdi.get();
 };

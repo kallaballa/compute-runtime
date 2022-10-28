@@ -8,6 +8,7 @@
 #include "shared/source/command_stream/device_command_stream.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/os_interface/linux/drm_allocation.h"
 #include "shared/source/os_interface/linux/drm_buffer_object.h"
 #include "shared/source/os_interface/linux/drm_command_stream.h"
 #include "shared/source/os_interface/linux/drm_gem_close_worker.h"
@@ -20,8 +21,6 @@
 
 #include "opencl/source/mem_obj/buffer.h"
 
-#include "drm/i915_drm.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include <iostream>
@@ -34,19 +33,15 @@ using namespace NEO;
 
 class DrmMockForWorker : public Drm {
   public:
+    using Drm::setupIoctlHelper;
     std::mutex mutex;
     std::atomic<int> gem_close_cnt;
     std::atomic<int> gem_close_expected;
     std::atomic<std::thread::id> ioctl_caller_thread_id;
     DrmMockForWorker(RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(mockFd, mockPciPath), rootDeviceEnvironment) {
     }
-    int ioctl(unsigned long request, void *arg) override {
-        if (_IOC_TYPE(request) == DRM_IOCTL_BASE) {
-            //when drm ioctl is called, try acquire mutex
-            //main thread can hold mutex, to prevent ioctl handling
-            std::lock_guard<std::mutex> lock(mutex);
-        }
-        if (request == DRM_IOCTL_GEM_CLOSE)
+    int ioctl(DrmIoctl request, void *arg) override {
+        if (request == DrmIoctl::GemClose)
             gem_close_cnt++;
 
         ioctl_caller_thread_id = std::this_thread::get_id();
@@ -65,8 +60,11 @@ class DrmGemCloseWorkerFixture {
     DrmMockForWorker *drmMock;
     uint32_t deadCnt = deadCntInit;
 
-    void SetUp() {
+    void setUp() {
         this->drmMock = new DrmMockForWorker(*executionEnvironment.rootDeviceEnvironments[0]);
+
+        auto hwInfo = executionEnvironment.rootDeviceEnvironments[0]->getHardwareInfo();
+        drmMock->setupIoctlHelper(hwInfo->platform.eProductFamily);
 
         executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
         executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drmMock));
@@ -81,7 +79,7 @@ class DrmGemCloseWorkerFixture {
         this->drmMock->gem_close_expected = 0;
     }
 
-    void TearDown() {
+    void tearDown() {
         if (this->drmMock->gem_close_expected >= 0) {
             EXPECT_EQ(this->drmMock->gem_close_expected, this->drmMock->gem_close_cnt);
         }
@@ -105,7 +103,7 @@ TEST_F(DrmGemCloseWorkerTests, WhenClosingGemThenSucceeds) {
     this->drmMock->gem_close_expected = 1;
 
     auto worker = new DrmGemCloseWorker(*mm);
-    auto bo = new BufferObject(this->drmMock, 1, 0, 1);
+    auto bo = new BufferObject(this->drmMock, 3, 1, 0, 1);
 
     worker->push(bo);
 
@@ -116,7 +114,7 @@ TEST_F(DrmGemCloseWorkerTests, GivenMultipleThreadsWhenClosingGemThenSucceeds) {
     this->drmMock->gem_close_expected = -1;
 
     auto worker = new DrmGemCloseWorker(*mm);
-    auto bo = new BufferObject(this->drmMock, 1, 0, 1);
+    auto bo = new BufferObject(this->drmMock, 3, 1, 0, 1);
 
     worker->push(bo);
 
@@ -136,7 +134,7 @@ TEST_F(DrmGemCloseWorkerTests, GivenMultipleThreadsAndCloseFalseWhenClosingGemTh
     this->drmMock->gem_close_expected = -1;
 
     auto worker = new DrmGemCloseWorker(*mm);
-    auto bo = new BufferObject(this->drmMock, 1, 0, 1);
+    auto bo = new BufferObject(this->drmMock, 3, 1, 0, 1);
 
     worker->push(bo);
     worker->close(false);
@@ -154,7 +152,7 @@ TEST_F(DrmGemCloseWorkerTests, givenAllocationWhenAskedForUnreferenceWithForceFl
     this->drmMock->gem_close_expected = 1;
 
     auto worker = new DrmGemCloseWorker(*mm);
-    auto bo = new BufferObject(this->drmMock, 1, 0, 1);
+    auto bo = new BufferObject(this->drmMock, 3, 1, 0, 1);
 
     bo->reference();
     worker->push(bo);

@@ -5,6 +5,8 @@
  *
  */
 
+#include "shared/source/xe_hp_core/hw_cmds_base.h"
+
 #include "level_zero/core/source/cmdlist/cmdlist_hw.h"
 #include "level_zero/core/source/cmdlist/cmdlist_hw.inl"
 #include "level_zero/core/source/cmdlist/cmdlist_hw_immediate.h"
@@ -14,11 +16,6 @@
 #include "cmdlist_extended.inl"
 
 namespace L0 {
-template <>
-void CommandListCoreFamily<IGFX_XE_HP_CORE>::clearComputeModePropertiesIfNeeded(bool requiresCoherency, uint32_t numGrfRequired, uint32_t threadArbitrationPolicy) {
-    finalStreamState.stateComputeMode = {};
-    finalStreamState.stateComputeMode.setProperties(requiresCoherency, numGrfRequired, threadArbitrationPolicy);
-}
 
 template struct CommandListCoreFamily<IGFX_XE_HP_CORE>;
 template struct CommandListCoreFamilyImmediate<IGFX_XE_HP_CORE>;

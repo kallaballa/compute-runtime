@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -58,17 +58,22 @@ ze_result_t LinuxPowerImp::getProperties(zes_power_properties_t *pProperties) {
     return ZE_RESULT_SUCCESS;
 }
 
+ze_result_t LinuxPowerImp::getPropertiesExt(zes_power_ext_properties_t *pExtPoperties) {
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
 ze_result_t LinuxPowerImp::getPmtEnergyCounter(zes_power_energy_counter_t *pEnergy) {
     const std::string key("PACKAGE_ENERGY");
     uint64_t energy = 0;
+    constexpr uint64_t fixedPointToJoule = 1048576;
     ze_result_t result = pPmt->readValue(key, energy);
     // PMT will return energy counter in Q20 format(fixed point representation) where first 20 bits(from LSB) represent decimal part and remaining integral part which is converted into joule by division with 1048576(2^20) and then converted into microjoules
-    pEnergy->energy = (energy / 1048576) * convertJouleToMicroJoule;
+    pEnergy->energy = (energy / fixedPointToJoule) * convertJouleToMicroJoule;
     return result;
 }
 ze_result_t LinuxPowerImp::getEnergyCounter(zes_power_energy_counter_t *pEnergy) {
     powerGetTimestamp(pEnergy->timestamp);
-    ze_result_t result = pSysfsAccess->read(energyHwmonDir + "/" + energyCounterNode, pEnergy->energy);
+    ze_result_t result = pSysfsAccess->read(i915HwmonDir + "/" + energyCounterNode, pEnergy->energy);
     if (result != ZE_RESULT_SUCCESS) {
         if (pPmt != nullptr) {
             return getPmtEnergyCounter(pEnergy);
@@ -187,6 +192,21 @@ ze_result_t LinuxPowerImp::setEnergyThreshold(double threshold) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
+ze_result_t LinuxPowerImp::getLimitsExt(uint32_t *pCount, zes_power_limit_ext_desc_t *pSustained) {
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+ze_result_t LinuxPowerImp::setLimitsExt(uint32_t *pCount, zes_power_limit_ext_desc_t *pSustained) {
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+bool LinuxPowerImp::isHwmonDir(std::string name) {
+    if (isSubdevice == false && (name == i915)) {
+        return true;
+    }
+    return false;
+}
+
 bool LinuxPowerImp::isPowerModuleSupported() {
     std::vector<std::string> listOfAllHwmonDirs = {};
     bool hwmonDirExists = false;
@@ -199,13 +219,10 @@ bool LinuxPowerImp::isPowerModuleSupported() {
         if (ZE_RESULT_SUCCESS != pSysfsAccess->read(i915NameFile, name)) {
             continue;
         }
-        if (name == i915) {
+        if (isHwmonDir(name)) {
             i915HwmonDir = hwmonDir + "/" + tempHwmonDirEntry;
             hwmonDirExists = true;
             canControl = true;
-        }
-        if (isEnergyHwmonDir(name) == true) {
-            energyHwmonDir = hwmonDir + "/" + tempHwmonDirEntry;
         }
     }
     if (hwmonDirExists == false) {

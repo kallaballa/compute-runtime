@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,7 +12,7 @@
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 
-#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 using namespace NEO;
 
@@ -23,12 +23,12 @@ class CommandStreamReceiverHwTestWithLocalMemory : public ClDeviceFixture,
     void SetUp() override {
         dbgRestore = std::make_unique<DebugManagerStateRestore>();
         DebugManager.flags.EnableLocalMemory.set(1);
-        ClDeviceFixture::SetUp();
-        HardwareParse::SetUp();
+        ClDeviceFixture::setUp();
+        HardwareParse::setUp();
     }
     void TearDown() override {
-        HardwareParse::TearDown();
-        ClDeviceFixture::TearDown();
+        HardwareParse::tearDown();
+        ClDeviceFixture::tearDown();
     }
 
   private:

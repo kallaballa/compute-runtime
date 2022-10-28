@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen12lp/hw_cmds.h"
 #include "shared/source/gen12lp/hw_info.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.inl"
@@ -13,7 +14,7 @@
 
 namespace NEO {
 
-using Family = TGLLPFamily;
+using Family = Gen12LpFamily;
 
 template <>
 bool UnitTestHelper<Family>::isL3ConfigProgrammable() {
@@ -48,6 +49,16 @@ uint32_t UnitTestHelper<Family>::getTdCtlRegisterOffset() {
 template <>
 uint32_t UnitTestHelper<Family>::getTdCtlRegisterValue() {
     return (1u << 7) | (1u << 4);
+}
+
+template <>
+bool UnitTestHelper<Family>::getDisableFusionStateFromFrontEndCommand(const typename Family::VFE_STATE_TYPE &feCmd) {
+    return feCmd.getDisableSlice0Subslice2();
+}
+
+template <>
+bool UnitTestHelper<Family>::getSystolicFlagValueFromPipelineSelectCommand(const typename Family::PIPELINE_SELECT &pipelineSelectCmd) {
+    return pipelineSelectCmd.getSpecialModeEnable();
 }
 
 template struct UnitTestHelper<Family>;

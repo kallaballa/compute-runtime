@@ -7,11 +7,11 @@
 
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
 #include "shared/source/helpers/string.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/program.h"
 #include "opencl/test/unit_test/fixtures/kernel_data_fixture.h"
-#include "opencl/test/unit_test/helpers/gtest_helpers.h"
 
 TEST_F(KernelDataTest, GivenKernelNameWhenBuildingThenProgramIsCorrect) {
     kernelName = "myTestKernel";
@@ -119,33 +119,33 @@ TEST_F(KernelDataTest, GivenPrintfStringWhenBuildingThenProgramIsCorrect) {
 }
 
 TEST_F(KernelDataTest, GivenMediaVfeStateWhenBuildingThenProgramIsCorrect) {
-    iOpenCL::SPatchMediaVFEState MediaVFEState;
-    MediaVFEState.Token = PATCH_TOKEN_MEDIA_VFE_STATE;
-    MediaVFEState.Size = sizeof(SPatchMediaVFEState);
-    MediaVFEState.PerThreadScratchSpace = 1; // lets say 1KB of perThreadScratchSpace
-    MediaVFEState.ScratchSpaceOffset = 0;
+    iOpenCL::SPatchMediaVFEState mediaVfeState;
+    mediaVfeState.Token = PATCH_TOKEN_MEDIA_VFE_STATE;
+    mediaVfeState.Size = sizeof(SPatchMediaVFEState);
+    mediaVfeState.PerThreadScratchSpace = 1; // lets say 1KB of perThreadScratchSpace
+    mediaVfeState.ScratchSpaceOffset = 0;
 
-    pPatchList = &MediaVFEState;
-    patchListSize = MediaVFEState.Size;
+    pPatchList = &mediaVfeState;
+    patchListSize = mediaVfeState.Size;
 
     buildAndDecode();
 
-    EXPECT_EQ_VAL(MediaVFEState.PerThreadScratchSpace, pKernelInfo->kernelDescriptor.kernelAttributes.perThreadScratchSize[0]);
+    EXPECT_EQ_VAL(mediaVfeState.PerThreadScratchSpace, pKernelInfo->kernelDescriptor.kernelAttributes.perThreadScratchSize[0]);
 }
 
 TEST_F(KernelDataTest, WhenMediaVfeStateSlot1TokenIsParsedThenCorrectValuesAreSet) {
-    iOpenCL::SPatchMediaVFEState MediaVFEState;
-    MediaVFEState.Token = PATCH_TOKEN_MEDIA_VFE_STATE_SLOT1;
-    MediaVFEState.Size = sizeof(SPatchMediaVFEState);
-    MediaVFEState.PerThreadScratchSpace = 1;
-    MediaVFEState.ScratchSpaceOffset = 0;
+    iOpenCL::SPatchMediaVFEState mediaVfeState;
+    mediaVfeState.Token = PATCH_TOKEN_MEDIA_VFE_STATE_SLOT1;
+    mediaVfeState.Size = sizeof(SPatchMediaVFEState);
+    mediaVfeState.PerThreadScratchSpace = 1;
+    mediaVfeState.ScratchSpaceOffset = 0;
 
-    pPatchList = &MediaVFEState;
-    patchListSize = MediaVFEState.Size;
+    pPatchList = &mediaVfeState;
+    patchListSize = mediaVfeState.Size;
 
     buildAndDecode();
 
-    EXPECT_EQ_VAL(MediaVFEState.PerThreadScratchSpace, pKernelInfo->kernelDescriptor.kernelAttributes.perThreadScratchSize[1]);
+    EXPECT_EQ_VAL(mediaVfeState.PerThreadScratchSpace, pKernelInfo->kernelDescriptor.kernelAttributes.perThreadScratchSize[1]);
 }
 
 TEST_F(KernelDataTest, GivenSyncBufferTokenWhenParsingProgramThenTokenIsFound) {
@@ -1319,6 +1319,9 @@ TEST_F(KernelDataTest, givenRelocationTablePatchTokenThenLinkerInputIsCreated) {
     token.Token = PATCH_TOKEN_PROGRAM_RELOCATION_TABLE;
     token.Size = static_cast<uint32_t>(sizeof(SPatchFunctionTableInfo));
     token.NumEntries = 0;
+    kernelHeapSize = 0x100; //force creating kernel allocation for ISA
+    auto kernelHeapData = std::make_unique<char[]>(kernelHeapSize);
+    pKernelHeap = kernelHeapData.get();
 
     pPatchList = &token;
     patchListSize = token.Size;

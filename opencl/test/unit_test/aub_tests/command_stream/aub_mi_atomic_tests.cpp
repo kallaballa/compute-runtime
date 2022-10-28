@@ -8,7 +8,7 @@
 #include "shared/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "shared/source/command_stream/command_stream_receiver_hw.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/aub_tests/fixtures/aub_fixture.h"
 
@@ -17,8 +17,8 @@
 using namespace NEO;
 
 struct MiAtomicAubFixture : public AUBFixture {
-    void SetUp() override {
-        AUBFixture::SetUp(nullptr);
+    void setUp() {
+        AUBFixture::setUp(nullptr);
         auto memoryManager = this->device->getMemoryManager();
 
         AllocationProperties commandBufferProperties = {device->getRootDeviceIndex(),
@@ -53,13 +53,13 @@ struct MiAtomicAubFixture : public AUBFixture {
                                  streamAllocation->getUnderlyingBufferSize());
     }
 
-    void TearDown() override {
+    void tearDown() {
         auto memoryManager = this->device->getMemoryManager();
         memoryManager->freeGraphicsMemory(streamAllocation);
         memoryManager->freeGraphicsMemory(deviceSurface);
         memoryManager->freeGraphicsMemory(systemSurface);
 
-        AUBFixture::TearDown();
+        AUBFixture::tearDown();
     }
 
     void flushStream() {
@@ -69,9 +69,9 @@ struct MiAtomicAubFixture : public AUBFixture {
         csr->makeResident(*deviceSurface);
         csr->makeResident(*systemSurface);
         csr->flushTask(taskStream, 0,
-                       csr->getIndirectHeap(IndirectHeap::Type::DYNAMIC_STATE, 0u),
-                       csr->getIndirectHeap(IndirectHeap::Type::INDIRECT_OBJECT, 0u),
-                       csr->getIndirectHeap(IndirectHeap::Type::SURFACE_STATE, 0u),
+                       &csr->getIndirectHeap(IndirectHeap::Type::DYNAMIC_STATE, 0u),
+                       &csr->getIndirectHeap(IndirectHeap::Type::INDIRECT_OBJECT, 0u),
+                       &csr->getIndirectHeap(IndirectHeap::Type::SURFACE_STATE, 0u),
                        0u, dispatchFlags, device->getDevice());
 
         csr->flushBatchedSubmissions();

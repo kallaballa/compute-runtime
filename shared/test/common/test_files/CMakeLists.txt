@@ -27,7 +27,7 @@ function(compile_kernels_gen platform_name_with_type revision_id platform_name s
 
       add_custom_command(
                          OUTPUT ${output_files}
-                         COMMAND ${ocloc_cmd_prefix} -file ${absolute_filepath} -device ${platform_name} -${NEO_BITS} -out_dir ${outputdir} -revision_id ${revision_id}
+                         COMMAND ${ocloc_cmd_prefix} -gen_file -file ${absolute_filepath} -device ${platform_name} -${NEO_BITS} -out_dir ${outputdir} -revision_id ${revision_id}
                          WORKING_DIRECTORY ${workdir}
                          DEPENDS ${filepath} ocloc copy_compiler_files
       )
@@ -35,7 +35,7 @@ function(compile_kernels_gen platform_name_with_type revision_id platform_name s
       list(APPEND compiled_kernels_${platform_name_with_type}_${revision_id} ${output_files})
     else()
       foreach(_file_name "spv" "bin" "gen")
-        set(_file_prebuilt "${NEO_SOURCE_DIR}/../neo_test_kernels/${suffix}/${revision_id}/test_files/${NEO_ARCH}/${basename}_${suffix}.${_file_name}")
+        set(_file_prebuilt "${NEO_KERNELS_BIN_DIR}/${suffix}/${revision_id}/test_files/${NEO_ARCH}/${basename}_${suffix}.${_file_name}")
         add_custom_command(
                            OUTPUT ${outputpath_base}.${_file_name}
                            COMMAND ${CMAKE_COMMAND} -E make_directory ${outputdir}
@@ -49,26 +49,10 @@ function(compile_kernels_gen platform_name_with_type revision_id platform_name s
   set(compiled_kernels_${platform_name_with_type}_${revision_id} ${compiled_kernels_${platform_name_with_type}_${revision_id}} PARENT_SCOPE)
 endfunction()
 
-function(neo_shared_copy_test_files target product revision_id)
-  string(TOLOWER ${product} product)
-  set(dest_dir "${TargetDir}/${product}/${revision_id}/test_files")
-  set(source_dir "${NEO_SOURCE_DIR}/shared/test/common/test_files")
-  add_custom_target(${target})
-  add_custom_command(
-                     TARGET ${target}
-                     POST_BUILD
-                     COMMAND echo copying test files from ${source_dir} to ${dest_dir}
-                     COMMAND ${CMAKE_COMMAND} -E copy_directory ${source_dir} ${dest_dir}
-                     WORKING_DIRECTORY ${TargetDir}
-                     DEPENDS ${source_dir}
-  )
-  add_dependencies(${target} copy_compiler_files)
-  set_target_properties(${target} PROPERTIES FOLDER "${SHARED_TEST_PROJECTS_FOLDER}/${SHARED_TEST_PROJECTS_SUB_FOLDER}/${PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER}/${product}/${revision_id}")
-endfunction()
-
 file(GLOB_RECURSE TEST_KERNELS *.cl)
 file(GLOB_RECURSE TEST_KERNELS_IMAGES *_images.cl)
 add_custom_target(prepare_test_kernels_for_shared)
+add_dependencies(prepare_test_kernels_for_shared ${BUILTINS_BINARIES_STATELESS_LIB_NAME})
 add_dependencies(prepare_test_kernels_for_shared ${BUILTINS_BINARIES_BINDFUL_LIB_NAME})
 add_dependencies(prepare_test_kernels_for_shared ${BUILTINS_BINARIES_BINDLESS_LIB_NAME})
 if(TARGET ${BUILTINS_SPIRV_LIB_NAME})
@@ -80,8 +64,7 @@ macro(macro_for_each_platform)
   foreach(PLATFORM_TYPE ${PLATFORM_TYPES})
     foreach(REVISION_ID ${${PLATFORM_TYPE}_${CORE_TYPE}_REVISIONS})
       if(${PLATFORM_IT}_IS_${PLATFORM_TYPE})
-        neo_shared_copy_test_files(copy_test_kernel_${PLATFORM_IT_LOWER}_${REVISION_ID} ${PLATFORM_IT} ${REVISION_ID})
-        add_dependencies(prepare_test_kernels_for_shared copy_test_kernel_${PLATFORM_IT_LOWER}_${REVISION_ID})
+        add_dependencies(prepare_test_kernels_for_shared copy_compiler_files)
       endif()
     endforeach()
   endforeach()

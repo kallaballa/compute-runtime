@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,7 +31,7 @@ void ExecutionEnvironment::releaseRootDeviceEnvironmentResources(RootDeviceEnvir
     }
     SipKernel::freeSipKernels(rootDeviceEnvironment, memoryManager.get());
     if (rootDeviceEnvironment->builtins.get()) {
-        rootDeviceEnvironment->builtins.get()->freeSipKernels(memoryManager.get());
+        rootDeviceEnvironment->builtins->freeSipKernels(memoryManager.get());
     }
 }
 
@@ -96,6 +96,10 @@ void ExecutionEnvironment::calculateMaxOsContextCount() {
 DirectSubmissionController *ExecutionEnvironment::initializeDirectSubmissionController() {
     auto initializeDirectSubmissionController = DirectSubmissionController::isSupported();
 
+    if (DebugManager.flags.SetCommandStreamReceiver.get() > 0) {
+        initializeDirectSubmissionController = false;
+    }
+
     if (DebugManager.flags.EnableDirectSubmissionController.get() != -1) {
         initializeDirectSubmissionController = DebugManager.flags.EnableDirectSubmissionController.get();
     }
@@ -114,6 +118,14 @@ void ExecutionEnvironment::prepareRootDeviceEnvironments(uint32_t numRootDevices
     for (auto rootDeviceIndex = 0u; rootDeviceIndex < numRootDevices; rootDeviceIndex++) {
         if (!rootDeviceEnvironments[rootDeviceIndex]) {
             rootDeviceEnvironments[rootDeviceIndex] = std::make_unique<RootDeviceEnvironment>(*this);
+        }
+    }
+}
+
+void ExecutionEnvironment::prepareForCleanup() const {
+    for (auto &rootDeviceEnvironment : rootDeviceEnvironments) {
+        if (rootDeviceEnvironment) {
+            rootDeviceEnvironment->prepareForCleanup();
         }
     }
 }
@@ -186,5 +198,59 @@ void ExecutionEnvironment::parseAffinityMask() {
     }
 
     rootDeviceEnvironments.swap(filteredEnvironments);
+}
+
+void ExecutionEnvironment::adjustCcsCountImpl(RootDeviceEnvironment *rootDeviceEnvironment) const {
+    auto hwInfo = rootDeviceEnvironment->getMutableHardwareInfo();
+    auto hwInfoConfig = HwInfoConfig::get(hwInfo->platform.eProductFamily);
+    hwInfoConfig->adjustNumberOfCcs(*hwInfo);
+}
+
+void ExecutionEnvironment::adjustCcsCount() {
+    parseCcsCountLimitations();
+
+    for (auto rootDeviceIndex = 0u; rootDeviceIndex < rootDeviceEnvironments.size(); rootDeviceIndex++) {
+        auto &rootDeviceEnvironment = rootDeviceEnvironments[rootDeviceIndex];
+        UNRECOVERABLE_IF(!rootDeviceEnvironment);
+        if (!rootDeviceEnvironment->isNumberOfCcsLimited()) {
+            adjustCcsCountImpl(rootDeviceEnvironment.get());
+        }
+    }
+}
+
+void ExecutionEnvironment::adjustCcsCount(const uint32_t rootDeviceIndex) const {
+    auto &rootDeviceEnvironment = rootDeviceEnvironments[rootDeviceIndex];
+    UNRECOVERABLE_IF(!rootDeviceEnvironment);
+    if (rootDeviceNumCcsMap.find(rootDeviceIndex) != rootDeviceNumCcsMap.end()) {
+        rootDeviceEnvironment->limitNumberOfCcs(rootDeviceNumCcsMap.at(rootDeviceIndex));
+    } else {
+        adjustCcsCountImpl(rootDeviceEnvironment.get());
+    }
+}
+
+void ExecutionEnvironment::parseCcsCountLimitations() {
+    const auto &numberOfCcsString = DebugManager.flags.ZEX_NUMBER_OF_CCS.get();
+
+    if (numberOfCcsString.compare("default") == 0 ||
+        numberOfCcsString.empty()) {
+        return;
+    }
+
+    const uint32_t numRootDevices = static_cast<uint32_t>(rootDeviceEnvironments.size());
+
+    auto numberOfCcsEntries = StringHelpers::split(numberOfCcsString, ",");
+
+    for (const auto &entry : numberOfCcsEntries) {
+        auto subEntries = StringHelpers::split(entry, ":");
+        uint32_t rootDeviceIndex = StringHelpers::toUint32t(subEntries[0]);
+
+        if (rootDeviceIndex < numRootDevices) {
+            if (subEntries.size() > 1) {
+                uint32_t maxCcsCount = StringHelpers::toUint32t(subEntries[1]);
+                rootDeviceNumCcsMap.insert({rootDeviceIndex, maxCcsCount});
+                rootDeviceEnvironments[rootDeviceIndex]->limitNumberOfCcs(maxCcsCount);
+            }
+        }
+    }
 }
 } // namespace NEO

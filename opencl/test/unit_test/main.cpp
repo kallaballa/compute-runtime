@@ -23,15 +23,16 @@
 #include "shared/test/common/mocks/mock_gmm_client_context.h"
 #include "shared/test/common/mocks/mock_sip.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
-#include "shared/test/unit_test/test_stats.h"
-#include "shared/test/unit_test/tests_configuration.h"
+#include "shared/test/common/test_stats.h"
+#include "shared/test/common/tests_configuration.h"
 
 #include "opencl/source/os_interface/ocl_reg_path.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 #include "opencl/test/unit_test/ult_config_listener.h"
 
-#include "gmock/gmock.h"
+#include "hw_cmds_default.h"
+#include "test_files_setup.h"
 
 #include <algorithm>
 #include <fstream>
@@ -88,20 +89,6 @@ void applyWorkarounds() {
         int val;
         ss >> val;
     }
-    {
-        class BaseClass {
-          public:
-            int method(int param) { return 1; }
-        };
-        class MockClass : public BaseClass {
-          public:
-            MOCK_METHOD1(method, int(int param));
-        };
-        ::testing::NiceMock<MockClass> mockObj;
-        EXPECT_CALL(mockObj, method(::testing::_))
-            .Times(1);
-        mockObj.method(2);
-    }
 
     //intialize rand
     srand(static_cast<unsigned int>(time(nullptr)));
@@ -114,7 +101,7 @@ void applyWorkarounds() {
 
     //Create FileLogger to prevent false memory leaks
     {
-        NEO::FileLoggerInstance();
+        NEO::fileLoggerInstance();
     }
 }
 
@@ -158,6 +145,8 @@ int main(int argc, char **argv) {
     bool enableSegv = true;
     bool setupFeatureTableAndWorkaroundTable = testMode == TestMode::AubTests ? true : false;
     bool showTestStats = false;
+    bool dumpTestStats = false;
+    std::string dumpTestStatsFileName = "";
     applyWorkarounds();
 
 #if defined(__linux__)
@@ -179,15 +168,7 @@ int main(int argc, char **argv) {
     }
 #endif
 
-    {
-        std::string envVar = std::string("NEO_") + executionName + "_DISABLE_TEST_ALARM";
-        char *envValue = getenv(envVar.c_str());
-        if (envValue != nullptr) {
-            enableAlarm = false;
-        }
-    }
-
-    ::testing::InitGoogleMock(&argc, argv);
+    ::testing::InitGoogleTest(&argc, argv);
     HardwareInfo hwInfoForTests = DEFAULT_TEST_PLATFORM::hwInfo;
 
     uint32_t euPerSubSlice = 0;
@@ -205,6 +186,10 @@ int main(int argc, char **argv) {
             enableAlarm = false;
         } else if (!strcmp("--show_test_stats", argv[i])) {
             showTestStats = true;
+        } else if (!strcmp("--dump_test_stats", argv[i])) {
+            dumpTestStats = true;
+            ++i;
+            dumpTestStatsFileName = std::string(argv[i]);
         } else if (!strcmp("--disable_pagefaulting_tests", argv[i])) { //disable tests which raise page fault signal during execution
             NEO::PagaFaultManagerTestConfig::disabled = true;
         } else if (!strcmp("--tbx", argv[i])) {
@@ -286,11 +271,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (showTestStats) {
-        std::cout << getTestStats() << std::endl;
-        return 0;
-    }
-
     productFamily = hwInfoForTests.platform.eProductFamily;
     renderCoreFamily = hwInfoForTests.platform.eRenderCoreFamily;
     uint32_t threadsPerEu = hwInfoConfigFactory[productFamily]->threadsPerEu;
@@ -319,7 +299,6 @@ int main(int argc, char **argv) {
     gtSystemInfo.MaxEuPerSubSlice       = std::max(gtSystemInfo.MaxEuPerSubSlice, euPerSubSlice);
     gtSystemInfo.MaxSlicesSupported     = std::max(gtSystemInfo.MaxSlicesSupported, gtSystemInfo.SliceCount);
     gtSystemInfo.MaxSubSlicesSupported  = std::max(gtSystemInfo.MaxSubSlicesSupported, gtSystemInfo.SubSliceCount);
-    gtSystemInfo.IsDynamicallyPopulated = false;
     // clang-format on
 
     binaryNameSuffix.append(familyName[hwInfoForTests.platform.eRenderCoreFamily]);
@@ -334,16 +313,15 @@ int main(int argc, char **argv) {
     nBinaryKernelFiles.append(testFiles);
     testFiles = nBinaryKernelFiles;
 
-    std::string nClFiles = getRunPath(argv[0]);
+    std::string nClFiles = NEO_OPENCL_TEST_FILES_DIR;
     nClFiles.append("/");
-    nClFiles.append(hardwarePrefix[productFamily]);
-    nClFiles.append("/");
-    nClFiles.append(std::to_string(revId));
-    nClFiles.append("/");
-    nClFiles.append(clFiles);
     clFiles = nClFiles;
 
-    std::string executionDirectory(hardwarePrefix[productFamily]);
+    std::string executionDirectory("");
+    if (testMode != TestMode::AubTests) {
+        executionDirectory += "opencl/";
+    }
+    executionDirectory += hardwarePrefix[productFamily];
     executionDirectory += NEO::executionDirectorySuffix; // _aub for aub_tests, empty otherwise
     executionDirectory += "/";
     executionDirectory += std::to_string(revId);
@@ -416,6 +394,17 @@ int main(int argc, char **argv) {
     initializeTestHelpers(testMode);
 
     retVal = RUN_ALL_TESTS();
+
+    if (showTestStats) {
+        std::cout << getTestStats() << std::endl;
+    }
+
+    if (dumpTestStats) {
+        std::ofstream dumpTestStatsFile;
+        dumpTestStatsFile.open(dumpTestStatsFileName);
+        dumpTestStatsFile << getTestStatsJson();
+        dumpTestStatsFile.close();
+    }
 
     cleanTestHelpers();
     return retVal;

@@ -8,6 +8,8 @@
 #include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
 
 #include "shared/source/os_interface/linux/allocator_helper.h"
+#include "shared/source/os_interface/linux/drm_allocation.h"
+#include "shared/source/os_interface/linux/drm_buffer_object.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/test/common/mocks/mock_allocation_properties.h"
 #include "shared/test/common/mocks/mock_host_ptr_manager.h"
@@ -53,6 +55,16 @@ TestedDrmMemoryManager::TestedDrmMemoryManager(bool enableLocalMemory,
     lseekCalledCount = 0;
     closeInputFd = 0;
     closeCalledCount = 0;
+    this->executionEnvironment = &executionEnvironment;
+}
+
+BufferObject *TestedDrmMemoryManager::findAndReferenceSharedBufferObject(int boHandle, uint32_t rootDeviceIndex) {
+    if (failOnfindAndReferenceSharedBufferObject) {
+        DrmMockCustom drmMock(*executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]);
+        auto patIndex = drmMock.getPatIndex(nullptr, AllocationType::BUFFER, CacheRegion::Default, CachePolicy::WriteBack, false);
+        return new (std::nothrow) BufferObject(&drmMock, patIndex, boHandle, 4096u, 2u);
+    }
+    return MemoryManagerCreate<DrmMemoryManager>::findAndReferenceSharedBufferObject(boHandle, rootDeviceIndex);
 }
 
 void TestedDrmMemoryManager::injectPinBB(BufferObject *newPinBB, uint32_t rootDeviceIndex) {
@@ -76,8 +88,15 @@ DrmAllocation *TestedDrmMemoryManager::allocate32BitGraphicsMemory(uint32_t root
     MockAllocationProperties properties(rootDeviceIndex, allocateMemory, size, allocationType);
     getAllocationData(allocationData, properties, ptr, createStorageInfoFromProperties(properties));
     bool useLocalMemory = !allocationData.flags.useSystemMemory && this->localMemorySupported[rootDeviceIndex];
-    return allocate32BitGraphicsMemoryImpl(allocationData, useLocalMemory);
+    return static_cast<DrmAllocation *>(allocate32BitGraphicsMemoryImpl(allocationData, useLocalMemory));
 }
+
+void TestedDrmMemoryManager::closeSharedHandle(GraphicsAllocation *gfxAllocation) {
+    std::unique_lock<std::mutex> lock(callsToCloseSharedHandleMtx);
+    DrmMemoryManager::closeSharedHandle(gfxAllocation);
+    callsToCloseSharedHandle++;
+}
+
 TestedDrmMemoryManager::~TestedDrmMemoryManager() {
     DrmMemoryManager::commonCleanup();
 }

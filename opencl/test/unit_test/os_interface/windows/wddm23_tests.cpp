@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,7 +18,7 @@
 #include "shared/test/common/mocks/mock_wddm.h"
 #include "shared/test/common/mocks/mock_wddm_interface23.h"
 #include "shared/test/common/os_interface/windows/gdi_dll_fixture.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
@@ -27,7 +27,7 @@ using namespace NEO;
 
 struct Wddm23TestsWithoutWddmInit : public ::testing::Test, GdiDllFixture {
     void SetUp() override {
-        GdiDllFixture::SetUp();
+        GdiDllFixture::setUp();
 
         executionEnvironment = platform()->peekExecutionEnvironment();
         wddm = static_cast<WddmMock *>(Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get()));
@@ -51,7 +51,7 @@ struct Wddm23TestsWithoutWddmInit : public ::testing::Test, GdiDllFixture {
     }
 
     void TearDown() override {
-        GdiDllFixture::TearDown();
+        GdiDllFixture::tearDown();
     }
 
     std::unique_ptr<OsContextWin> osContext;

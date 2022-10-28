@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,7 +16,7 @@
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -158,11 +158,11 @@ TEST(SubDevicesTest, givenClDeviceWithSubDevicesWhenSubDeviceInternalRefCountsAr
 
 TEST(SubDevicesTest, givenDeviceWithSubDevicesWhenSubDeviceCreationFailThenWholeDeviceIsDestroyed) {
     DebugManagerStateRestore restorer;
-    DebugManager.flags.CreateMultipleSubDevices.set(10);
+    DebugManager.flags.CreateMultipleSubDevices.set(4);
     MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.incRefInternal();
-    executionEnvironment.memoryManager.reset(new FailMemoryManager(10, executionEnvironment));
+    executionEnvironment.memoryManager.reset(new FailMemoryManager(4, executionEnvironment));
     auto device = Device::create<RootDevice>(&executionEnvironment, 0u);
     EXPECT_EQ(nullptr, device);
 }
@@ -239,6 +239,7 @@ TEST(RootDevicesTest, givenRootDeviceWithoutSubdevicesWhenCreateEnginesThenDevic
 
     auto executionEnvironment = new MockExecutionEnvironment;
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+    executionEnvironment->rootDeviceEnvironments[0]->initGmm();
     MockDevice device(executionEnvironment, 0);
     EXPECT_EQ(0u, device.allEngines.size());
     device.createEngines();
@@ -306,9 +307,8 @@ TEST(SubDevicesTest, whenCreatingEngineInstancedSubDeviceThenSetCorrectSubdevice
         using RootDevice::RootDevice;
     };
 
-    auto executionEnvironment = new ExecutionEnvironment();
-    executionEnvironment->prepareRootDeviceEnvironments(1);
-    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
+    auto executionEnvironment = new MockExecutionEnvironment();
+    executionEnvironment->rootDeviceEnvironments[0]->initGmm();
     DeviceFactory::createMemoryManagerFunc(*executionEnvironment);
 
     auto rootDevice = std::unique_ptr<MyRootDevice>(Device::create<MyRootDevice>(executionEnvironment, 0));
@@ -324,10 +324,9 @@ struct EngineInstancedDeviceTests : public ::testing::Test {
     bool createDevices(uint32_t numGenericSubDevices, uint32_t numCcs) {
         DebugManager.flags.CreateMultipleSubDevices.set(numGenericSubDevices);
 
-        auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
-        executionEnvironment->prepareRootDeviceEnvironments(1);
+        auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+        executionEnvironment->rootDeviceEnvironments[0]->initGmm();
 
-        executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
         auto hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getMutableHardwareInfo();
         hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled = numCcs;
         hwInfo->featureTable.flags.ftrCCSNode = (numCcs > 0);
@@ -954,8 +953,8 @@ HWTEST_F(EngineInstancedDeviceTests, givenEngineInstancedDeviceWhenCreatingProgr
     auto clSubSubDevice0 = clSubDevice->getSubDevice(0);
     auto clSubSubDevice1 = clSubDevice->getSubDevice(1);
 
-    cl_device_id device_ids[] = {clSubDevice, clSubSubDevice0, clSubSubDevice1};
-    ClDeviceVector deviceVector{device_ids, 3};
+    cl_device_id deviceIds[] = {clSubDevice, clSubSubDevice0, clSubSubDevice1};
+    ClDeviceVector deviceVector{deviceIds, 3};
     MockContext context(deviceVector);
 
     cl_int retVal = CL_INVALID_PROGRAM;
@@ -989,11 +988,17 @@ HWTEST_F(EngineInstancedDeviceTests, whenCreateMultipleCommandQueuesThenEnginesA
     }
 
     auto &hwInfo = rootDevice->getHardwareInfo();
+    const auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    if (!hwHelper.isAssignEngineRoundRobinSupported(hwInfo)) {
+        GTEST_SKIP();
+    }
+
     EXPECT_EQ(ccsCount, hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled);
 
     auto clRootDevice = std::make_unique<ClDevice>(*rootDevice, nullptr);
-    cl_device_id device_ids[] = {clRootDevice.get()};
-    ClDeviceVector deviceVector{device_ids, 1};
+    cl_device_id deviceIds[] = {clRootDevice.get()};
+    ClDeviceVector deviceVector{deviceIds, 1};
     MockContext context(deviceVector);
 
     std::array<std::unique_ptr<MockCommandQueueHw<FamilyType>>, 24> cmdQs;
@@ -1002,7 +1007,6 @@ HWTEST_F(EngineInstancedDeviceTests, whenCreateMultipleCommandQueuesThenEnginesA
     }
 
     const auto &defaultEngine = clRootDevice->getDefaultEngine();
-    const auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     const auto engineGroupType = hwHelper.getEngineGroupType(defaultEngine.getEngineType(), defaultEngine.getEngineUsage(), hwInfo);
 
     auto defaultEngineGroupIndex = clRootDevice->getDevice().getEngineGroupIndexFromEngineGroupType(engineGroupType);
@@ -1010,6 +1014,151 @@ HWTEST_F(EngineInstancedDeviceTests, whenCreateMultipleCommandQueuesThenEnginesA
 
     for (size_t i = 0; i < cmdQs.size(); i++) {
         auto engineIndex = i % engines.size();
+        auto expectedCsr = engines[engineIndex].commandStreamReceiver;
+        auto csr = &cmdQs[i]->getGpgpuCommandStreamReceiver();
+
+        EXPECT_EQ(csr, expectedCsr);
+    }
+}
+
+HWTEST_F(EngineInstancedDeviceTests, givenCmdQRoundRobindEngineAssignBitfieldwWenCreateMultipleCommandQueuesThenEnginesAreAssignedUsingRoundRobinSkippingNotAvailableEngines) {
+    constexpr uint32_t genericDevicesCount = 1;
+    constexpr uint32_t ccsCount = 4;
+
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableCmdQRoundRobindEngineAssign.set(1);
+    DebugManager.flags.CmdQRoundRobindEngineAssignBitfield.set(0b1101);
+
+    if (!createDevices(genericDevicesCount, ccsCount)) {
+        GTEST_SKIP();
+    }
+
+    auto &hwInfo = rootDevice->getHardwareInfo();
+    const auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    if (!hwHelper.isAssignEngineRoundRobinSupported(hwInfo)) {
+        GTEST_SKIP();
+    }
+
+    EXPECT_EQ(ccsCount, hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled);
+
+    auto clRootDevice = std::make_unique<ClDevice>(*rootDevice, nullptr);
+    cl_device_id deviceIds[] = {clRootDevice.get()};
+    ClDeviceVector deviceVector{deviceIds, 1};
+    MockContext context(deviceVector);
+
+    std::array<std::unique_ptr<MockCommandQueueHw<FamilyType>>, 24> cmdQs;
+    for (auto &cmdQ : cmdQs) {
+        cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(&context, clRootDevice.get(), nullptr);
+    }
+
+    const auto &defaultEngine = clRootDevice->getDefaultEngine();
+    const auto engineGroupType = hwHelper.getEngineGroupType(defaultEngine.getEngineType(), defaultEngine.getEngineUsage(), hwInfo);
+
+    auto defaultEngineGroupIndex = clRootDevice->getDevice().getEngineGroupIndexFromEngineGroupType(engineGroupType);
+    auto engines = clRootDevice->getDevice().getRegularEngineGroups()[defaultEngineGroupIndex].engines;
+
+    for (size_t i = 0, j = 0; i < cmdQs.size(); i++, j++) {
+        if ((j % engines.size()) == 1) {
+            j++;
+        }
+        auto engineIndex = j % engines.size();
+        auto expectedCsr = engines[engineIndex].commandStreamReceiver;
+        auto csr = &cmdQs[i]->getGpgpuCommandStreamReceiver();
+
+        EXPECT_EQ(csr, expectedCsr);
+    }
+}
+
+HWTEST_F(EngineInstancedDeviceTests, givenCmdQRoundRobindEngineAssignNTo1wWenCreateMultipleCommandQueuesThenEnginesAreAssignedUsingRoundRobinAndNQueuesShareSameCsr) {
+    constexpr uint32_t genericDevicesCount = 1;
+    constexpr uint32_t ccsCount = 4;
+
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableCmdQRoundRobindEngineAssign.set(1);
+    DebugManager.flags.CmdQRoundRobindEngineAssignNTo1.set(3);
+
+    if (!createDevices(genericDevicesCount, ccsCount)) {
+        GTEST_SKIP();
+    }
+
+    auto &hwInfo = rootDevice->getHardwareInfo();
+    const auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    if (!hwHelper.isAssignEngineRoundRobinSupported(hwInfo)) {
+        GTEST_SKIP();
+    }
+
+    EXPECT_EQ(ccsCount, hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled);
+
+    auto clRootDevice = std::make_unique<ClDevice>(*rootDevice, nullptr);
+    cl_device_id deviceIds[] = {clRootDevice.get()};
+    ClDeviceVector deviceVector{deviceIds, 1};
+    MockContext context(deviceVector);
+
+    std::array<std::unique_ptr<MockCommandQueueHw<FamilyType>>, 24> cmdQs;
+    for (auto &cmdQ : cmdQs) {
+        cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(&context, clRootDevice.get(), nullptr);
+    }
+
+    const auto &defaultEngine = clRootDevice->getDefaultEngine();
+    const auto engineGroupType = hwHelper.getEngineGroupType(defaultEngine.getEngineType(), defaultEngine.getEngineUsage(), hwInfo);
+
+    auto defaultEngineGroupIndex = clRootDevice->getDevice().getEngineGroupIndexFromEngineGroupType(engineGroupType);
+    auto engines = clRootDevice->getDevice().getRegularEngineGroups()[defaultEngineGroupIndex].engines;
+
+    for (size_t i = 0, j = 0; i < cmdQs.size(); i++, j++) {
+        auto engineIndex = (j / 3) % engines.size();
+        auto expectedCsr = engines[engineIndex].commandStreamReceiver;
+        auto csr = &cmdQs[i]->getGpgpuCommandStreamReceiver();
+
+        EXPECT_EQ(csr, expectedCsr);
+    }
+}
+
+HWTEST_F(EngineInstancedDeviceTests, givenCmdQRoundRobindEngineAssignNTo1AndCmdQRoundRobindEngineAssignBitfieldwWenCreateMultipleCommandQueuesThenEnginesAreAssignedProperlyUsingRoundRobin) {
+    constexpr uint32_t genericDevicesCount = 1;
+    constexpr uint32_t ccsCount = 4;
+
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableCmdQRoundRobindEngineAssign.set(1);
+    DebugManager.flags.CmdQRoundRobindEngineAssignNTo1.set(3);
+    DebugManager.flags.CmdQRoundRobindEngineAssignBitfield.set(0b1101);
+
+    if (!createDevices(genericDevicesCount, ccsCount)) {
+        GTEST_SKIP();
+    }
+
+    auto &hwInfo = rootDevice->getHardwareInfo();
+    const auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    if (!hwHelper.isAssignEngineRoundRobinSupported(hwInfo)) {
+        GTEST_SKIP();
+    }
+
+    EXPECT_EQ(ccsCount, hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled);
+
+    auto clRootDevice = std::make_unique<ClDevice>(*rootDevice, nullptr);
+    cl_device_id deviceIds[] = {clRootDevice.get()};
+    ClDeviceVector deviceVector{deviceIds, 1};
+    MockContext context(deviceVector);
+
+    std::array<std::unique_ptr<MockCommandQueueHw<FamilyType>>, 24> cmdQs;
+    for (auto &cmdQ : cmdQs) {
+        cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(&context, clRootDevice.get(), nullptr);
+    }
+
+    const auto &defaultEngine = clRootDevice->getDefaultEngine();
+    const auto engineGroupType = hwHelper.getEngineGroupType(defaultEngine.getEngineType(), defaultEngine.getEngineUsage(), hwInfo);
+
+    auto defaultEngineGroupIndex = clRootDevice->getDevice().getEngineGroupIndexFromEngineGroupType(engineGroupType);
+    auto engines = clRootDevice->getDevice().getRegularEngineGroups()[defaultEngineGroupIndex].engines;
+
+    for (size_t i = 0, j = 0; i < cmdQs.size(); i++, j++) {
+        while (((j / 3) % engines.size()) == 1) {
+            j++;
+        }
+        auto engineIndex = (j / 3) % engines.size();
         auto expectedCsr = engines[engineIndex].commandStreamReceiver;
         auto csr = &cmdQs[i]->getGpgpuCommandStreamReceiver();
 
@@ -1029,11 +1178,17 @@ HWTEST_F(EngineInstancedDeviceTests, givenEnableCmdQRoundRobindEngineAssignDisab
     }
 
     auto &hwInfo = rootDevice->getHardwareInfo();
+    const auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    if (!hwHelper.isAssignEngineRoundRobinSupported(hwInfo)) {
+        GTEST_SKIP();
+    }
+
     EXPECT_EQ(ccsCount, hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled);
 
     auto clRootDevice = std::make_unique<ClDevice>(*rootDevice, nullptr);
-    cl_device_id device_ids[] = {clRootDevice.get()};
-    ClDeviceVector deviceVector{device_ids, 1};
+    cl_device_id deviceIds[] = {clRootDevice.get()};
+    ClDeviceVector deviceVector{deviceIds, 1};
     MockContext context(deviceVector);
 
     std::array<std::unique_ptr<MockCommandQueueHw<FamilyType>>, 24> cmdQs;

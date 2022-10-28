@@ -19,7 +19,7 @@
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_os_context.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/helpers/cl_memory_properties_helpers.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
@@ -1070,9 +1070,11 @@ TEST(MemoryManagerTest, givenEnabledLocalMemoryWhenAllocatingSharedResourceCopyT
     auto allocation = memoryManager.allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
     ASSERT_NE(nullptr, allocation);
     EXPECT_EQ(MemoryPool::LocalMemory, allocation->getMemoryPool());
-    EXPECT_FALSE(allocation->getDefaultGmm()->useSystemMemoryPool);
-    EXPECT_LT(GmmHelper::canonize(memoryManager.getGfxPartition(allocation->getRootDeviceIndex())->getHeapBase(HeapIndex::HEAP_STANDARD64KB)), allocation->getGpuAddress());
-    EXPECT_GT(GmmHelper::canonize(memoryManager.getGfxPartition(allocation->getRootDeviceIndex())->getHeapLimit(HeapIndex::HEAP_STANDARD64KB)), allocation->getGpuAddress());
+    EXPECT_EQ(0u, allocation->getDefaultGmm()->resourceParams.Flags.Info.NonLocalOnly);
+
+    auto gmmHelper = memoryManager.getGmmHelper(allocation->getRootDeviceIndex());
+    EXPECT_LT(gmmHelper->canonize(memoryManager.getGfxPartition(allocation->getRootDeviceIndex())->getHeapBase(HeapIndex::HEAP_STANDARD64KB)), allocation->getGpuAddress());
+    EXPECT_GT(gmmHelper->canonize(memoryManager.getGfxPartition(allocation->getRootDeviceIndex())->getHeapLimit(HeapIndex::HEAP_STANDARD64KB)), allocation->getGpuAddress());
     EXPECT_EQ(0llu, allocation->getGpuBaseAddress());
 
     memoryManager.freeGraphicsMemory(allocation);
@@ -1128,6 +1130,8 @@ static const AllocationType allocationHaveToBeForcedTo48Bit[] = {
     AllocationType::SHARED_RESOURCE_COPY,
     AllocationType::SURFACE_STATE_HEAP,
     AllocationType::TIMESTAMP_PACKET_TAG_BUFFER,
+    AllocationType::RING_BUFFER,
+    AllocationType::SEMAPHORE_BUFFER,
 };
 
 static const AllocationType allocationHaveNotToBeForcedTo48Bit[] = {
@@ -1150,8 +1154,6 @@ static const AllocationType allocationHaveNotToBeForcedTo48Bit[] = {
     AllocationType::TAG_BUFFER,
     AllocationType::GLOBAL_FENCE,
     AllocationType::WRITE_COMBINED,
-    AllocationType::RING_BUFFER,
-    AllocationType::SEMAPHORE_BUFFER,
     AllocationType::DEBUG_CONTEXT_SAVE_AREA,
 };
 

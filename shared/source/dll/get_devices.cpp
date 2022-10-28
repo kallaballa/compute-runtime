@@ -9,6 +9,8 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 
+#include "hw_cmds_default.h"
+
 namespace NEO {
 
 bool prepareDeviceEnvironments(ExecutionEnvironment &executionEnvironment, std::string &osPciPath, const uint32_t rootDeviceIndex) {
@@ -26,6 +28,7 @@ bool prepareDeviceEnvironments(ExecutionEnvironment &executionEnvironment, std::
     if (returnValue) {
         auto i = 0u;
         while (i < executionEnvironment.rootDeviceEnvironments.size()) {
+            executionEnvironment.rootDeviceEnvironments[i]->initGmm();
             bool unsupportedDeviceDetected = false;
 
             auto &featureTable = executionEnvironment.rootDeviceEnvironments[i]->getHardwareInfo()->featureTable;

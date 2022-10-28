@@ -1,12 +1,11 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "shared/test/common/test_macros/test.h"
 
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -18,7 +17,6 @@
 #include "opencl/test/unit_test/mocks/mock_program.h"
 
 #include "CL/cl.h"
-#include "gtest/gtest.h"
 
 #include <memory>
 
@@ -26,11 +24,11 @@ using namespace NEO;
 
 class KernelArgBufferFixture : public ContextFixture, public ClDeviceFixture {
 
-    using ContextFixture::SetUp;
+    using ContextFixture::setUp;
 
   public:
-    void SetUp();
-    void TearDown() override;
+    void setUp();
+    void tearDown();
 
     cl_int retVal = CL_SUCCESS;
     MockProgram *pProgram = nullptr;

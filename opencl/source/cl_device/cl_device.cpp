@@ -12,6 +12,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/device/sub_device.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/driver_info.h"
@@ -120,17 +121,17 @@ ClDevice *ClDevice::getSubDevice(uint32_t deviceId) const {
 
 ClDevice *ClDevice::getNearestGenericSubDevice(uint32_t deviceId) {
     /*
-    * EngineInstanced: Upper level
-    * Generic SubDevice: 'this'
-    * RootCsr Device: Next level SubDevice (generic)
-    */
+     * EngineInstanced: Upper level
+     * Generic SubDevice: 'this'
+     * RootCsr Device: Next level SubDevice (generic)
+     */
 
     if (getDevice().isEngineInstanced()) {
         return rootClDevice.getNearestGenericSubDevice(Math::log2(static_cast<uint32_t>(getDeviceBitfield().to_ulong())));
     }
 
     if (subDevices.empty() || !getDevice().hasRootCsr()) {
-        return const_cast<ClDevice *>(this);
+        return this;
     }
     UNRECOVERABLE_IF(deviceId >= subDevices.size());
     return subDevices[deviceId].get();
@@ -146,7 +147,6 @@ SelectorCopyEngine &ClDevice::getSelectorCopyEngine() { return device.getSelecto
 MemoryManager *ClDevice::getMemoryManager() const { return device.getMemoryManager(); }
 GmmHelper *ClDevice::getGmmHelper() const { return device.getGmmHelper(); }
 GmmClientContext *ClDevice::getGmmClientContext() const { return device.getGmmClientContext(); }
-double ClDevice::getProfilingTimerResolution() { return device.getProfilingTimerResolution(); }
 double ClDevice::getPlatformHostTimerResolution() const { return device.getPlatformHostTimerResolution(); }
 GFXCORE_FAMILY ClDevice::getRenderCoreFamily() const { return device.getRenderCoreFamily(); }
 PerformanceCounters *ClDevice::getPerformanceCounters() { return device.getPerformanceCounters(); }
@@ -216,11 +216,10 @@ cl_command_queue_capabilities_intel ClDevice::getQueueFamilyCapabilitiesAll() {
 }
 
 cl_command_queue_capabilities_intel ClDevice::getQueueFamilyCapabilities(EngineGroupType type) {
-    auto &hwHelper = NEO::HwHelper::get(getHardwareInfo().platform.eRenderCoreFamily);
     auto &clHwHelper = NEO::ClHwHelper::get(getHardwareInfo().platform.eRenderCoreFamily);
 
     cl_command_queue_capabilities_intel disabledProperties = 0u;
-    if (hwHelper.isCopyOnlyEngineType(type)) {
+    if (EngineHelper::isCopyOnlyEngineType(type)) {
         disabledProperties |= static_cast<cl_command_queue_capabilities_intel>(CL_QUEUE_CAPABILITY_KERNEL_INTEL);
         disabledProperties |= static_cast<cl_command_queue_capabilities_intel>(CL_QUEUE_CAPABILITY_FILL_BUFFER_INTEL);           // clEnqueueFillBuffer
         disabledProperties |= static_cast<cl_command_queue_capabilities_intel>(CL_QUEUE_CAPABILITY_TRANSFER_IMAGE_INTEL);        // clEnqueueCopyImage
@@ -266,8 +265,8 @@ Platform *ClDevice::getPlatform() const {
     return castToObject<Platform>(platformId);
 }
 bool ClDevice::isPciBusInfoValid() const {
-    return deviceInfo.pciBusInfo.pci_domain != PhysicalDevicePciBusInfo::InvalidValue && deviceInfo.pciBusInfo.pci_bus != PhysicalDevicePciBusInfo::InvalidValue &&
-           deviceInfo.pciBusInfo.pci_device != PhysicalDevicePciBusInfo::InvalidValue && deviceInfo.pciBusInfo.pci_function != PhysicalDevicePciBusInfo::InvalidValue;
+    return deviceInfo.pciBusInfo.pci_domain != PhysicalDevicePciBusInfo::invalidValue && deviceInfo.pciBusInfo.pci_bus != PhysicalDevicePciBusInfo::invalidValue &&
+           deviceInfo.pciBusInfo.pci_device != PhysicalDevicePciBusInfo::invalidValue && deviceInfo.pciBusInfo.pci_function != PhysicalDevicePciBusInfo::invalidValue;
 }
 
 } // namespace NEO

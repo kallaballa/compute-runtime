@@ -1,13 +1,14 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/mocks/mock_csr.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 
@@ -16,14 +17,14 @@ using namespace NEO;
 struct CommandStreamReceiverMtTest : public ClDeviceFixture,
                                      public ::testing::Test {
     void SetUp() override {
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
 
         commandStreamReceiver = &pDevice->getGpgpuCommandStreamReceiver();
         ASSERT_NE(nullptr, commandStreamReceiver);
     }
 
     void TearDown() override {
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     CommandStreamReceiver *commandStreamReceiver;
@@ -78,8 +79,8 @@ HWTEST_F(CommandStreamReceiverMtTest, givenDebugPauseThreadWhenSettingFlagProgre
     EXPECT_EQ(2u, confirmationCounter);
 
     auto output = testing::internal::GetCapturedStdout();
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Press enter to start workload")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Workload ended, press enter to continue")));
     mockCSR->userPauseConfirmation->join();
     mockCSR->userPauseConfirmation.reset();
 }
@@ -121,8 +122,8 @@ HWTEST_F(CommandStreamReceiverMtTest, givenDebugPauseThreadBeforeWalkerOnlyWhenS
     EXPECT_EQ(1u, confirmationCounter);
 
     auto output = testing::internal::GetCapturedStdout();
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
-    EXPECT_THAT(output, testing::Not(testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue"))));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Press enter to start workload")));
+    EXPECT_FALSE(hasSubstr(output, std::string("Debug break: Workload ended, press enter to continue")));
     mockCSR->userPauseConfirmation->join();
     mockCSR->userPauseConfirmation.reset();
 }
@@ -164,8 +165,8 @@ HWTEST_F(CommandStreamReceiverMtTest, givenDebugPauseThreadAfterWalkerOnlyWhenSe
     EXPECT_EQ(1u, confirmationCounter);
 
     auto output = testing::internal::GetCapturedStdout();
-    EXPECT_THAT(output, testing::Not(testing::HasSubstr(std::string("Debug break: Press enter to start workload"))));
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue")));
+    EXPECT_FALSE(hasSubstr(output, std::string("Debug break: Press enter to start workload")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Workload ended, press enter to continue")));
     mockCSR->userPauseConfirmation->join();
     mockCSR->userPauseConfirmation.reset();
 }
@@ -251,8 +252,8 @@ HWTEST_F(CommandStreamReceiverMtTest, givenDebugPauseThreadOnEachEnqueueWhenSett
     EXPECT_EQ(4u, confirmationCounter);
 
     auto output = testing::internal::GetCapturedStdout();
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Press enter to start workload")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Workload ended, press enter to continue")));
     mockCSR->userPauseConfirmation->join();
     mockCSR->userPauseConfirmation.reset();
 }
@@ -338,8 +339,8 @@ HWTEST_F(CommandStreamReceiverMtTest, givenDebugPauseThreadOnEachBlitWhenSetting
     EXPECT_EQ(4u, confirmationCounter);
 
     auto output = testing::internal::GetCapturedStdout();
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Press enter to start workload")));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Workload ended, press enter to continue")));
     mockCSR->userPauseConfirmation->join();
     mockCSR->userPauseConfirmation.reset();
 }
@@ -402,8 +403,8 @@ HWTEST_F(CommandStreamReceiverMtTest, givenDebugPauseThreadWhenTerminatingAtSeco
     }
 
     auto output = testing::internal::GetCapturedStdout();
-    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
-    EXPECT_THAT(output, testing::Not(testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue"))));
+    EXPECT_TRUE(hasSubstr(output, std::string("Debug break: Press enter to start workload")));
+    EXPECT_FALSE(hasSubstr(output, std::string("Debug break: Workload ended, press enter to continue")));
     EXPECT_EQ(1u, confirmationCounter);
     mockCSR->userPauseConfirmation->join();
     mockCSR->userPauseConfirmation.reset();

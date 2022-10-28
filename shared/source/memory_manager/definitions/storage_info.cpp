@@ -47,10 +47,6 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
     case AllocationType::DEBUG_MODULE_AREA: {
         auto placeIsaOnMultiTile = (properties.subDevicesBitfield.count() != 1);
 
-        if (executionEnvironment.isDebuggingEnabled()) {
-            placeIsaOnMultiTile = false;
-        }
-
         if (DebugManager.flags.MultiTileIsaPlacement.get() != -1) {
             placeIsaOnMultiTile = !!DebugManager.flags.MultiTileIsaPlacement.get();
         }
@@ -71,6 +67,7 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
         storageInfo.tileInstanced = true;
         break;
     case AllocationType::PRIVATE_SURFACE:
+    case AllocationType::DEBUG_SBA_TRACKING_BUFFER:
         storageInfo.cloningOfPageTables = false;
 
         if (properties.subDevicesBitfield.count() == 1) {
@@ -102,11 +99,9 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
         }
         break;
     case AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER:
-        if (properties.flags.multiOsContextCapable) {
-            storageInfo.cloningOfPageTables = true;
-        } else {
+        storageInfo.cloningOfPageTables = true;
+        if (!properties.flags.multiOsContextCapable) {
             storageInfo.pageTablesVisibility = preferredTile;
-            storageInfo.cloningOfPageTables = false;
         }
         break;
     case AllocationType::BUFFER:
@@ -151,10 +146,43 @@ StorageInfo MemoryManager::createStorageInfoFromProperties(const AllocationPrope
     }
     case AllocationType::UNIFIED_SHARED_MEMORY:
         storageInfo.memoryBanks = allTilesValue;
+        if (DebugManager.flags.OverrideMultiStoragePlacement.get() != -1) {
+            storageInfo.memoryBanks = DebugManager.flags.OverrideMultiStoragePlacement.get();
+        }
         break;
     default:
         break;
     }
+
+    bool forceLocalMemoryForDirectSubmission = true;
+    switch (DebugManager.flags.DirectSubmissionForceLocalMemoryStorageMode.get()) {
+    case 0:
+        forceLocalMemoryForDirectSubmission = false;
+        break;
+    case 1:
+        forceLocalMemoryForDirectSubmission = properties.flags.multiOsContextCapable;
+        break;
+    default:
+        break;
+    }
+
+    if (forceLocalMemoryForDirectSubmission) {
+        if (properties.allocationType == AllocationType::COMMAND_BUFFER ||
+            properties.allocationType == AllocationType::RING_BUFFER ||
+            properties.allocationType == AllocationType::SEMAPHORE_BUFFER) {
+            if (properties.flags.multiOsContextCapable) {
+                storageInfo.memoryBanks = {};
+                for (auto bank = 0u; bank < deviceCount; bank++) {
+                    if (allTilesValue.test(bank)) {
+                        storageInfo.memoryBanks.set(bank);
+                        break;
+                    }
+                }
+            }
+            UNRECOVERABLE_IF(storageInfo.memoryBanks.none());
+        }
+    }
+
     return storageInfo;
 }
 uint32_t StorageInfo::getNumBanks() const {

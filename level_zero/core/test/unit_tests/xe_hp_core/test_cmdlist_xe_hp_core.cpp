@@ -10,8 +10,10 @@
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/source/helpers/state_base_address.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/mocks/mock_timestamp_packet.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "level_zero/core/test/unit_tests/fixtures/cmdlist_fixture.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
@@ -44,7 +46,8 @@ HWTEST2_F(CommandListAppendLaunchKernelWithAtomics, givenKernelWithNoGlobalAtomi
     kernelAttributes.flags.useGlobalAtomics = false;
     EXPECT_FALSE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, nullptr, false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     EXPECT_FALSE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
@@ -66,7 +69,8 @@ HWTEST2_F(CommandListAppendLaunchKernelWithAtomics, givenKernelWithGlobalAtomics
     kernelAttributes.flags.useGlobalAtomics = true;
     EXPECT_FALSE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, nullptr, false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     EXPECT_TRUE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
@@ -88,7 +92,8 @@ HWTEST2_F(CommandListAppendLaunchKernelWithAtomics, givenKernelWithGlobalAtomics
     kernelAttributes.flags.useGlobalAtomics = true;
     pCommandList->commandContainer.lastSentUseGlobalAtomics = true;
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, nullptr, false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     EXPECT_TRUE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
@@ -110,7 +115,8 @@ HWTEST2_F(CommandListAppendLaunchKernelWithAtomics, givenKernelWithNoGlobalAtomi
     kernelAttributes.flags.useGlobalAtomics = false;
     pCommandList->commandContainer.lastSentUseGlobalAtomics = true;
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, nullptr, false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     EXPECT_FALSE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
@@ -131,13 +137,14 @@ HWTEST2_F(CommandListAppendLaunchKernelWithAtomics, givenKernelWithGlobalAtomics
     kernelAttributes.flags.useGlobalAtomics = true;
     EXPECT_FALSE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, nullptr, false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     EXPECT_FALSE(pCommandList->commandContainer.lastSentUseGlobalAtomics);
 }
 
-using MultTileCommandListAppendLaunchKernelL3Flush = Test<MultiTileCommandListFixture<false, false>>;
+using MultTileCommandListAppendLaunchKernelL3Flush = Test<MultiTileCommandListFixture<false, false, false>>;
 
 HWTEST2_F(MultTileCommandListAppendLaunchKernelL3Flush, givenKernelWithRegularEventAndWithWalkerPartitionThenProperCommandsEncoded, IsXeHpCore) {
     using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
@@ -168,8 +175,13 @@ HWTEST2_F(MultTileCommandListAppendLaunchKernelL3Flush, givenKernelWithRegularEv
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, event->toHandle(), false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, event.get(), launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto gpuAddress = event->getGpuAddress(device) +
+                      (pCommandList->partitionCount * event->getSinglePacketSize()) +
+                      event->getContextEndOffset();
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -184,6 +196,8 @@ HWTEST2_F(MultTileCommandListAppendLaunchKernelL3Flush, givenKernelWithRegularEv
     for (auto it : itorPC) {
         auto cmd = genCmdCast<PIPE_CONTROL *>(*it);
         if (cmd->getPostSyncOperation() == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
+            EXPECT_EQ(gpuAddress, NEO::UnitTestHelper<FamilyType>::getPipeControlPostSyncAddress(*cmd));
+            EXPECT_TRUE(cmd->getWorkloadPartitionIdOffsetEnable());
             postSyncCount++;
         }
     }
@@ -219,8 +233,13 @@ HWTEST2_F(MultTileCommandListAppendLaunchKernelL3Flush, givenKernelWithTimestamp
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, event->toHandle(), false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, event.get(), launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto gpuAddress = event->getGpuAddress(device) +
+                      (pCommandList->partitionCount * event->getSinglePacketSize()) +
+                      event->getContextEndOffset();
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -235,6 +254,8 @@ HWTEST2_F(MultTileCommandListAppendLaunchKernelL3Flush, givenKernelWithTimestamp
     for (auto it : itorPC) {
         auto cmd = genCmdCast<PIPE_CONTROL *>(*it);
         if (cmd->getPostSyncOperation() == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
+            EXPECT_EQ(gpuAddress, NEO::UnitTestHelper<FamilyType>::getPipeControlPostSyncAddress(*cmd));
+            EXPECT_TRUE(cmd->getWorkloadPartitionIdOffsetEnable());
             postSyncCount++;
         }
     }
@@ -266,7 +287,8 @@ HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventAndWithoutWa
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, event->toHandle(), false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, event.get(), launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     GenCmdList cmdList;
@@ -303,13 +325,14 @@ HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventHostScopeWit
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, event->toHandle(), false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, event.get(), launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
-    EXPECT_EQ(true, event->l3FlushWaApplied);
+    EXPECT_EQ(true, event->getL3FlushForCurrenKernel());
 }
 
-HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventZeroScopeWithoutWalkerPartitionThenEventL3FlushWaNotSet, IsXeHpCore) {
+HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventZeroScopeWithoutWalkerPartitionThenEventL3FlushNotSet, IsXeHpCore) {
     using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
 
     Mock<::L0::Kernel> kernel;
@@ -333,19 +356,15 @@ HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventZeroScopeWit
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, event->toHandle(), false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, event.get(), launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
-    EXPECT_EQ(false, event->l3FlushWaApplied);
+    EXPECT_EQ(false, event->getL3FlushForCurrenKernel());
 }
 
 HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventHostScopeWithoutWalkerPartitionThenSkipOddPacketsDuringQuery, IsXeHpCore) {
     using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
-
-    class MockTimestampPackets32 : public TimestampPackets<uint32_t> {
-      public:
-        using typename TimestampPackets<uint32_t>::Packet;
-    };
 
     Mock<::L0::Kernel> kernel;
     auto pMockModule = std::unique_ptr<Module>(new Mock<Module>(device, nullptr));
@@ -369,10 +388,11 @@ HWTEST2_F(CommandListAppendLaunchKernelL3Flush, givenKernelWithEventHostScopeWit
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
-    result = pCommandList->appendLaunchKernelWithParams(kernel.toHandle(), &groupCount, event->toHandle(), false, false, false);
+    CmdListKernelLaunchParams launchParams = {};
+    result = pCommandList->appendLaunchKernelWithParams(&kernel, &groupCount, event.get(), launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
-    EXPECT_EQ(true, event->l3FlushWaApplied);
+    EXPECT_EQ(true, event->getL3FlushForCurrenKernel());
     EXPECT_EQ(2u, event->getPacketsInUse());
 
     typename MockTimestampPackets32::Packet data[3] = {};
@@ -455,7 +475,7 @@ HWTEST2_F(CommandListCreate, givenNotCopyCommandListWhenProfilingEventBeforeComm
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc, result));
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
-    commandList->appendEventForProfiling(event->toHandle(), true);
+    commandList->appendEventForProfiling(event.get(), true, false);
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -491,7 +511,7 @@ HWTEST2_F(CommandListCreate, givenNotCopyCommandListWhenProfilingEventAfterComma
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc, result));
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
-    commandList->appendEventForProfiling(event->toHandle(), false);
+    commandList->appendEventForProfiling(event.get(), false, false);
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -526,7 +546,7 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingEventThenStoreRegC
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc, result));
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
-    commandList->appendEventForProfiling(event->toHandle(), false);
+    commandList->appendEventForProfiling(event.get(), false, false);
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
         cmdList, ptrOffset(commandList->commandContainer.getCommandStream()->getCpuBase(), 0), commandList->commandContainer.getCommandStream()->getUsed()));
@@ -707,7 +727,8 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenEventWhenInvokingAppendLaunchKerne
     auto event = std::unique_ptr<Event>(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     ze_group_count_t groupCount{1, 1, 1};
-    auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, event->toHandle(), 0, nullptr);
+    CmdListKernelLaunchParams launchParams = {};
+    auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, event->toHandle(), 0, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     auto usedSpaceAfter = commandList->commandContainer.getCommandStream()->getUsed();
@@ -726,7 +747,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenEventWhenInvokingAppendLaunchKerne
     for (auto it : itorPS) {
         auto cmd = genCmdCast<WALKER_TYPE *>(*it);
         auto &postSync = cmd->getPostSync();
-        EXPECT_EQ(POSTSYNC_DATA::OPERATION_WRITE_IMMEDIATE_DATA, postSync.getOperation());
+        EXPECT_EQ(POSTSYNC_DATA::OPERATION_WRITE_TIMESTAMP, postSync.getOperation());
         EXPECT_EQ(gpuAddress, postSync.getDestinationAddress());
         postSyncFound = true;
     }
@@ -754,7 +775,8 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenTimestampEventWhenInvokingAppendLa
     auto event = std::unique_ptr<Event>(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     ze_group_count_t groupCount{1, 1, 1};
-    auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, event->toHandle(), 0, nullptr);
+    CmdListKernelLaunchParams launchParams = {};
+    auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, event->toHandle(), 0, nullptr, launchParams);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     auto usedSpaceAfter = commandList->commandContainer.getCommandStream()->getUsed();

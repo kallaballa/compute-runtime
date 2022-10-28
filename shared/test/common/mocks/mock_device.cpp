@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,7 +14,7 @@
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_ostime.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/unit_test/tests_configuration.h"
+#include "shared/test/common/tests_configuration.h"
 
 using namespace NEO;
 
@@ -52,6 +52,8 @@ MockDevice::MockDevice(ExecutionEnvironment *executionEnvironment, uint32_t root
     }
     auto &hwInfo = getHardwareInfo();
     executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(&hwInfo);
+    executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->initGmm();
+
     initializeCaps();
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 }
@@ -90,10 +92,17 @@ void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr, uint3
     commandStreamReceivers[engineIndex].reset(newCsr);
     commandStreamReceivers[engineIndex]->initializeTagAllocation();
     commandStreamReceivers[engineIndex]->createGlobalFenceAllocation();
+    commandStreamReceivers[engineIndex]->createKernelArgsBufferAllocation();
 
     if (preemptionMode == PreemptionMode::MidThread || isDebuggerActive()) {
         commandStreamReceivers[engineIndex]->createPreemptionAllocation();
     }
+}
+
+bool MockDevice::verifyAdapterLuid() {
+    if (callBaseVerifyAdapterLuid)
+        return Device::verifyAdapterLuid();
+    return verifyAdapterLuidReturnValue;
 }
 
 bool MockSubDevice::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage) {

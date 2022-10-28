@@ -25,7 +25,7 @@ using namespace NEO;
 
 struct AppResourceTests : public MockExecutionEnvironmentTagTest {
     void SetUp() override {
-        MockExecutionEnvironmentGmmFixture::SetUp();
+        MockExecutionEnvironmentGmmFixture::setUp();
         rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
         localPlatformDevice = rootDeviceEnvironment->getMutableHardwareInfo();
     }
@@ -71,6 +71,7 @@ AllocationTypeTagTestCase allocationTypeTagValues[static_cast<int>(AllocationTyp
     {AllocationType::INSTRUCTION_HEAP, "INSTHEAP"},
     {AllocationType::INTERNAL_HEAP, "INTLHEAP"},
     {AllocationType::INTERNAL_HOST_MEMORY, "INHSTMEM"},
+    {AllocationType::KERNEL_ARGS_BUFFER, "KARGBUF"},
     {AllocationType::KERNEL_ISA, "KERNLISA"},
     {AllocationType::KERNEL_ISA_INTERNAL, "KRLISAIN"},
     {AllocationType::LINEAR_STREAM, "LINRSTRM"},

@@ -91,13 +91,18 @@ cl_int CommandQueueHw<Family>::enqueueMarkerForReadWriteOperation(MemObj *memObj
     MultiDispatchInfo multiDispatchInfo;
     NullSurface s;
     Surface *surfaces[] = {&s};
-    enqueueHandler<CL_COMMAND_MARKER>(
+    const auto enqueueResult = enqueueHandler<CL_COMMAND_MARKER>(
         surfaces,
         blocking == CL_TRUE,
         multiDispatchInfo,
         numEventsInWaitList,
         eventWaitList,
         event);
+
+    if (enqueueResult != CL_SUCCESS) {
+        return enqueueResult;
+    }
+
     if (event) {
         auto pEvent = castToObjectOrAbort<Event>(*event);
         pEvent->setCmdType(commandType);
@@ -136,16 +141,23 @@ bool CommandQueueHw<Family>::isCacheFlushForBcsRequired() const {
 }
 
 template <typename TSPacketType>
-inline bool waitForTimestampsWithinContainer(TimestampPacketContainer *container, CommandStreamReceiver &csr) {
+inline bool waitForTimestampsWithinContainer(TimestampPacketContainer *container, CommandStreamReceiver &csr, WaitStatus &status) {
     bool waited = false;
+    status = WaitStatus::NotReady;
 
     if (container) {
+        auto lastHangCheckTime = std::chrono::high_resolution_clock::now();
         for (const auto &timestamp : container->peekNodes()) {
             for (uint32_t i = 0; i < timestamp->getPacketsUsed(); i++) {
                 while (timestamp->getContextEndValue(i) == 1) {
                     csr.downloadAllocation(*timestamp->getBaseGraphicsAllocation()->getGraphicsAllocation(csr.getRootDeviceIndex()));
                     WaitUtils::waitFunctionWithPredicate<const TSPacketType>(static_cast<TSPacketType const *>(timestamp->getContextEndAddress(i)), 1u, std::not_equal_to<TSPacketType>());
+                    if (csr.checkGpuHangDetected(std::chrono::high_resolution_clock::now(), lastHangCheckTime)) {
+                        status = WaitStatus::GpuHang;
+                        return false;
+                    }
                 }
+                status = WaitStatus::Ready;
                 waited = true;
             }
         }
@@ -155,19 +167,24 @@ inline bool waitForTimestampsWithinContainer(TimestampPacketContainer *container
 }
 
 template <typename Family>
-bool CommandQueueHw<Family>::waitForTimestamps(uint32_t taskCount) {
+bool CommandQueueHw<Family>::waitForTimestamps(Range<CopyEngineState> copyEnginesToWait, uint32_t taskCount, WaitStatus &status, TimestampPacketContainer *mainContainer, TimestampPacketContainer *deferredContainer) {
     using TSPacketType = typename Family::TimestampPacketType;
     bool waited = false;
 
-    if (isWaitForTimestampsEnabled() && !this->wasNonKernelOperationSent) {
-        waited = waitForTimestampsWithinContainer<TSPacketType>(timestampPacketContainer.get(), getGpgpuCommandStreamReceiver());
-
+    if (isWaitForTimestampsEnabled()) {
+        waited = waitForTimestampsWithinContainer<TSPacketType>(mainContainer, getGpgpuCommandStreamReceiver(), status);
         if (isOOQEnabled()) {
-            waited |= waitForTimestampsWithinContainer<TSPacketType>(deferredTimestampPackets.get(), getGpgpuCommandStreamReceiver());
+            waitForTimestampsWithinContainer<TSPacketType>(deferredContainer, getGpgpuCommandStreamReceiver(), status);
+        }
+
+        if (waited) {
+            getGpgpuCommandStreamReceiver().downloadAllocations();
+            for (const auto &copyEngine : copyEnginesToWait) {
+                auto bcsCsr = getBcsCommandStreamReceiver(copyEngine.engineType);
+                bcsCsr->downloadAllocations();
+            }
         }
     }
-
-    this->wasNonKernelOperationSent = false;
 
     return waited;
 }
@@ -198,7 +215,9 @@ bool CommandQueueHw<Family>::isGpgpuSubmissionForBcsRequired(bool queueBlocked, 
         return true;
     }
 
-    bool required = (latestSentEnqueueType != EnqueueProperties::Operation::Blit) && (latestSentEnqueueType != EnqueueProperties::Operation::None);
+    bool required = (latestSentEnqueueType != EnqueueProperties::Operation::Blit) &&
+                    (latestSentEnqueueType != EnqueueProperties::Operation::None) &&
+                    (isCacheFlushForBcsRequired() || !(getGpgpuCommandStreamReceiver().getDispatchMode() == DispatchMode::ImmediateDispatch || getGpgpuCommandStreamReceiver().isLatestTaskCountFlushed()));
 
     if (DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.get() == 1) {
         required = true;

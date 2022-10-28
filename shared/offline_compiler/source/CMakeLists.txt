@@ -10,8 +10,13 @@ set(OCLOC_NAME "ocloc")
 set(OCLOC_FOLDER_NAME "offline_compiler")
 
 set(CLOC_LIB_SRCS_LIB
-    ${NEO_SHARED_DIRECTORY}/compiler_interface/compiler_options/compiler_options_base.cpp
+    ${NEO_SHARED_DIRECTORY}/compiler_interface/compiler_options.cpp
+    ${NEO_SHARED_DIRECTORY}/compiler_interface/compiler_options.h
+    ${NEO_SHARED_DIRECTORY}/compiler_interface/compiler_cache.cpp
+    ${NEO_SHARED_DIRECTORY}/compiler_interface/compiler_cache.h
     ${NEO_SHARED_DIRECTORY}/compiler_interface/create_main.cpp
+    ${NEO_SHARED_DIRECTORY}/compiler_interface/oclc_extensions.cpp
+    ${NEO_SHARED_DIRECTORY}/compiler_interface/oclc_extensions.h
     ${NEO_SHARED_DIRECTORY}/device_binary_format/ar/ar.h
     ${NEO_SHARED_DIRECTORY}/device_binary_format/ar/ar_decoder.cpp
     ${NEO_SHARED_DIRECTORY}/device_binary_format/ar/ar_decoder.h
@@ -23,29 +28,40 @@ set(CLOC_LIB_SRCS_LIB
     ${NEO_SHARED_DIRECTORY}/device_binary_format/elf/elf_encoder.cpp
     ${NEO_SHARED_DIRECTORY}/device_binary_format/elf/elf_encoder.h
     ${NEO_SHARED_DIRECTORY}/device_binary_format/elf/ocl_elf.h
+    ${NEO_SHARED_DIRECTORY}/device_binary_format/device_binary_formats.h
+    ${NEO_SHARED_DIRECTORY}/device_binary_format/yaml/yaml_parser.cpp
+    ${NEO_SHARED_DIRECTORY}/device_binary_format/zebin_decoder.cpp
+    ${NEO_SHARED_DIRECTORY}/device_binary_format/zebin_decoder.h
     ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}devices.inl
     ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}devices_additional.inl
     ${NEO_SHARED_DIRECTORY}/dll/devices/devices_base.inl
     ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}/product_config.inl
     ${NEO_SHARED_DIRECTORY}/dll/devices/product_config_base.inl
-    ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}platforms.h
     ${NEO_SHARED_DIRECTORY}/helpers/abort.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/compiler_hw_info_config.h
     ${NEO_SHARED_DIRECTORY}/helpers/compiler_hw_info_config.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/compiler_hw_info_config_base.inl
+    ${NEO_SHARED_DIRECTORY}/helpers/compiler_aot_config_bdw_and_later.inl
     ${NEO_SHARED_DIRECTORY}/helpers/compiler_hw_info_config_bdw_and_later.inl
+    ${NEO_SHARED_DIRECTORY}/helpers/compiler_hw_info_config_before_xe_hpc.inl
+    ${NEO_SHARED_DIRECTORY}/helpers/compiler_hw_info_config_xe_hpc_and_later.inl
     ${NEO_SHARED_DIRECTORY}/helpers/compiler_options_parser.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/compiler_options_parser.h
+    ${NEO_SHARED_DIRECTORY}/helpers/cache_policy.h
+    ${NEO_SHARED_DIRECTORY}/helpers/cache_policy_bdw_and_later.inl
+    ${NEO_SHARED_DIRECTORY}/helpers/cache_policy_dg2_and_later.inl
     ${NEO_SHARED_DIRECTORY}/helpers/debug_helpers.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/file_io.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/hw_info.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/hw_info.h
     ${NEO_SHARED_DIRECTORY}/helpers${BRANCH_DIR_SUFFIX}hw_info_extended.cpp
-    ${NEO_SHARED_DIRECTORY}/kernel${BRANCH_DIR_SUFFIX}kernel_descriptor.cpp
-    ${NEO_SHARED_DIRECTORY}/kernel${BRANCH_DIR_SUFFIX}kernel_descriptor.h
+    ${NEO_SHARED_DIRECTORY}/helpers/product_config_helper.cpp
+    ${NEO_SHARED_DIRECTORY}/helpers/product_config_helper.h
     ${NEO_SHARED_DIRECTORY}/os_interface/os_library.h
-    ${NEO_SHARED_DIRECTORY}/compiler_interface/oclc_extensions.cpp
-    ${NEO_SHARED_DIRECTORY}/compiler_interface/oclc_extensions.h
+    ${NEO_SHARED_DIRECTORY}/utilities/directory.h
+    ${NEO_SHARED_DIRECTORY}/utilities/io_functions.cpp
+    ${NEO_SHARED_DIRECTORY}/utilities/io_functions.h
+    ${OCLOC_DIRECTORY}/source/default_cache_config.cpp
     ${OCLOC_DIRECTORY}/source/decoder/binary_decoder.cpp
     ${OCLOC_DIRECTORY}/source/decoder/binary_decoder.h
     ${OCLOC_DIRECTORY}/source/decoder/binary_encoder.cpp
@@ -54,15 +70,27 @@ set(CLOC_LIB_SRCS_LIB
     ${OCLOC_DIRECTORY}/source/decoder/helper.h
     ${OCLOC_DIRECTORY}/source/decoder/iga_wrapper.h
     ${OCLOC_DIRECTORY}/source/decoder/translate_platform_base.h
+    ${OCLOC_DIRECTORY}/source/decoder/zebin_manipulator.cpp
+    ${OCLOC_DIRECTORY}/source/decoder/zebin_manipulator.h
     ${OCLOC_DIRECTORY}/source/multi_command.cpp
     ${OCLOC_DIRECTORY}/source/multi_command.h
     ${OCLOC_DIRECTORY}/source/ocloc_api.cpp
     ${OCLOC_DIRECTORY}/source/ocloc_api.h
     ${OCLOC_DIRECTORY}/source/ocloc_arg_helper.cpp
     ${OCLOC_DIRECTORY}/source/ocloc_arg_helper.h
+    ${OCLOC_DIRECTORY}/source/ocloc_concat.cpp
+    ${OCLOC_DIRECTORY}/source/ocloc_concat.h
+    ${OCLOC_DIRECTORY}/source/ocloc_dll_options.cpp
+    ${OCLOC_DIRECTORY}/source/ocloc_dll_options.h
     ${OCLOC_DIRECTORY}/source/ocloc_error_code.h
     ${OCLOC_DIRECTORY}/source/ocloc_fatbinary.cpp
     ${OCLOC_DIRECTORY}/source/ocloc_fatbinary.h
+    ${OCLOC_DIRECTORY}/source/ocloc_fcl_facade.cpp
+    ${OCLOC_DIRECTORY}/source/ocloc_fcl_facade.h
+    ${OCLOC_DIRECTORY}/source/ocloc_igc_facade.cpp
+    ${OCLOC_DIRECTORY}/source/ocloc_igc_facade.h
+    ${OCLOC_DIRECTORY}/source/ocloc_interface.cpp
+    ${OCLOC_DIRECTORY}/source/ocloc_interface.h
     ${OCLOC_DIRECTORY}/source/ocloc_validator.cpp
     ${OCLOC_DIRECTORY}/source/ocloc_validator.h
     ${OCLOC_DIRECTORY}/source/offline_compiler.cpp
@@ -74,9 +102,7 @@ set(CLOC_LIB_SRCS_LIB
     ${OCLOC_DIRECTORY}/source/queries.h
     ${OCLOC_DIRECTORY}/source/utilities/get_git_version_info.h
     ${OCLOC_DIRECTORY}/source/utilities/get_git_version_info.cpp
-    ${NEO_SOURCE_DIR}/shared/source/device_binary_format/device_binary_format_zebin.cpp
-    ${NEO_SOURCE_DIR}/shared/source/device_binary_format/zebin_decoder.cpp
-    ${NEO_SOURCE_DIR}/shared/source/device_binary_format/yaml/yaml_parser.cpp
+    ${NEO_SOURCE_DIR}/third_party${BRANCH_DIR_SUFFIX}aot_config_headers/platforms.h
 )
 
 if(${IGA_HEADERS_AVAILABLE})
@@ -93,16 +119,20 @@ endif()
 if(WIN32)
   list(APPEND CLOC_LIB_SRCS_LIB
        ${NEO_SHARED_DIRECTORY}/dll/windows/options_windows.cpp
+       ${NEO_SHARED_DIRECTORY}/os_interface/windows/os_inc.h
        ${NEO_SHARED_DIRECTORY}/os_interface/windows/os_library_win.cpp
        ${NEO_SHARED_DIRECTORY}/os_interface/windows/os_library_win.h
+       ${NEO_SOURCE_DIR}/shared/source/utilities/windows/directory.cpp
   )
 else()
   list(APPEND CLOC_LIB_SRCS_LIB
        ${NEO_SHARED_DIRECTORY}/dll/linux/options_linux.cpp
+       ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_inc.h
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_library_linux.cpp
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_library_linux.h
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
        ${OCLOC_DIRECTORY}/source/linux/os_library_ocloc_helper.cpp
+       ${NEO_SOURCE_DIR}/shared/source/utilities/linux/directory.cpp
   )
 endif()
 
@@ -153,10 +183,6 @@ macro(macro_for_each_core_type)
         if(EXISTS ${SRC_FILE}_${CORE_TYPE_LOWER}.cpp)
           list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE}_${CORE_TYPE_LOWER}.cpp)
         endif()
-        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH}${CORE_TYPE_LOWER}${BRANCH_DIR}enable_${CORE_TYPE_LOWER}.cpp)
-        if(EXISTS ${SRC_FILE})
-          list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE})
-        endif()
       endforeach()
     endforeach()
   endforeach()
@@ -177,6 +203,7 @@ create_project_source_tree(${OCLOC_NAME}_lib)
 set_target_properties(${OCLOC_NAME}_lib PROPERTIES FOLDER ${OCLOC_FOLDER_NAME})
 
 set(CLOC_LIB_INCLUDES
+    ${AOT_CONFIG_HEADERS_DIR}
     ${ENGINE_NODE_DIR}
     ${IGC_OCL_ADAPTOR_DIR}
     ${CIF_BASE_DIR}
@@ -185,11 +212,21 @@ set(CLOC_LIB_INCLUDES
     ${NEO__IGC_INCLUDE_DIR}
 )
 
+if(WIN32)
+  list(APPEND CLOC_LIB_INCLUDES
+       ${NEO_SHARED_DIRECTORY}/os_interface/windows
+  )
+else()
+  list(APPEND CLOC_LIB_INCLUDES
+       ${NEO_SHARED_DIRECTORY}/os_interface/linux
+  )
+endif()
+
 target_include_directories(${OCLOC_NAME}_lib BEFORE PRIVATE ${CLOC_LIB_INCLUDES})
 target_include_directories(${OCLOC_NAME}_lib BEFORE PRIVATE ${IGA_INCLUDE_DIR})
 
 target_compile_definitions(${OCLOC_NAME}_lib PUBLIC ${CLOC_LIB_LIB_FLAGS_DEFINITIONS} ${SUPPORTED_CORE_FLAGS_DEFINITONS} DEFAULT_PLATFORM=${DEFAULT_SUPPORTED_PLATFORM}
-                           IGA_LIBRARY_NAME=${CMAKE_SHARED_LIBRARY_PREFIX}${IGA_LIBRARY_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}
+                           IGA_LIBRARY_NAME="${CMAKE_SHARED_LIBRARY_PREFIX}${IGA_LIBRARY_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}"
 )
 target_compile_definitions(${OCLOC_NAME}_lib PUBLIC ${NEO__IGC_COMPILE_DEFINITIONS})
 

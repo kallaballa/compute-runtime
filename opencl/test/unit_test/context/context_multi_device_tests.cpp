@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,7 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -61,7 +61,7 @@ TEST(ContextMultiDevice, GivenMultipleDevicesWhenCreatingContextThenContextIsCre
         new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)},
         new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)}};
     auto numDevices = static_cast<cl_uint>(arrayCount(devices));
-    ASSERT_EQ(8u, numDevices);
+    ASSERT_EQ(8u, numDevices); // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 
     auto retVal = CL_SUCCESS;
     auto pContext = Context::create<Context>(nullptr, ClDeviceVector(devices, numDevices),

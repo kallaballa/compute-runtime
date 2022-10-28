@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "opencl/source/helpers/cl_device_helpers.h"
+#include "shared/source/os_interface/hw_info_config.h"
+
 #include "opencl/source/helpers/cl_hw_helper.h"
 
 namespace NEO {
@@ -22,8 +23,12 @@ cl_ulong ClHwHelperHw<GfxFamily>::getKernelPrivateMemSize(const KernelInfo &kern
 }
 
 template <typename GfxFamily>
-cl_device_feature_capabilities_intel ClHwHelperHw<GfxFamily>::getSupportedDeviceFeatureCapabilities() const {
-    return ClDeviceHelper::getExtraCapabilities();
+cl_device_feature_capabilities_intel ClHwHelperHw<GfxFamily>::getSupportedDeviceFeatureCapabilities(const HardwareInfo &hwInfo) const {
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    if (hwInfoConfig.isMatrixMultiplyAccumulateSupported(hwInfo)) {
+        return CL_DEVICE_FEATURE_FLAG_DPAS_INTEL | CL_DEVICE_FEATURE_FLAG_DP4A_INTEL;
+    }
+    return CL_DEVICE_FEATURE_FLAG_DP4A_INTEL;
 }
 
 template <typename GfxFamily>

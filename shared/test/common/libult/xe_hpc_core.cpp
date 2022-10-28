@@ -1,18 +1,20 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/helpers/populate_factory.h"
+#include "shared/source/xe_hpc_core/hw_cmds.h"
 #include "shared/test/common/libult/ult_command_stream_receiver.h"
+#include "shared/test/common/mocks/mock_l0_debugger.h"
 
 namespace NEO {
 
-typedef XE_HPC_COREFamily Family;
+typedef XeHpcCoreFamily Family;
 
-static auto gfxCore = IGFX_XE_HPC_CORE;
+constexpr auto gfxCore = IGFX_XE_HPC_CORE;
 
 extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
 
@@ -28,6 +30,7 @@ struct enableXeHpcCore {
 };
 
 static enableXeHpcCore enable;
+static MockDebuggerL0HwPopulateFactory<gfxCore, Family> mockDebuggerXeHpcCore;
 
-template class UltCommandStreamReceiver<XE_HPC_COREFamily>;
+template class UltCommandStreamReceiver<XeHpcCoreFamily>;
 } // namespace NEO

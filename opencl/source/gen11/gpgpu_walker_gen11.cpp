@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen11/hw_cmds.h"
 #include "shared/source/gen11/hw_info.h"
 
 #include "opencl/source/command_queue/gpgpu_walker_bdw_and_later.inl"
@@ -12,10 +13,10 @@
 
 namespace NEO {
 
-template class HardwareInterface<ICLFamily>;
+template class HardwareInterface<Gen11Family>;
 
-template class GpgpuWalkerHelper<ICLFamily>;
+template class GpgpuWalkerHelper<Gen11Family>;
 
-template struct EnqueueOperation<ICLFamily>;
+template struct EnqueueOperation<Gen11Family>;
 
 } // namespace NEO

@@ -7,7 +7,7 @@
 
 #include "shared/source/helpers/local_work_size.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -56,7 +56,7 @@ struct WorkGroupSizeBase {
         size_t workGroupSize[3];
         auto maxWorkGroupSize = 256u;
         if (DebugManager.flags.EnableComputeWorkSizeND.get()) {
-            WorkSizeInfo wsInfo(maxWorkGroupSize, 0u, simdSize, 0u, ::defaultHwInfo.get(), 32u, 0u, false, false);
+            WorkSizeInfo wsInfo(maxWorkGroupSize, 0u, simdSize, 0u, ::defaultHwInfo.get(), 32u, 0u, false, false, false);
             computeWorkgroupSizeND(wsInfo, workGroupSize, workItems, dims);
         } else {
             if (dims == 1) {

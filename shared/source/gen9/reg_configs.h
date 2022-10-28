@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,7 @@
 #include "shared/source/helpers/preamble.h"
 
 namespace NEO {
-struct SKLFamily;
+struct Gen9Family;
 template <>
 struct L3CNTLREGConfig<IGFX_SKYLAKE> {
     static const uint32_t valueForSLM = 0x60000321u;
@@ -18,7 +18,7 @@ struct L3CNTLREGConfig<IGFX_SKYLAKE> {
 };
 
 template <>
-struct L3CNTLRegisterOffset<SKLFamily> {
+struct L3CNTLRegisterOffset<Gen9Family> {
     static const uint32_t registerOffset = 0x7034;
 };
 
@@ -30,10 +30,10 @@ struct L3CNTLREGConfig<IGFX_BROXTON> {
 
 namespace DebugControlReg2 {
 constexpr uint32_t address = 0xE404;
-constexpr uint32_t getRegData(const uint32_t &policy) {
+constexpr uint32_t getRegData(const int32_t &policy) {
     return policy == ThreadArbitrationPolicy::RoundRobin ? 0x100 : 0x0;
 };
-static const uint32_t supportedArbitrationPolicy[] = {
+static const int32_t supportedArbitrationPolicy[] = {
     ThreadArbitrationPolicy::AgeBased,
     ThreadArbitrationPolicy::RoundRobin};
 } // namespace DebugControlReg2

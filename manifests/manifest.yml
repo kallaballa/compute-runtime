@@ -1,58 +1,82 @@
 components:
+  aub_stream:
+    branch: master
+    dest_dir: aub_stream
+    repository: https://github.com/intel/aubstream
+    revision: f90b24111b3288f3f1f8a6e6d9bf6a80aed563cb
+    type: git
   gmmlib:
     dest_dir: gmmlib
     type: git
     branch: gmmlib
-    revision: intel-gmmlib-22.0.2
+    revision: intel-gmmlib-22.2.0
     repository: https://github.com/intel/gmmlib.git
   igc:
     dest_dir: igc
     type: git
     branch: igc
-    revision: b3313f795fe31a09701e7a279d3ad56ee0f813f6
+    revision: f5a2985e5fda451c38d2beffe26c86704663cf09
     repository: https://github.com/intel/intelgraphicscompiler
   igsc:
     dest_dir: igsc
     type: git
     branch: igsc
-    revision: V0.2.4-5
+    revision: V0.8.4-1
     repository: https://github.com/intel/igsc.git
   infra:
     branch: master
     dest_dir: infra
-    revision: bd2fe675eadc093444683802cccc6b483ec2ca76
+    fetch_tags: true
+    revision: v4297
     type: git
   internal:
     branch: master
     dest_dir: internal
     revision: FETCH_HEAD
     type: git
+  kernels_bin:
+    dest_dir: kernels_bin
+    type: git
+    branch: kernels_bin
+    revision: 1977-393
   kmdaf:
     branch: kmdaf
     dest_dir: kmdaf
-    revision: 0485b5dc951ddd09298c68dd7e520f51ba6db569
+    revision: 0327332b4f9a342d2c49b65a3676c676b5fb2d4c
     type: git
   level_zero:
     dest_dir: level_zero
     type: git
     branch: master
-    revision: v1.7.9
+    revision: v1.8.8
     repository: https://github.com/oneapi-src/level-zero
   libva:
     dest_dir: libva
     type: git
     branch: libva
-    revision: c9bb65b
+    revision: 2.2.0
     repository: https://github.com/intel/libva.git
+  metrics-discovery:
+    dest_dir: metrics/discovery
+    type: git
+    branch: metrics-discovery
+    revision: metrics-discovery-1.12.155
+    repository: https://github.com/intel/metrics-discovery.git
+  metrics-library:
+    dest_dir: metrics/library
+    type: git
+    branch: metrics-library
+    revision: metrics-library-1.0.114
+    repository: https://github.com/intel/metrics-library.git
   wdk:
     dest_dir: wdk
     type: git
     branch: wdk
-    revision: 3c5dc985d21d0b863fc6da1fb39a5211d132e7cc-1835
+    revision: a43fff6b811898c051b3896847d8cd196323dfc2-1977
   wsl:
     branch: wsl
     dest_dir: wsl
     revision: 56430997dac34ca0e9e18c177636234cac26ad54
     type: git
-converter: M-1865
+converter: M-1977
 version: '1'

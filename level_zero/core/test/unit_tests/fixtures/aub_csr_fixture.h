@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,21 +18,21 @@ extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX
 
 namespace L0 {
 namespace ult {
-struct AubCsrFixture : public ContextFixture {
+struct AubCsrFixture : public DeviceFixture {
     template <typename T>
-    void SetUpT() {
+    void setUpT() {
         auto csrCreateFcn = &commandStreamReceiverFactory[IGFX_MAX_CORE + NEO::defaultHwInfo->platform.eRenderCoreFamily];
         variableBackup = std::make_unique<VariableBackup<CommandStreamReceiverCreateFunc>>(csrCreateFcn);
         *csrCreateFcn = UltAubCommandStreamReceiver<T>::create;
-        ContextFixture::SetUp();
+        DeviceFixture::setUp();
     }
     template <typename T>
-    void TearDownT() {
-        ContextFixture::TearDown();
+    void tearDownT() {
+        DeviceFixture::tearDown();
     }
 
-    void SetUp() {}
-    void TearDown() {}
+    void setUp() {}
+    void tearDown() {}
     std::unique_ptr<VariableBackup<CommandStreamReceiverCreateFunc>> variableBackup;
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,7 +13,7 @@
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/mock_os_library.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 
@@ -39,9 +39,9 @@ HWTEST_F(CommandStreamReceiverWithActiveDebuggerTest, givenCsrWithActiveDebugger
 
     mockCsr->flushTask(commandStream,
                        0,
-                       *heap.get(),
-                       *heap.get(),
-                       *heap.get(),
+                       heap.get(),
+                       heap.get(),
+                       heap.get(),
                        0,
                        dispatchFlags,
                        baseDevice);
@@ -80,9 +80,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverWithActiveDebuggerTest, givenCs
 
         mockCsr->flushTask(commandStream,
                            0,
-                           *heap.get(),
-                           *heap.get(),
-                           *heap.get(),
+                           heap.get(),
+                           heap.get(),
+                           heap.get(),
                            0,
                            dispatchFlags,
                            baseDevice);
@@ -132,9 +132,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverWithActiveDebuggerTest, givenCs
 
         mockCsr->flushTask(commandStream,
                            0,
-                           *heap.get(),
-                           *heap.get(),
-                           *heap.get(),
+                           heap.get(),
+                           heap.get(),
+                           heap.get(),
                            0,
                            dispatchFlags,
                            baseDevice);
@@ -143,9 +143,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverWithActiveDebuggerTest, givenCs
 
         mockCsr->flushTask(commandStream,
                            0,
-                           *heap.get(),
-                           *heap.get(),
-                           *heap.get(),
+                           heap.get(),
+                           heap.get(),
+                           heap.get(),
                            0,
                            dispatchFlags,
                            baseDevice);

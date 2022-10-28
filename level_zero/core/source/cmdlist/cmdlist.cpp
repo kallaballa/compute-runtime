@@ -14,7 +14,11 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
 
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
 #include "level_zero/core/source/device/device_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
+#include "level_zero/core/source/event/event.h"
+#include "level_zero/core/source/kernel/kernel.h"
 
 namespace L0 {
 
@@ -26,15 +30,15 @@ CommandList::~CommandList() {
     if (this->cmdListType == CommandListType::TYPE_REGULAR || !this->isFlushTaskSubmissionEnabled) {
         removeHostPtrAllocations();
     }
-    printfFunctionContainer.clear();
+    printfKernelContainer.clear();
 }
 
-void CommandList::storePrintfFunction(Kernel *kernel) {
-    auto it = std::find(this->printfFunctionContainer.begin(), this->printfFunctionContainer.end(),
+void CommandList::storePrintfKernel(Kernel *kernel) {
+    auto it = std::find(this->printfKernelContainer.begin(), this->printfKernelContainer.end(),
                         kernel);
 
-    if (it == this->printfFunctionContainer.end()) {
-        this->printfFunctionContainer.push_back(kernel);
+    if (it == this->printfKernelContainer.end()) {
+        this->printfKernelContainer.push_back(kernel);
     }
 }
 
@@ -60,7 +64,7 @@ NEO::GraphicsAllocation *CommandList::getAllocationFromHostPtrMap(const void *bu
             return allocation->second;
         }
     }
-    if (this->cmdListType == CommandListType::TYPE_IMMEDIATE && this->isFlushTaskSubmissionEnabled) {
+    if (this->storeExternalPtrAsTemporary()) {
         auto allocation = this->csr->getInternalAllocationStorage()->obtainTemporaryAllocationWithPtr(bufferSize, buffer, NEO::AllocationType::EXTERNAL_HOST_PTR);
         if (allocation != nullptr) {
             auto alloc = allocation.get();
@@ -71,6 +75,14 @@ NEO::GraphicsAllocation *CommandList::getAllocationFromHostPtrMap(const void *bu
     return nullptr;
 }
 
+bool CommandList::isWaitForEventsFromHostEnabled() {
+    bool waitForEventsFromHostEnabled = false;
+    if (NEO::DebugManager.flags.EventWaitOnHost.get() != -1) {
+        waitForEventsFromHostEnabled = NEO::DebugManager.flags.EventWaitOnHost.get();
+    }
+    return waitForEventsFromHostEnabled;
+}
+
 NEO::GraphicsAllocation *CommandList::getHostPtrAlloc(const void *buffer, uint64_t bufferSize, bool hostCopyAllowed) {
     NEO::GraphicsAllocation *alloc = getAllocationFromHostPtrMap(buffer, bufferSize);
     if (alloc) {
@@ -78,10 +90,12 @@ NEO::GraphicsAllocation *CommandList::getHostPtrAlloc(const void *buffer, uint64
     }
     alloc = device->allocateMemoryFromHostPtr(buffer, bufferSize, hostCopyAllowed);
     UNRECOVERABLE_IF(alloc == nullptr);
-    if (this->cmdListType == CommandListType::TYPE_IMMEDIATE && this->isFlushTaskSubmissionEnabled) {
+    if (this->storeExternalPtrAsTemporary()) {
         this->csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<NEO::GraphicsAllocation>(alloc), NEO::AllocationUsage::TEMPORARY_ALLOCATION);
-    } else {
+    } else if (alloc->getAllocationType() == NEO::AllocationType::EXTERNAL_HOST_PTR) {
         hostPtrMap.insert(std::make_pair(buffer, alloc));
+    } else {
+        commandContainer.getDeallocationContainer().push_back(alloc);
     }
     return alloc;
 }
@@ -125,13 +139,7 @@ void CommandList::eraseResidencyContainerEntry(NEO::GraphicsAllocation *allocati
     }
 }
 
-bool CommandList::isCopyOnly() const {
-    const auto &hardwareInfo = device->getNEODevice()->getHardwareInfo();
-    auto &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    return hwHelper.isCopyOnlyEngineType(engineGroupType);
-}
-
-NEO::PreemptionMode CommandList::obtainFunctionPreemptionMode(Kernel *kernel) {
+NEO::PreemptionMode CommandList::obtainKernelPreemptionMode(Kernel *kernel) {
     NEO::PreemptionFlags flags = NEO::PreemptionHelper::createPreemptionLevelFlags(*device->getNEODevice(), &kernel->getImmutableData()->getDescriptor());
     return NEO::PreemptionHelper::taskPreemptionMode(device->getDevicePreemptionMode(), flags);
 }
@@ -163,26 +171,15 @@ void CommandList::migrateSharedAllocations() {
     }
 }
 
-void CommandList::handleIndirectAllocationResidency() {
-    bool indirectAllocationsAllowed = this->hasIndirectAllocationsAllowed();
-    NEO::Device *neoDevice = this->device->getNEODevice();
-    if (indirectAllocationsAllowed) {
-        auto svmAllocsManager = this->device->getDriverHandle()->getSvmAllocsManager();
-        auto submitAsPack = this->device->getDriverHandle()->getMemoryManager()->allowIndirectAllocationsAsPack(neoDevice->getRootDeviceIndex());
-        if (NEO::DebugManager.flags.MakeIndirectAllocationsResidentAsPack.get() != -1) {
-            submitAsPack = !!NEO::DebugManager.flags.MakeIndirectAllocationsResidentAsPack.get();
-        }
-
-        if (submitAsPack) {
-            svmAllocsManager->makeIndirectAllocationsResident(*(this->csr), this->csr->peekTaskCount() + 1u);
-        } else {
-            UnifiedMemoryControls unifiedMemoryControls = this->getUnifiedMemoryControls();
-
-            svmAllocsManager->addInternalAllocationsToResidencyContainer(neoDevice->getRootDeviceIndex(),
-                                                                         this->commandContainer.getResidencyContainer(),
-                                                                         unifiedMemoryControls.generateMask());
+bool CommandList::setupTimestampEventForMultiTile(Event *signalEvent) {
+    if (this->partitionCount > 1 &&
+        signalEvent) {
+        if (signalEvent->isEventTimestampFlagSet()) {
+            signalEvent->setPacketsInUse(this->partitionCount);
+            return true;
         }
     }
+    return false;
 }
 
 } // namespace L0

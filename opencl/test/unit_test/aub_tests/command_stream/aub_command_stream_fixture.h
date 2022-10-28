@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,11 +15,9 @@
 #include "shared/source/memory_manager/memory_banks.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/common/mocks/mock_allocation_properties.h"
-#include "shared/test/unit_test/tests_configuration.h"
+#include "shared/test/common/tests_configuration.h"
 
 #include "opencl/test/unit_test/command_stream/command_stream_fixture.h"
-
-#include "gtest/gtest.h"
 
 #include <cstdint>
 
@@ -28,8 +26,8 @@ class CommandStreamReceiver;
 
 class AUBCommandStreamFixture : public CommandStreamFixture {
   public:
-    virtual void SetUp(CommandQueue *pCommandQueue);
-    void TearDown() override;
+    void setUp(CommandQueue *pCommandQueue);
+    void tearDown();
 
     template <typename FamilyType>
     AUBCommandStreamReceiverHw<FamilyType> *getAubCsr() const {

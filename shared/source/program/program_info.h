@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,12 @@
 
 #pragma once
 
+#include "shared/source/compiler_interface/external_functions.h"
 #include "shared/source/compiler_interface/linker.h"
 
 #include <cstddef>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace NEO {
@@ -39,14 +41,16 @@ struct ProgramInfo {
     GlobalSurfaceInfo globalVariables;
     GlobalSurfaceInfo globalStrings;
     std::unique_ptr<LinkerInput> linkerInput;
+    std::unordered_map<std::string, std::string> globalsDeviceToHostNameMap;
 
+    std::vector<ExternalFunctionInfo> externalFunctions;
     std::vector<KernelInfo *> kernelInfos;
-    Elf::Elf<Elf::EI_CLASS_64> decodedElf;
     uint32_t grfSize = 32U;
-    bool levelZeroDynamicLinkProgram = false;
+    uint32_t minScratchSpaceSize = 0U;
 };
 
 size_t getMaxInlineSlmNeeded(const ProgramInfo &programInfo);
 bool requiresLocalMemoryWindowVA(const ProgramInfo &programInfo);
+bool isRebuiltToPatchtokensRequired(Device *neoDevice, ArrayRef<const uint8_t> archive, std::string &optionsString, bool isBuiltin);
 
 } // namespace NEO

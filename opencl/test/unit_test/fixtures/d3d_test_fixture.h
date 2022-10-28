@@ -5,6 +5,8 @@
  *
  */
 
+#pragma once
+
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_gmm.h"
 #include "shared/test/common/test_macros/test.h"
@@ -86,7 +88,7 @@ class D3DTests : public PlatformFixture, public ::testing::Test {
         imgDesc.imageDepth = 1;
         imgDesc.imageType = ImageType::Image2D;
         auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-        gmm = MockGmm::queryImgParams(pPlatform->peekExecutionEnvironment()->rootDeviceEnvironments[0]->getGmmClientContext(), imgInfo, false).release();
+        gmm = MockGmm::queryImgParams(pPlatform->peekExecutionEnvironment()->rootDeviceEnvironments[0]->getGmmHelper(), imgInfo, false).release();
         mockGmmResInfo = static_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
 
         mockMM->forceGmm = gmm;
@@ -95,15 +97,15 @@ class D3DTests : public PlatformFixture, public ::testing::Test {
     void SetUp() override {
         VariableBackup<UltHwConfig> backup(&ultHwConfig);
         ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
         rootDeviceIndex = pPlatform->getClDevice(0)->getRootDeviceIndex();
         context = new MockContext(pPlatform->getClDevice(0));
         context->preferD3dSharedResources = true;
         mockMM = std::make_unique<MockMM>(*context->getDevice(0)->getExecutionEnvironment());
 
-        mockSharingFcns = new NiceMock<MockD3DSharingFunctions<T>>();
-        auto checkFormat = [](DXGI_FORMAT format, UINT *pFormat) -> bool { *pFormat = D3D11_FORMAT_SUPPORT_BUFFER | D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_TEXTURE3D; return true; };
-        ON_CALL(*mockSharingFcns, checkFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Invoke(checkFormat));
+        mockSharingFcns = new MockD3DSharingFunctions<T>();
+        mockSharingFcns->checkFormatSupportSetParam1 = true;
+        mockSharingFcns->checkFormatSupportParamsSet.pFormat = D3D11_FORMAT_SUPPORT_BUFFER | D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_TEXTURE3D;
 
         context->setSharingFunctions(mockSharingFcns);
         context->memoryManager = mockMM.get();
@@ -132,7 +134,7 @@ class D3DTests : public PlatformFixture, public ::testing::Test {
         if (!mockMM->gmmOwnershipPassed) {
             delete gmm;
         }
-        PlatformFixture::TearDown();
+        PlatformFixture::tearDown();
     }
 
     cl_int pickParam(cl_int d3d10, cl_int d3d11) {
@@ -193,7 +195,7 @@ class D3DTests : public PlatformFixture, public ::testing::Test {
         return clGetDeviceIDsFromD3D11KHR(platform, d3dDeviceSource, d3dObject, d3dDeviceSet, numEntries, devices, numDevices);
     }
 
-    NiceMock<MockD3DSharingFunctions<T>> *mockSharingFcns;
+    MockD3DSharingFunctions<T> *mockSharingFcns;
     MockContext *context;
     MockCommandQueue *cmdQ;
     char dummyD3DBuffer;

@@ -63,6 +63,7 @@ void PrintFormatter::printString(const char *formatString, const std::function<v
             size_t end = i;
             if (end + 1 <= length && formatString[end + 1] == '%') {
                 output[cursor++] = '%';
+                i++;
                 continue;
             }
 
@@ -163,10 +164,10 @@ size_t PrintFormatter::printStringToken(char *output, size_t size, const char *f
 
     switch (type) {
     default:
-        return simple_sprintf(output, size, formatString, 0);
+        return simpleSprintf(output, size, formatString, 0);
     case PRINTF_DATA_TYPE::STRING:
     case PRINTF_DATA_TYPE::POINTER:
-        return simple_sprintf(output, size, formatString, string);
+        return simpleSprintf(output, size, formatString, string);
     }
 }
 
@@ -178,7 +179,7 @@ size_t PrintFormatter::printPointerToken(char *output, size_t size, const char *
         value &= 0x00000000FFFFFFFF;
     }
 
-    return simple_sprintf(output, size, formatString, value);
+    return simpleSprintf(output, size, formatString, value);
 }
 
 const char *PrintFormatter::queryPrintfString(uint32_t index) const {

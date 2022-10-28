@@ -6,8 +6,10 @@
  */
 
 #pragma once
+#include "shared/source/os_interface/linux/drm_gem_close_worker.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
+#include "shared/test/common/os_interface/linux/device_command_stream_fixture.h"
 
 #include <atomic>
 
@@ -82,7 +84,8 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     using DrmMemoryManager::getUserptrAlignment;
     using DrmMemoryManager::gfxPartitions;
     using DrmMemoryManager::handleFenceCompletion;
-    using DrmMemoryManager::lockResourceInLocalMemoryImpl;
+    using DrmMemoryManager::lockBufferObject;
+    using DrmMemoryManager::lockResourceImpl;
     using DrmMemoryManager::memoryForPinBBs;
     using DrmMemoryManager::mmapFunction;
     using DrmMemoryManager::munmapFunction;
@@ -95,7 +98,7 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     using DrmMemoryManager::setDomainCpu;
     using DrmMemoryManager::sharingBufferObjects;
     using DrmMemoryManager::supportsMultiStorageResources;
-    using DrmMemoryManager::unlockResourceInLocalMemoryImpl;
+    using DrmMemoryManager::unlockBufferObject;
     using DrmMemoryManager::waitOnCompletionFence;
     using MemoryManager::allocateGraphicsMemoryInDevicePool;
     using MemoryManager::heapAssigner;
@@ -112,6 +115,8 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     void forceLimitedRangeAllocator(uint64_t range);
     void overrideGfxPartition(GfxPartition *newGfxPartition);
 
+    BufferObject *findAndReferenceSharedBufferObject(int boHandle, uint32_t rootDeviceIndex) override;
+
     DrmAllocation *allocate32BitGraphicsMemory(uint32_t rootDeviceIndex, size_t size, const void *ptr, AllocationType allocationType);
     ~TestedDrmMemoryManager() override;
     size_t peekSharedBosSize() {
@@ -126,6 +131,42 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     }
     bool alignedMallocShouldFail = false;
     size_t alignedMallocSizeRequired = 0u;
+    uint32_t unreference(BufferObject *bo, bool synchronousDestroy) override {
+        std::unique_lock<std::mutex> lock(unreferenceMtx);
+        unreferenceCalled++;
+        unreferenceParamsPassed.push_back({bo, synchronousDestroy});
+        return DrmMemoryManager::unreference(bo, synchronousDestroy);
+    }
+    struct UnreferenceParams {
+        BufferObject *bo;
+        bool synchronousDestroy;
+    };
+    uint32_t unreferenceCalled = 0u;
+    StackVec<UnreferenceParams, 4> unreferenceParamsPassed{};
+    void releaseGpuRange(void *ptr, size_t size, uint32_t rootDeviceIndex) override {
+        std::unique_lock<std::mutex> lock(releaseGpuRangeMtx);
+        releaseGpuRangeCalled++;
+        DrmMemoryManager::releaseGpuRange(ptr, size, rootDeviceIndex);
+    }
+    uint32_t releaseGpuRangeCalled = 0u;
+    void alignedFreeWrapper(void *ptr) override {
+        std::unique_lock<std::mutex> lock(alignedFreeWrapperMtx);
+        alignedFreeWrapperCalled++;
+        DrmMemoryManager::alignedFreeWrapper(ptr);
+    }
+    void closeSharedHandle(GraphicsAllocation *gfxAllocation) override;
+    uint32_t alignedFreeWrapperCalled = 0u;
+    uint32_t callsToCloseSharedHandle = 0;
+
+    bool failOnfindAndReferenceSharedBufferObject = false;
+
+    ExecutionEnvironment *executionEnvironment = nullptr;
+
+  protected:
+    std::mutex unreferenceMtx;
+    std::mutex releaseGpuRangeMtx;
+    std::mutex alignedFreeWrapperMtx;
+    std::mutex callsToCloseSharedHandleMtx;
 };
 
 struct MockDrmGemCloseWorker : DrmGemCloseWorker {

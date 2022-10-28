@@ -9,6 +9,7 @@
 
 #include "level_zero/core/source/driver/driver.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
+#include "level_zero/tools/source/sysman/ecc/ecc_imp.h"
 #include "level_zero/tools/source/sysman/events/events_imp.h"
 #include "level_zero/tools/source/sysman/global_operations/global_operations_imp.h"
 #include "level_zero/tools/source/sysman/pci/pci_imp.h"
@@ -38,6 +39,7 @@ SysmanDeviceImp::SysmanDeviceImp(ze_device_handle_t hDevice) {
     pFirmwareHandleContext = new FirmwareHandleContext(pOsSysman);
     pDiagnosticsHandleContext = new DiagnosticsHandleContext(pOsSysman);
     pPerformanceHandleContext = new PerformanceHandleContext(pOsSysman);
+    pEcc = new EccImp(pOsSysman);
 }
 
 SysmanDeviceImp::~SysmanDeviceImp() {
@@ -57,6 +59,7 @@ SysmanDeviceImp::~SysmanDeviceImp() {
     freeResource(pPci);
     freeResource(pFrequencyHandleContext);
     freeResource(pPowerHandleContext);
+    freeResource(pEcc);
     freeResource(pOsSysman);
 }
 
@@ -86,6 +89,10 @@ void SysmanDeviceImp::getSysmanDeviceInfo(zes_device_handle_t hDevice, uint32_t 
     }
 }
 
+PRODUCT_FAMILY SysmanDeviceImp::getProductFamily(Device *pDevice) {
+    return pDevice->getNEODevice()->getHardwareInfo().platform.eProductFamily;
+}
+
 ze_result_t SysmanDeviceImp::init() {
     // We received a device handle. Check for subdevices in this device
     updateSubDeviceHandlesLocally();
@@ -93,54 +100,6 @@ ze_result_t SysmanDeviceImp::init() {
     auto result = pOsSysman->init();
     if (ZE_RESULT_SUCCESS != result) {
         return result;
-    }
-    if (pPowerHandleContext) {
-        pPowerHandleContext->init(deviceHandles, hCoreDevice);
-    }
-    if (pFrequencyHandleContext) {
-        pFrequencyHandleContext->init(deviceHandles);
-    }
-    if (pFabricPortHandleContext) {
-        pFabricPortHandleContext->init();
-    }
-    if (pTempHandleContext) {
-        pTempHandleContext->init(deviceHandles);
-    }
-    if (pPci) {
-        pPci->init();
-    }
-    if (pStandbyHandleContext) {
-        pStandbyHandleContext->init(deviceHandles);
-    }
-    if (pEngineHandleContext) {
-        pEngineHandleContext->init();
-    }
-    if (pSchedulerHandleContext) {
-        pSchedulerHandleContext->init(deviceHandles);
-    }
-    if (pRasHandleContext) {
-        pRasHandleContext->init(deviceHandles);
-    }
-    if (pMemoryHandleContext) {
-        pMemoryHandleContext->init(deviceHandles);
-    }
-    if (pGlobalOperations) {
-        pGlobalOperations->init();
-    }
-    if (pEvents) {
-        pEvents->init();
-    }
-    if (pFanHandleContext) {
-        pFanHandleContext->init();
-    }
-    if (pFirmwareHandleContext) {
-        pFirmwareHandleContext->init();
-    }
-    if (pDiagnosticsHandleContext) {
-        pDiagnosticsHandleContext->init(deviceHandles);
-    }
-    if (pPerformanceHandleContext) {
-        pPerformanceHandleContext->init(deviceHandles, hCoreDevice);
     }
     return result;
 }
@@ -187,6 +146,10 @@ ze_result_t SysmanDeviceImp::pciGetBars(uint32_t *pCount, zes_pci_bar_properties
 
 ze_result_t SysmanDeviceImp::pciGetStats(zes_pci_stats_t *pStats) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+ze_result_t SysmanDeviceImp::powerGetCardDomain(zes_pwr_handle_t *phPower) {
+    return pPowerHandleContext->powerGetCardDomain(phPower);
 }
 
 ze_result_t SysmanDeviceImp::powerGet(uint32_t *pCount, zes_pwr_handle_t *phPower) {
@@ -237,4 +200,22 @@ ze_result_t SysmanDeviceImp::performanceGet(uint32_t *pCount, zes_perf_handle_t 
     return pPerformanceHandleContext->performanceGet(pCount, phPerformance);
 }
 
+ze_result_t SysmanDeviceImp::deviceEccAvailable(ze_bool_t *pAvailable) {
+    return pEcc->deviceEccAvailable(pAvailable);
+}
+ze_result_t SysmanDeviceImp::deviceEccConfigurable(ze_bool_t *pConfigurable) {
+    return pEcc->deviceEccConfigurable(pConfigurable);
+}
+ze_result_t SysmanDeviceImp::deviceGetEccState(zes_device_ecc_properties_t *pState) {
+    return pEcc->getEccState(pState);
+}
+ze_result_t SysmanDeviceImp::deviceSetEccState(const zes_device_ecc_desc_t *newState, zes_device_ecc_properties_t *pState) {
+    return pEcc->setEccState(newState, pState);
+}
+
+namespace SysmanUtils {
+void sleep(int64_t seconds) {
+    std::this_thread::sleep_for(std::chrono::seconds(seconds));
+}
+} // namespace SysmanUtils
 } // namespace L0

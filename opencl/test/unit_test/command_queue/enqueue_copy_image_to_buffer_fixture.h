@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,8 +14,6 @@
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 
-#include "gtest/gtest.h"
-
 namespace NEO {
 
 struct EnqueueCopyImageToBufferTest : public CommandEnqueueFixture,
@@ -24,7 +22,7 @@ struct EnqueueCopyImageToBufferTest : public CommandEnqueueFixture,
     void SetUp(void) override {
         REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
 
-        CommandEnqueueFixture::SetUp();
+        CommandEnqueueFixture::setUp();
         BufferDefaults::context = new MockContext(pClDevice);
         context = new MockContext(pClDevice);
         srcImage = Image2dHelper<>::create(context);
@@ -39,7 +37,7 @@ struct EnqueueCopyImageToBufferTest : public CommandEnqueueFixture,
         delete dstBuffer;
         delete BufferDefaults::context;
         delete context;
-        CommandEnqueueFixture::TearDown();
+        CommandEnqueueFixture::tearDown();
     }
 
   protected:
@@ -64,7 +62,7 @@ struct EnqueueCopyImageToBufferMipMapTest : public CommandEnqueueFixture,
 
     void SetUp(void) override {
         REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
-        CommandEnqueueFixture::SetUp();
+        CommandEnqueueFixture::setUp();
         BufferDefaults::context = new MockContext(pClDevice);
         context = new MockContext(pClDevice);
         dstBuffer = BufferHelper<>::create(context);
@@ -77,7 +75,7 @@ struct EnqueueCopyImageToBufferMipMapTest : public CommandEnqueueFixture,
         delete dstBuffer;
         delete BufferDefaults::context;
         delete context;
-        CommandEnqueueFixture::TearDown();
+        CommandEnqueueFixture::tearDown();
     }
 
     MockContext *context = nullptr;

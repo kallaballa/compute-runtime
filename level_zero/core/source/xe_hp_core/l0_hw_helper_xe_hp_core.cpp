@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/xe_hp_core/hw_cmds.h"
+
 #include "level_zero/core/source/helpers/l0_populate_factory.h"
 #include "level_zero/core/source/hw_helpers/l0_hw_helper_base.inl"
 #include "level_zero/core/source/hw_helpers/l0_hw_helper_skl_and_later.inl"
-
-#include "hw_cmds.h"
 
 namespace L0 {
 
@@ -24,6 +24,21 @@ void populateFactoryTable<L0HwHelperHw<Family>>() {
 
 template <>
 bool L0HwHelperHw<Family>::isResumeWARequired() {
+    return true;
+}
+
+template <>
+bool L0HwHelperHw<Family>::multiTileCapablePlatform() const {
+    return true;
+}
+
+template <>
+bool L0HwHelperHw<Family>::platformSupportsPipelineSelectTracking(const NEO::HardwareInfo &hwInfo) const {
+    return true;
+}
+
+template <>
+bool L0HwHelperHw<Family>::platformSupportsFrontEndTracking(const NEO::HardwareInfo &hwInfo) const {
     return true;
 }
 

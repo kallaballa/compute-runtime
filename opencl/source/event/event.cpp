@@ -13,6 +13,7 @@
 #include "shared/source/helpers/get_info.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
+#include "shared/source/utilities/perf_counter.h"
 #include "shared/source/utilities/range.h"
 #include "shared/source/utilities/stackvec.h"
 #include "shared/source/utilities/tag_allocator.h"
@@ -26,6 +27,8 @@
 #include "opencl/source/helpers/get_info_status_mapper.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/mem_obj/mem_obj.h"
+
+#include <algorithm>
 
 namespace NEO {
 
@@ -246,20 +249,20 @@ cl_ulong Event::getDelta(cl_ulong startTime,
 
     auto &hwInfo = cmdQueue->getDevice().getHardwareInfo();
 
-    cl_ulong Max = maxNBitValue(hwInfo.capabilityTable.kernelTimestampValidBits);
-    cl_ulong Delta = 0;
+    cl_ulong max = maxNBitValue(hwInfo.capabilityTable.kernelTimestampValidBits);
+    cl_ulong delta = 0;
 
-    startTime &= Max;
-    endTime &= Max;
+    startTime &= max;
+    endTime &= max;
 
     if (startTime > endTime) {
-        Delta = Max - startTime;
-        Delta += endTime;
+        delta = max - startTime;
+        delta += endTime;
     } else {
-        Delta = endTime - startTime;
+        delta = endTime - startTime;
     }
 
-    return Delta;
+    return delta;
 }
 
 void Event::calculateSubmitTimestampData() {
@@ -417,15 +420,20 @@ void Event::getBoundaryTimestampValues(TimestampPacketContainer *timestampContai
     }
 }
 
-inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
+inline WaitStatus Event::wait(bool blocking, bool useQuickKmdSleep) {
     while (this->taskCount == CompletionStamp::notReady) {
         if (blocking == false) {
-            return false;
+            return WaitStatus::NotReady;
         }
     }
 
     Range<CopyEngineState> states{&bcsState, bcsState.isValid() ? 1u : 0u};
-    cmdQueue->waitUntilComplete(taskCount.load(), states, flushStamp->peekStamp(), useQuickKmdSleep);
+    auto waitStatus = WaitStatus::NotReady;
+    auto waitedOnTimestamps = cmdQueue->waitForTimestamps(states, taskCount.load(), waitStatus, this->timestampPacketContainer.get(), nullptr);
+    waitStatus = cmdQueue->waitUntilComplete(taskCount.load(), states, flushStamp->peekStamp(), useQuickKmdSleep, true, waitedOnTimestamps);
+    if (waitStatus == WaitStatus::GpuHang) {
+        return WaitStatus::GpuHang;
+    }
     updateExecutionStatus();
 
     DEBUG_BREAK_IF(this->taskLevel == CompletionStamp::notReady && this->executionStatus >= 0);
@@ -433,7 +441,7 @@ inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
     auto *allocationStorage = cmdQueue->getGpgpuCommandStreamReceiver().getInternalAllocationStorage();
     allocationStorage->cleanAllocationList(this->taskCount, TEMPORARY_ALLOCATION);
 
-    return true;
+    return WaitStatus::Ready;
 }
 
 void Event::updateExecutionStatus() {
@@ -462,7 +470,7 @@ void Event::updateExecutionStatus() {
         // Note : Intentional fallthrough (no return) to check for CL_COMPLETE
     }
 
-    if ((cmdQueue != nullptr) && (cmdQueue->isCompleted(getCompletionStamp(), this->bcsState))) {
+    if ((cmdQueue != nullptr) && this->isCompleted()) {
         transitionExecutionStatus(CL_COMPLETE);
         executeCallbacks(CL_COMPLETE);
         unblockEventsBlockedByThis(CL_COMPLETE);
@@ -565,6 +573,7 @@ void Event::transitionExecutionStatus(int32_t newExecutionStatus) const {
 void Event::submitCommand(bool abortTasks) {
     std::unique_ptr<Command> cmdToProcess(cmdToSubmit.exchange(nullptr));
     if (cmdToProcess.get() != nullptr) {
+        getCommandQueue()->initializeBcsEngine(getCommandQueue()->isSpecial());
         auto lockCSR = getCommandQueue()->getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
 
         if (this->isProfilingEnabled()) {
@@ -582,10 +591,17 @@ void Event::submitCommand(bool abortTasks) {
                 this->cmdQueue->getGpgpuCommandStreamReceiver().makeResident(*perfCounterNode->getBaseGraphicsAllocation());
             }
         }
+
         auto &complStamp = cmdToProcess->submit(taskLevel, abortTasks);
         if (profilingCpuPath && this->isProfilingEnabled()) {
             setEndTimeStamp();
         }
+
+        if (complStamp.taskCount == CompletionStamp::gpuHang) {
+            abortExecutionDueToGpuHang();
+            return;
+        }
+
         updateTaskCount(complStamp.taskCount, peekBcsTaskCountFromCommandQueue());
         flushStamp->setStamp(complStamp.flushStamp);
         submittedCmd.exchange(cmdToProcess.release());
@@ -630,16 +646,23 @@ cl_int Event::waitForEvents(cl_uint numEvents,
     // pointers to workerLists - for fast swap operations
     WorkerListT *currentlyPendingEvents = &workerList1;
     WorkerListT *pendingEventsLeft = &workerList2;
+    WaitStatus eventWaitStatus = WaitStatus::NotReady;
 
     while (currentlyPendingEvents->size() > 0) {
-        for (auto &e : *currentlyPendingEvents) {
-            Event *event = castToObjectOrAbort<Event>(e);
+        for (auto current = currentlyPendingEvents->begin(), end = currentlyPendingEvents->end(); current != end; ++current) {
+            Event *event = castToObjectOrAbort<Event>(*current);
             if (event->peekExecutionStatus() < CL_COMPLETE) {
                 return CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST;
             }
 
-            if (event->wait(false, false) == false) {
+            eventWaitStatus = event->wait(false, false);
+            if (eventWaitStatus == WaitStatus::NotReady) {
                 pendingEventsLeft->push_back(event);
+            } else if (eventWaitStatus == WaitStatus::GpuHang) {
+                setExecutionStatusToAbortedDueToGpuHang(pendingEventsLeft->begin(), pendingEventsLeft->end());
+                setExecutionStatusToAbortedDueToGpuHang(current, end);
+
+                return CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST;
             }
         }
 
@@ -648,6 +671,61 @@ cl_int Event::waitForEvents(cl_uint numEvents,
     }
 
     return CL_SUCCESS;
+}
+
+inline void Event::setExecutionStatusToAbortedDueToGpuHang(cl_event *first, cl_event *last) {
+    std::for_each(first, last, [](cl_event &e) {
+        Event *event = castToObjectOrAbort<Event>(e);
+        event->abortExecutionDueToGpuHang();
+    });
+}
+
+bool Event::isCompleted() {
+    return cmdQueue->isCompleted(getCompletionStamp(), this->bcsState) || this->areTimestampsCompleted();
+}
+
+bool Event::isWaitForTimestampsEnabled() const {
+    const auto &hwInfo = cmdQueue->getDevice().getHardwareInfo();
+    const auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    auto enabled = cmdQueue->isTimestampWaitEnabled();
+    enabled &= hwHelper.isTimestampWaitSupportedForEvents(hwInfo);
+
+    switch (DebugManager.flags.EnableTimestampWaitForEvents.get()) {
+    case 0:
+        enabled = false;
+        break;
+    case 1:
+        enabled = cmdQueue->getGpgpuCommandStreamReceiver().isUpdateTagFromWaitEnabled();
+        break;
+    case 2:
+        enabled = cmdQueue->getGpgpuCommandStreamReceiver().isDirectSubmissionEnabled();
+        break;
+    case 3:
+        enabled = cmdQueue->getGpgpuCommandStreamReceiver().isAnyDirectSubmissionEnabled();
+        break;
+    case 4:
+        enabled = true;
+        break;
+    }
+
+    return enabled;
+}
+
+bool Event::areTimestampsCompleted() {
+    if (this->timestampPacketContainer.get()) {
+        if (this->isWaitForTimestampsEnabled()) {
+            for (const auto &timestamp : this->timestampPacketContainer->peekNodes()) {
+                for (uint32_t i = 0; i < timestamp->getPacketsUsed(); i++) {
+                    this->cmdQueue->getGpgpuCommandStreamReceiver().downloadAllocation(*timestamp->getBaseGraphicsAllocation()->getGraphicsAllocation(this->cmdQueue->getGpgpuCommandStreamReceiver().getRootDeviceIndex()));
+                    if (timestamp->getContextEndValue(i) == 1) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
 uint32_t Event::getTaskLevel() {
@@ -821,6 +899,10 @@ bool Event::checkUserEventDependencies(cl_uint numEventsInWaitList, const cl_eve
         }
     }
     return userEventsDependencies;
+}
+
+uint32_t Event::peekTaskLevel() const {
+    return taskLevel;
 }
 
 } // namespace NEO

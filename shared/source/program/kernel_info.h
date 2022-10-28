@@ -10,15 +10,11 @@
 #include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/program/heap_info.h"
 #include "shared/source/utilities/arrayref.h"
-#include "shared/source/utilities/const_stringref.h"
+#include "shared/source/utilities/stackvec.h"
 
-#include <algorithm>
-#include <array>
-#include <cmath>
 #include <cstdint>
-#include <map>
 #include <string>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace gtpin {
@@ -52,10 +48,10 @@ struct WorkSizeInfo {
     bool useStrictRatio = false;
     float targetRatio = 0;
 
-    WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t simdSize, uint32_t slmTotalSize, const HardwareInfo *hwInfo, uint32_t numThreadsPerSubSlice, uint32_t localMemSize, bool imgUsed, bool yTiledSurface);
+    WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t simdSize, uint32_t slmTotalSize, const HardwareInfo *hwInfo, uint32_t numThreadsPerSubSlice, uint32_t localMemSize, bool imgUsed, bool yTiledSurface, bool disableEUFusion);
 
     void setIfUseImg(const KernelInfo &kernelInfo);
-    void setMinWorkGroupSize(const HardwareInfo *hwInfo);
+    void setMinWorkGroupSize(const HardwareInfo *hwInfo, bool disableEUFusion);
     void checkRatio(const size_t workItems[3]);
 };
 

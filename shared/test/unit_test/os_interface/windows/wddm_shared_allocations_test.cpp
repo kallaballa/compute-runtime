@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/test/common/fixtures/mock_execution_environment_gmm_fixture.h"
 #include "shared/test/common/mocks/mock_wddm.h"
 #include "shared/test/common/os_interface/windows/wddm_fixture.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 using namespace NEO;
 
@@ -24,9 +24,9 @@ class WddmSharedAllocationsMock : public WddmMock {
 
 class WddmSharedTestsFixture : public GdiDllFixture, public MockExecutionEnvironmentGmmFixture {
   public:
-    void SetUp() override {
-        MockExecutionEnvironmentGmmFixture::SetUp();
-        GdiDllFixture::SetUp();
+    void setUp() {
+        MockExecutionEnvironmentGmmFixture::setUp();
+        GdiDllFixture::setUp();
         rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
         wddm = new WddmSharedAllocationsMock(*rootDeviceEnvironment);
         wddmMockInterface = new WddmMockInterface20(*wddm);
@@ -49,8 +49,8 @@ class WddmSharedTestsFixture : public GdiDllFixture, public MockExecutionEnviron
         osContext->ensureContextInitialized();
     }
 
-    void TearDown() override {
-        GdiDllFixture::TearDown();
+    void tearDown() {
+        GdiDllFixture::tearDown();
     }
 
     WddmSharedAllocationsMock *wddm = nullptr;
@@ -68,7 +68,7 @@ TEST_F(WdmmSharedTests, WhenCreatingSharedAllocationAndGetNTHandleFailedThenAllo
     D3DKMT_HANDLE handle = 32u;
     D3DKMT_HANDLE resourceHandle = 32u;
     uint64_t ntHandle = 0u;
-    Gmm gmm(executionEnvironment->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, 20, 0, false, true, true, {});
+    Gmm gmm(executionEnvironment->rootDeviceEnvironments[0]->getGmmHelper(), nullptr, 20, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, true, {}, true);
 
     EXPECT_NE(STATUS_SUCCESS, wddm->createAllocation(nullptr, &gmm, handle, resourceHandle, &ntHandle));
     EXPECT_EQ(wddm->destroyAllocationResult.called++, 1u);

@@ -17,6 +17,7 @@ using Family = NEO::XeHpFamily;
 #include "shared/source/helpers/hw_helper_base.inl"
 #include "shared/source/helpers/hw_helper_tgllp_and_later.inl"
 #include "shared/source/helpers/hw_helper_xehp_and_later.inl"
+#include "shared/source/helpers/logical_state_helper.inl"
 #include "shared/source/os_interface/hw_info_config.h"
 
 namespace NEO {
@@ -91,22 +92,28 @@ const StackVec<uint32_t, 6> HwHelperHw<Family>::getThreadsPerEUConfigs() const {
 }
 
 template <>
-std::string HwHelperHw<Family>::getExtensions() const {
+std::string HwHelperHw<Family>::getExtensions(const HardwareInfo &hwInfo) const {
     std::string extensions;
     extensions += "cl_intel_dot_accumulate ";
     extensions += "cl_intel_subgroup_local_block_io ";
+    extensions += "cl_intel_subgroup_matrix_multiply_accumulate ";
+    extensions += "cl_intel_subgroup_split_matrix_multiply_accumulate ";
 
     return extensions;
 }
 
 template <>
-void MemorySynchronizationCommands<Family>::setPipeControlWAFlags(PIPE_CONTROL &pipeControl) {
+void MemorySynchronizationCommands<Family>::setBarrierWaFlags(void *barrierCmd) {
+    auto &pipeControl = *reinterpret_cast<typename Family::PIPE_CONTROL *>(barrierCmd);
+
     pipeControl.setCommandStreamerStallEnable(true);
     pipeControl.setHdcPipelineFlush(true);
 }
 
 template <>
-void MemorySynchronizationCommands<Family>::setPipeControlExtraProperties(PIPE_CONTROL &pipeControl, PipeControlArgs &args) {
+void MemorySynchronizationCommands<Family>::setBarrierExtraProperties(void *barrierCmd, PipeControlArgs &args) {
+    auto &pipeControl = *reinterpret_cast<typename Family::PIPE_CONTROL *>(barrierCmd);
+
     pipeControl.setHdcPipelineFlush(args.hdcPipelineFlush);
     pipeControl.setCompressionControlSurfaceCcsFlush(args.compressionControlSurfaceCcsFlush);
     pipeControl.setWorkloadPartitionIdOffsetEnable(args.workloadPartitionOffset);
@@ -153,4 +160,6 @@ template class HwHelperHw<Family>;
 template class FlatBatchBufferHelperHw<Family>;
 template struct MemorySynchronizationCommands<Family>;
 template struct LriHelper<Family>;
+
+template LogicalStateHelper *LogicalStateHelper::create<Family>();
 } // namespace NEO

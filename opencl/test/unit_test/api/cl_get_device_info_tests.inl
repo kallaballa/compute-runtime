@@ -5,7 +5,6 @@
  *
  */
 
-#include "shared/source/device/device.h"
 #include "shared/source/helpers/hw_info.h"
 
 #include "opencl/source/helpers/cl_hw_helper.h"
@@ -255,6 +254,7 @@ TEST_F(clGetDeviceInfoTests, GivenClDeviceExtensionsParamWhenGettingDeviceInfoTh
     std::string extensionString(paramValue.get());
     static const char *const supportedExtensions[] = {
         "cl_khr_byte_addressable_store ",
+        "cl_khr_device_uuid ",
         "cl_khr_fp16 ",
         "cl_khr_global_int32_base_atomics ",
         "cl_khr_global_int32_extended_atomics ",
@@ -280,9 +280,10 @@ TEST_F(clGetDeviceInfoTests, GivenClDeviceExtensionsParamWhenGettingDeviceInfoTh
         "cl_khr_subgroup_non_uniform_arithmetic ",
         "cl_khr_subgroup_shuffle ",
         "cl_khr_subgroup_shuffle_relative ",
-        "cl_khr_subgroup_clustered_reduce "
-        "cl_intel_device_attribute_query "
-        "cl_khr_suggested_local_work_size "};
+        "cl_khr_subgroup_clustered_reduce ",
+        "cl_intel_device_attribute_query ",
+        "cl_khr_suggested_local_work_size ",
+        "cl_intel_split_work_group_barrier "};
 
     for (auto extension : supportedExtensions) {
         auto foundOffset = extensionString.find(extension);
@@ -363,11 +364,11 @@ struct GetDeviceInfoP : public ApiFixture<>,
                         public ::testing::TestWithParam<uint32_t /*cl_device_info*/> {
     void SetUp() override {
         param = GetParam();
-        ApiFixture::SetUp();
+        ApiFixture::setUp();
     }
 
     void TearDown() override {
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
 
     cl_device_info param;

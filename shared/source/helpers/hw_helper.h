@@ -7,8 +7,7 @@
 
 #pragma once
 #include "shared/source/aub_mem_dump/aub_mem_dump.h"
-#include "shared/source/built_ins/sip.h"
-#include "shared/source/command_container/command_encoder.h"
+#include "shared/source/built_ins/sip_kernel_type.h"
 #include "shared/source/commands/bxml_generator_glue.h"
 #include "shared/source/helpers/aux_translation.h"
 #include "shared/source/helpers/definitions/engine_group_types.h"
@@ -16,23 +15,24 @@
 #include "shared/source/helpers/options.h"
 #include "shared/source/utilities/stackvec.h"
 
-#include "hw_cmds.h"
+#include "igfxfmid.h"
+#include "sku_info.h"
 #include "third_party/aub_stream/headers/aubstream.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <type_traits>
 
 namespace NEO {
 class GmmHelper;
 class GraphicsAllocation;
 class TagAllocatorBase;
-class LinearSteram;
+class LinearStream;
 class Gmm;
+class MemoryManager;
 struct AllocationData;
 struct AllocationProperties;
 struct EncodeSurfaceStateArgs;
-struct EngineControl;
 struct RootDeviceEnvironment;
 struct PipeControlArgs;
 
@@ -59,37 +59,38 @@ class HwHelper {
     virtual bool preferSmallWorkgroupSizeForKernel(const size_t size, const HardwareInfo &hwInfo) const = 0;
     virtual bool isBufferSizeSuitableForCompression(const size_t size, const HardwareInfo &hwInfo) const = 0;
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
-    virtual bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const = 0;
     static bool compressedBuffersSupported(const HardwareInfo &hwInfo);
     static bool compressedImagesSupported(const HardwareInfo &hwInfo);
     static bool cacheFlushAfterWalkerSupported(const HardwareInfo &hwInfo);
+    static uint32_t getHighestEnabledSlice(const HardwareInfo &hwInfo);
     virtual bool timestampPacketWriteSupported() const = 0;
-    virtual bool isTimestampWaitSupported() const = 0;
+    virtual bool isTimestampWaitSupportedForQueues() const = 0;
+    virtual bool isTimestampWaitSupportedForEvents(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isUpdateTaskCountFromWaitSupported() const = 0;
     virtual size_t getRenderSurfaceStateSize() const = 0;
-    virtual void setRenderSurfaceStateForBuffer(const RootDeviceEnvironment &rootDeviceEnvironment,
-                                                void *surfaceStateBuffer,
-                                                size_t bufferSize,
-                                                uint64_t gpuVa,
-                                                size_t offset,
-                                                uint32_t pitch,
-                                                GraphicsAllocation *gfxAlloc,
-                                                bool isReadOnly,
-                                                uint32_t surfaceType,
-                                                bool forceNonAuxMode,
-                                                bool useL1Cache) = 0;
+    virtual void setRenderSurfaceStateForScratchResource(const RootDeviceEnvironment &rootDeviceEnvironment,
+                                                         void *surfaceStateBuffer,
+                                                         size_t bufferSize,
+                                                         uint64_t gpuVa,
+                                                         size_t offset,
+                                                         uint32_t pitch,
+                                                         GraphicsAllocation *gfxAlloc,
+                                                         bool isReadOnly,
+                                                         uint32_t surfaceType,
+                                                         bool forceNonAuxMode,
+                                                         bool useL1Cache) = 0;
     virtual const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const = 0;
     virtual EngineGroupType getEngineGroupType(aub_stream::EngineType engineType, EngineUsage engineUsage, const HardwareInfo &hwInfo) const = 0;
     virtual const StackVec<size_t, 3> getDeviceSubGroupSizes() const = 0;
     virtual const StackVec<uint32_t, 6> getThreadsPerEUConfigs() const = 0;
     virtual bool getEnableLocalMemory(const HardwareInfo &hwInfo) const = 0;
-    virtual std::string getExtensions() const = 0;
+    virtual std::string getExtensions(const HardwareInfo &hwInfo) const = 0;
     static uint32_t getMaxThreadsForVfe(const HardwareInfo &hwInfo);
     virtual uint32_t getMetricsLibraryGenId() const = 0;
     virtual uint32_t getMocsIndex(const GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const = 0;
-    virtual bool tilingAllowed(bool isSharedContext, bool isImage1d, bool forceLinearStorage) = 0;
-    virtual uint32_t getBarriersCountFromHasBarriers(uint32_t hasBarriers) = 0;
-    virtual uint32_t calculateAvailableThreadCount(PRODUCT_FAMILY family, uint32_t grfCount, uint32_t euCount,
-                                                   uint32_t threadsPerEu) = 0;
+    virtual bool isLinearStoragePreferred(bool isSharedContext, bool isImage1d, bool forceLinearStorage) = 0;
+    virtual uint8_t getBarriersCountFromHasBarriers(uint8_t hasBarriers) const = 0;
+    virtual uint32_t calculateAvailableThreadCount(const HardwareInfo &hwInfo, uint32_t grfCount) = 0;
     virtual uint32_t alignSlmSize(uint32_t slmSize) = 0;
     virtual uint32_t computeSlmValues(const HardwareInfo &hwInfo, uint32_t slmSize) = 0;
 
@@ -98,34 +99,33 @@ class HwHelper {
     virtual uint32_t getMinimalSIMDSize() = 0;
     virtual bool isWorkaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) const = 0;
     virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
-    virtual bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo, bool disableEUFusionForKernel) const = 0;
     virtual uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const = 0;
     virtual uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const = 0;
     virtual void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const HardwareInfo &hwInfo) const = 0;
     virtual bool isBankOverrideRequired(const HardwareInfo &hwInfo) const = 0;
     virtual uint32_t getGlobalTimeStampBits() const = 0;
-    virtual uint32_t getDefaultThreadArbitrationPolicy() const = 0;
+    virtual int32_t getDefaultThreadArbitrationPolicy() const = 0;
     virtual bool useOnlyGlobalTimestamps() const = 0;
     virtual bool useSystemMemoryPlacementForISA(const HardwareInfo &hwInfo) const = 0;
     virtual bool packedFormatsSupported() const = 0;
-    virtual bool isAssignEngineRoundRobinSupported() const = 0;
+    virtual bool isAssignEngineRoundRobinSupported(const HardwareInfo &hwInfo) const = 0;
     virtual bool isRcsAvailable(const HardwareInfo &hwInfo) const = 0;
     virtual bool isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const HardwareInfo &hwInfo) const = 0;
     virtual uint32_t adjustMaxWorkGroupCount(uint32_t maxWorkGroupCount, const EngineGroupType engineGroupType,
                                              const HardwareInfo &hwInfo, bool isEngineInstanced) const = 0;
     virtual size_t getMaxFillPaternSizeForCopyEngine() const = 0;
-    virtual bool isCopyOnlyEngineType(EngineGroupType type) const = 0;
+    virtual size_t getSipKernelMaxDbgSurfaceSize(const HardwareInfo &hwInfo) const = 0;
     virtual bool isSipWANeeded(const HardwareInfo &hwInfo) const = 0;
     virtual bool isCpuImageTransferPreferred(const HardwareInfo &hwInfo) const = 0;
     virtual bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const = 0;
-    virtual bool isCooperativeEngineSupported(const HardwareInfo &hwInfo) const = 0;
     virtual aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo, const GmmHelper &gmmHelper) const = 0;
     virtual uint32_t getDefaultRevisionId(const HardwareInfo &hwInfo) const = 0;
     virtual uint32_t getNumCacheRegions() const = 0;
     virtual bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const = 0;
     virtual uint32_t getPlanarYuvMaxHeight() const = 0;
     virtual size_t getPreemptionAllocationAlignment() const = 0;
-    virtual std::unique_ptr<TagAllocatorBase> createTimestampPacketAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memoryManager,
+    virtual std::unique_ptr<TagAllocatorBase> createTimestampPacketAllocator(const RootDeviceIndicesContainer &rootDeviceIndices, MemoryManager *memoryManager,
                                                                              size_t initialTagCount, CommandStreamReceiverType csrType,
                                                                              DeviceBitfield deviceBitfield) const = 0;
     virtual size_t getTimestampPacketAllocatorAlignment() const = 0;
@@ -136,27 +136,32 @@ class HwHelper {
     virtual bool isEngineTypeRemappingToHwSpecificRequired() const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
-    static uint32_t getCopyEnginesCount(const HardwareInfo &hwInfo);
 
     virtual bool isSipKernelAsHexadecimalArrayPreferred() const = 0;
     virtual void setSipKernelData(uint32_t *&sipKernelBinary, size_t &kernelBinarySize) const = 0;
     virtual void adjustPreemptionSurfaceSize(size_t &csrSize) const = 0;
     virtual size_t getSamplerStateSize() const = 0;
-
+    virtual bool preferInternalBcsEngine() const = 0;
     virtual bool isScratchSpaceSurfaceStateAccessible() const = 0;
     virtual uint64_t getRenderSurfaceStateBaseAddress(void *renderSurfaceState) const = 0;
     virtual uint32_t getRenderSurfaceStatePitch(void *renderSurfaceState) const = 0;
     virtual size_t getMax3dImageWidthOrHeight() const = 0;
     virtual uint64_t getMaxMemAllocSize() const = 0;
-    virtual bool isStatelesToStatefullWithOffsetSupported() const = 0;
+    virtual uint64_t getPatIndex(CacheRegion cacheRegion, CachePolicy cachePolicy) const = 0;
+    virtual bool isStatelessToStatefulWithOffsetSupported() const = 0;
     virtual void encodeBufferSurfaceState(EncodeSurfaceStateArgs &args) = 0;
     virtual bool disableL3CacheForDebug(const HardwareInfo &hwInfo) const = 0;
     virtual bool isRevisionSpecificBinaryBuiltinRequired() const = 0;
     virtual bool forceNonGpuCoherencyWA(bool requiresCoherency) const = 0;
     virtual bool platformSupportsImplicitScaling(const NEO::HardwareInfo &hwInfo) const = 0;
-    virtual bool isLinuxCompletionFenceSupported() const = 0;
     virtual size_t getBatchBufferEndSize() const = 0;
     virtual const void *getBatchBufferEndReference() const = 0;
+    virtual bool isPlatformFlushTaskEnabled(const NEO::HardwareInfo &hwInfo) const = 0;
+    virtual bool isPatIndexFallbackWaRequired() const = 0;
+    virtual uint32_t getMinimalScratchSpaceSize() const = 0;
+    virtual bool copyThroughLockedPtrEnabled() const = 0;
+    virtual uint32_t getAmountOfAllocationsToFill() const = 0;
+    virtual bool isChipsetUniqueUUIDSupported() const = 0;
 
   protected:
     HwHelper() = default;
@@ -245,23 +250,27 @@ class HwHelperHw : public HwHelper {
 
     bool timestampPacketWriteSupported() const override;
 
-    bool isTimestampWaitSupported() const override;
+    bool isTimestampWaitSupportedForQueues() const override;
+
+    bool isTimestampWaitSupportedForEvents(const HardwareInfo &hwInfo) const override;
+
+    bool isUpdateTaskCountFromWaitSupported() const override;
 
     bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isCompressionEnabled) const override;
 
     bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const override;
 
-    void setRenderSurfaceStateForBuffer(const RootDeviceEnvironment &rootDeviceEnvironment,
-                                        void *surfaceStateBuffer,
-                                        size_t bufferSize,
-                                        uint64_t gpuVa,
-                                        size_t offset,
-                                        uint32_t pitch,
-                                        GraphicsAllocation *gfxAlloc,
-                                        bool isReadOnly,
-                                        uint32_t surfaceType,
-                                        bool forceNonAuxMode,
-                                        bool useL1Cache) override;
+    void setRenderSurfaceStateForScratchResource(const RootDeviceEnvironment &rootDeviceEnvironment,
+                                                 void *surfaceStateBuffer,
+                                                 size_t bufferSize,
+                                                 uint64_t gpuVa,
+                                                 size_t offset,
+                                                 uint32_t pitch,
+                                                 GraphicsAllocation *gfxAlloc,
+                                                 bool isReadOnly,
+                                                 uint32_t surfaceType,
+                                                 bool forceNonAuxMode,
+                                                 bool useL1Cache) override;
 
     MOCKABLE_VIRTUAL void setL1CachePolicy(bool useL1Cache, typename GfxFamily::RENDER_SURFACE_STATE *surfaceState, const HardwareInfo *hwInfo);
 
@@ -275,17 +284,17 @@ class HwHelperHw : public HwHelper {
 
     bool getEnableLocalMemory(const HardwareInfo &hwInfo) const override;
 
-    std::string getExtensions() const override;
+    std::string getExtensions(const HardwareInfo &hwInfo) const override;
 
     uint32_t getMetricsLibraryGenId() const override;
 
     uint32_t getMocsIndex(const GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const override;
 
-    bool tilingAllowed(bool isSharedContext, bool isImage1d, bool forceLinearStorage) override;
+    bool isLinearStoragePreferred(bool isSharedContext, bool isImage1d, bool forceLinearStorage) override;
 
-    uint32_t getBarriersCountFromHasBarriers(uint32_t hasBarriers) override;
+    uint8_t getBarriersCountFromHasBarriers(uint8_t hasBarriers) const override;
 
-    uint32_t calculateAvailableThreadCount(PRODUCT_FAMILY family, uint32_t grfCount, uint32_t euCount, uint32_t threadsPerEu) override;
+    uint32_t calculateAvailableThreadCount(const HardwareInfo &hwInfo, uint32_t grfCount) override;
 
     uint32_t alignSlmSize(uint32_t slmSize) override;
 
@@ -297,7 +306,7 @@ class HwHelperHw : public HwHelper {
 
     bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const override;
 
-    bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const override;
+    bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo, bool disableEUFusionForKernel) const override;
 
     static bool isForceDefaultRCSEngineWARequired(const HardwareInfo &hwInfo);
 
@@ -313,11 +322,9 @@ class HwHelperHw : public HwHelper {
 
     void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const HardwareInfo &hwInfo) const override;
 
-    bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const override;
-
     bool isBankOverrideRequired(const HardwareInfo &hwInfo) const override;
 
-    uint32_t getDefaultThreadArbitrationPolicy() const override;
+    int32_t getDefaultThreadArbitrationPolicy() const override;
 
     bool useOnlyGlobalTimestamps() const override;
 
@@ -334,11 +341,9 @@ class HwHelperHw : public HwHelper {
 
     size_t getMaxFillPaternSizeForCopyEngine() const override;
 
+    size_t getSipKernelMaxDbgSurfaceSize(const HardwareInfo &hwInfo) const override;
+
     bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const override;
-
-    bool isCooperativeEngineSupported(const HardwareInfo &hwInfo) const override;
-
-    bool isCopyOnlyEngineType(EngineGroupType type) const override;
 
     bool isSipWANeeded(const HardwareInfo &hwInfo) const override;
 
@@ -356,7 +361,7 @@ class HwHelperHw : public HwHelper {
 
     size_t getPreemptionAllocationAlignment() const override;
 
-    std::unique_ptr<TagAllocatorBase> createTimestampPacketAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memoryManager,
+    std::unique_ptr<TagAllocatorBase> createTimestampPacketAllocator(const RootDeviceIndicesContainer &rootDeviceIndices, MemoryManager *memoryManager,
                                                                      size_t initialTagCount, CommandStreamReceiverType csrType,
                                                                      DeviceBitfield deviceBitfield) const override;
     size_t getTimestampPacketAllocatorAlignment() const override;
@@ -372,7 +377,7 @@ class HwHelperHw : public HwHelper {
 
     bool unTypedDataPortCacheFlushRequired() const override;
 
-    bool isAssignEngineRoundRobinSupported() const override;
+    bool isAssignEngineRoundRobinSupported(const HardwareInfo &hwInfo) const override;
 
     bool isEngineTypeRemappingToHwSpecificRequired() const override;
 
@@ -383,18 +388,24 @@ class HwHelperHw : public HwHelper {
     void adjustPreemptionSurfaceSize(size_t &csrSize) const override;
 
     bool isScratchSpaceSurfaceStateAccessible() const override;
-
+    bool preferInternalBcsEngine() const override;
     size_t getMax3dImageWidthOrHeight() const override;
     uint64_t getMaxMemAllocSize() const override;
-    bool isStatelesToStatefullWithOffsetSupported() const override;
+    uint64_t getPatIndex(CacheRegion cacheRegion, CachePolicy cachePolicy) const override;
+    bool isStatelessToStatefulWithOffsetSupported() const override;
     void encodeBufferSurfaceState(EncodeSurfaceStateArgs &args) override;
     bool disableL3CacheForDebug(const HardwareInfo &hwInfo) const override;
     bool isRevisionSpecificBinaryBuiltinRequired() const override;
     bool forceNonGpuCoherencyWA(bool requiresCoherency) const override;
     bool platformSupportsImplicitScaling(const NEO::HardwareInfo &hwInfo) const override;
-    bool isLinuxCompletionFenceSupported() const override;
     size_t getBatchBufferEndSize() const override;
     const void *getBatchBufferEndReference() const override;
+    bool isPlatformFlushTaskEnabled(const NEO::HardwareInfo &hwInfo) const override;
+    bool isPatIndexFallbackWaRequired() const override;
+    uint32_t getMinimalScratchSpaceSize() const override;
+    bool copyThroughLockedPtrEnabled() const override;
+    uint32_t getAmountOfAllocationsToFill() const override;
+    bool isChipsetUniqueUUIDSupported() const override;
 
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;
@@ -423,64 +434,41 @@ struct LriHelper {
 
 template <typename GfxFamily>
 struct MemorySynchronizationCommands {
-    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
-    using POST_SYNC_OPERATION = typename GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION;
+    static void addSingleBarrier(LinearStream &commandStream, PostSyncMode postSyncMode, uint64_t gpuAddress, uint64_t immediateData, PipeControlArgs &args);
+    static void setSingleBarrier(void *commandsBuffer, PostSyncMode postSyncMode, uint64_t gpuAddress, uint64_t immediateData, PipeControlArgs &args);
+    static void addSingleBarrier(LinearStream &commandStream, PipeControlArgs &args);
+    static void setSingleBarrier(void *commandsBuffer, PipeControlArgs &args);
 
-    static void addPipeControlAndProgramPostSyncOperation(LinearStream &commandStream,
-                                                          POST_SYNC_OPERATION operation,
-                                                          uint64_t gpuAddress,
-                                                          uint64_t immediateData,
-                                                          const HardwareInfo &hwInfo,
-                                                          PipeControlArgs &args);
-    static void setPipeControlAndProgramPostSyncOperation(void *&commandsBuffer,
-                                                          POST_SYNC_OPERATION operation,
-                                                          uint64_t gpuAddress,
-                                                          uint64_t immediateData,
-                                                          const HardwareInfo &hwInfo,
-                                                          PipeControlArgs &args);
-
-    static void addPipeControlWithPostSync(LinearStream &commandStream,
-                                           POST_SYNC_OPERATION operation,
-                                           uint64_t gpuAddress,
-                                           uint64_t immediateData,
-                                           PipeControlArgs &args);
-    static void setPipeControlWithPostSync(void *&commandsBuffer,
-                                           POST_SYNC_OPERATION operation,
-                                           uint64_t gpuAddress,
-                                           uint64_t immediateData,
-                                           PipeControlArgs &args);
+    static void addBarrierWithPostSyncOperation(LinearStream &commandStream, PostSyncMode postSyncMode, uint64_t gpuAddress, uint64_t immediateData, const HardwareInfo &hwInfo, PipeControlArgs &args);
+    static void setBarrierWithPostSyncOperation(void *&commandsBuffer, PostSyncMode postSyncMode, uint64_t gpuAddress, uint64_t immediateData, const HardwareInfo &hwInfo, PipeControlArgs &args);
 
     static void setPostSyncExtraProperties(PipeControlArgs &args, const HardwareInfo &hwInfo);
-    static void setPipeControlWAFlags(PIPE_CONTROL &pipeControl);
 
-    static void addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
-    static void setPipeControlWA(void *&commandsBuffer, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+    static void addBarrierWa(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+    static void setBarrierWa(void *&commandsBuffer, uint64_t gpuAddress, const HardwareInfo &hwInfo);
 
-    static void addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
-    static void setAdditionalSynchronization(void *&commandsBuffer, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+    static void setBarrierWaFlags(void *barrierCmd);
 
-    static void addPipeControl(LinearStream &commandStream, PipeControlArgs &args);
-    static void setPipeControl(PIPE_CONTROL &pipeControl, PipeControlArgs &args);
-
-    static void addPipeControlWithCSStallOnly(LinearStream &commandStream);
+    static void addAdditionalSynchronizationForDirectSubmission(LinearStream &commandStream, uint64_t gpuAddress, bool acquire, const HardwareInfo &hwInfo);
+    static void addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, bool acquire, const HardwareInfo &hwInfo);
+    static void setAdditionalSynchronization(void *&commandsBuffer, uint64_t gpuAddress, bool acquire, const HardwareInfo &hwInfo);
 
     static bool getDcFlushEnable(bool isFlushPreferred, const HardwareInfo &hwInfo);
 
     static void addFullCacheFlush(LinearStream &commandStream, const HardwareInfo &hwInfo);
     static void setCacheFlushExtraProperties(PipeControlArgs &args);
 
-    static size_t getSizeForPipeControlWithPostSyncOperation(const HardwareInfo &hwInfo);
-    static size_t getSizeForPipeControlWA(const HardwareInfo &hwInfo);
-    static size_t getSizeForSinglePipeControl();
+    static size_t getSizeForBarrierWithPostSyncOperation(const HardwareInfo &hwInfo, bool tlbInvalidationRequired);
+    static size_t getSizeForBarrierWa(const HardwareInfo &hwInfo);
+    static size_t getSizeForSingleBarrier(bool tlbInvalidationRequired);
+    static size_t getSizeForSingleAdditionalSynchronizationForDirectSubmission(const HardwareInfo &hwInfo);
     static size_t getSizeForSingleAdditionalSynchronization(const HardwareInfo &hwInfo);
     static size_t getSizeForAdditonalSynchronization(const HardwareInfo &hwInfo);
     static size_t getSizeForFullCacheFlush();
 
-    static bool isPipeControlWArequired(const HardwareInfo &hwInfo);
-    static bool isPipeControlPriorToPipelineSelectWArequired(const HardwareInfo &hwInfo);
-
-  protected:
-    static void setPipeControlExtraProperties(PIPE_CONTROL &pipeControl, PipeControlArgs &args);
+    static bool isBarrierWaRequired(const HardwareInfo &hwInfo);
+    static bool isBarrierlPriorToPipelineSelectWaRequired(const HardwareInfo &hwInfo);
+    static void setBarrierExtraProperties(void *barrierCmd, PipeControlArgs &args);
 };
 
 union SURFACE_STATE_BUFFER_LENGTH {

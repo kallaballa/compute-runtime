@@ -12,6 +12,7 @@
 #include "shared/source/os_interface/linux/drm_allocation.h"
 #include "shared/source/os_interface/linux/drm_buffer_object.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
+#include "shared/source/os_interface/linux/drm_wrappers.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/utilities/wait_util.h"
 
@@ -20,9 +21,8 @@
 namespace NEO {
 
 template <typename GfxFamily, typename Dispatcher>
-DrmDirectSubmission<GfxFamily, Dispatcher>::DrmDirectSubmission(Device &device,
-                                                                OsContext &osContext)
-    : DirectSubmissionHw<GfxFamily, Dispatcher>(device, osContext) {
+DrmDirectSubmission<GfxFamily, Dispatcher>::DrmDirectSubmission(const DirectSubmissionInputParams &inputParams)
+    : DirectSubmissionHw<GfxFamily, Dispatcher>(inputParams) {
 
     this->disableMonitorFence = true;
 
@@ -40,11 +40,29 @@ DrmDirectSubmission<GfxFamily, Dispatcher>::DrmDirectSubmission(Device &device,
     this->partitionedMode = this->activeTiles > 1u;
     this->partitionConfigSet = !this->partitionedMode;
 
-    osContextLinux->getDrm().setDirectSubmissionActive(true);
+    auto &drm = osContextLinux->getDrm();
+    drm.setDirectSubmissionActive(true);
 
     if (this->partitionedMode) {
-        this->workPartitionAllocation = device.getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation();
+        this->workPartitionAllocation = inputParams.workPartitionAllocation;
         UNRECOVERABLE_IF(this->workPartitionAllocation == nullptr);
+    }
+
+    if (this->miMemFenceRequired || drm.completionFenceSupport()) {
+        this->completionFenceAllocation = inputParams.completionFenceAllocation;
+        if (this->completionFenceAllocation) {
+            this->gpuVaForAdditionalSynchronizationWA = this->completionFenceAllocation->getGpuAddress() + 8u;
+            if (drm.completionFenceSupport()) {
+                this->completionFenceSupported = true;
+            }
+
+            if (DebugManager.flags.PrintCompletionFenceUsage.get()) {
+                std::cout << "Completion fence for DirectSubmission:"
+                          << " GPU address: " << std::hex << (this->completionFenceAllocation->getGpuAddress() + Drm::completionFenceOffset)
+                          << ", CPU address: " << (castToUint64(this->completionFenceAllocation->getUnderlyingBuffer()) + Drm::completionFenceOffset)
+                          << std::dec << std::endl;
+            }
+        }
     }
 }
 
@@ -54,7 +72,21 @@ inline DrmDirectSubmission<GfxFamily, Dispatcher>::~DrmDirectSubmission() {
         this->stopRingBuffer();
         this->wait(static_cast<uint32_t>(this->currentTagData.tagValue));
     }
+    if (this->isCompletionFenceSupported()) {
+        auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
+        auto &drm = osContextLinux->getDrm();
+        auto completionFenceCpuAddress = reinterpret_cast<uint64_t>(this->completionFenceAllocation->getUnderlyingBuffer()) + Drm::completionFenceOffset;
+        drm.waitOnUserFences(*osContextLinux, completionFenceCpuAddress, this->completionFenceValue, this->activeTiles, this->postSyncOffset);
+    }
     this->deallocateResources();
+}
+
+template <typename GfxFamily, typename Dispatcher>
+uint32_t *DrmDirectSubmission<GfxFamily, Dispatcher>::getCompletionValuePointer() {
+    if (this->isCompletionFenceSupported()) {
+        return &this->completionFenceValue;
+    }
+    return DirectSubmissionHw<GfxFamily, Dispatcher>::getCompletionValuePointer();
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -70,10 +102,11 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::submit(uint64_t gpuAddress, siz
     auto bb = static_cast<DrmAllocation *>(this->ringCommandStream.getGraphicsAllocation())->getBO();
 
     auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
-    auto execFlags = osContextLinux->getEngineFlag() | I915_EXEC_NO_RELOC;
+    auto &drm = osContextLinux->getDrm();
+    auto execFlags = osContextLinux->getEngineFlag() | drm.getIoctlHelper()->getDrmParamValue(DrmParam::ExecNoReloc);
     auto &drmContextIds = osContextLinux->getDrmContextIds();
 
-    drm_i915_gem_exec_object2 execObject{};
+    ExecObject execObject{};
 
     this->handleResidency();
 
@@ -82,6 +115,14 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::submit(uint64_t gpuAddress, siz
 
     bool ret = false;
     uint32_t drmContextId = 0u;
+
+    uint32_t completionValue = 0u;
+    uint64_t completionFenceGpuAddress = 0u;
+    if (this->isCompletionFenceSupported()) {
+        completionValue = ++completionFenceValue;
+        completionFenceGpuAddress = this->completionFenceAllocation->getGpuAddress() + Drm::completionFenceOffset;
+    }
+
     for (auto drmIterator = 0u; drmIterator < osContextLinux->getDeviceBitfield().size(); drmIterator++) {
         if (osContextLinux->getDeviceBitfield().test(drmIterator)) {
             ret |= !!bb->exec(static_cast<uint32_t>(size),
@@ -94,9 +135,12 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::submit(uint64_t gpuAddress, siz
                               nullptr,
                               0,
                               &execObject,
-                              0,
-                              0);
+                              completionFenceGpuAddress,
+                              completionValue);
             drmContextId++;
+            if (completionFenceGpuAddress) {
+                completionFenceGpuAddress += this->postSyncOffset;
+            }
         }
     }
 
@@ -113,7 +157,7 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::handleResidency() {
 template <typename GfxFamily, typename Dispatcher>
 bool DrmDirectSubmission<GfxFamily, Dispatcher>::isNewResourceHandleNeeded() {
     auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
-    auto newResourcesBound = osContextLinux->getNewResourceBound();
+    auto newResourcesBound = osContextLinux->isTlbFlushRequired();
 
     if (DebugManager.flags.DirectSubmissionNewResourceTlbFlush.get() != -1) {
         newResourcesBound = DebugManager.flags.DirectSubmissionNewResourceTlbFlush.get();
@@ -125,22 +169,18 @@ bool DrmDirectSubmission<GfxFamily, Dispatcher>::isNewResourceHandleNeeded() {
 template <typename GfxFamily, typename Dispatcher>
 void DrmDirectSubmission<GfxFamily, Dispatcher>::handleNewResourcesSubmission() {
     if (isNewResourceHandleNeeded()) {
-        Dispatcher::dispatchTlbFlush(this->ringCommandStream, this->gpuVaForMiFlush, *this->hwInfo);
-    }
+        auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
+        auto tlbFlushCounter = osContextLinux->peekTlbFlushCounter();
 
-    auto osContextLinux = static_cast<OsContextLinux *>(&this->osContext);
-    osContextLinux->setNewResourceBound(false);
+        Dispatcher::dispatchTlbFlush(this->ringCommandStream, this->gpuVaForMiFlush, *this->hwInfo);
+        osContextLinux->setTlbFlushed(tlbFlushCounter);
+    }
 }
 
 template <typename GfxFamily, typename Dispatcher>
 size_t DrmDirectSubmission<GfxFamily, Dispatcher>::getSizeNewResourceHandler() {
-    size_t size = 0u;
-
-    if (isNewResourceHandleNeeded()) {
-        size += Dispatcher::getSizeTlbFlush();
-    }
-
-    return size;
+    // Overestimate to avoid race
+    return Dispatcher::getSizeTlbFlush();
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -153,14 +193,21 @@ void DrmDirectSubmission<GfxFamily, Dispatcher>::handleStopRingBuffer() {
 template <typename GfxFamily, typename Dispatcher>
 void DrmDirectSubmission<GfxFamily, Dispatcher>::handleSwitchRingBuffers() {
     if (this->disableMonitorFence) {
-        auto previousRingBuffer = this->currentRingBuffer == DirectSubmissionHw<GfxFamily, Dispatcher>::RingBufferUse::FirstBuffer ? DirectSubmissionHw<GfxFamily, Dispatcher>::RingBufferUse::SecondBuffer : DirectSubmissionHw<GfxFamily, Dispatcher>::RingBufferUse::FirstBuffer;
         this->currentTagData.tagValue++;
-        this->completionRingBuffers[previousRingBuffer] = this->currentTagData.tagValue;
+
+        bool updateCompletionFences = this->ringStart;
+        if (DebugManager.flags.EnableRingSwitchTagUpdateWa.get() == 0) {
+            updateCompletionFences = true;
+        }
+
+        if (updateCompletionFences) {
+            this->ringBuffers[this->previousRingBuffer].completionFence = this->currentTagData.tagValue;
+        }
     }
 
     if (this->ringStart) {
-        if (this->completionRingBuffers[this->currentRingBuffer] != 0) {
-            this->wait(static_cast<uint32_t>(this->completionRingBuffers[this->currentRingBuffer]));
+        if (this->ringBuffers[this->currentRingBuffer].completionFence != 0) {
+            this->wait(static_cast<uint32_t>(this->ringBuffers[this->currentRingBuffer].completionFence));
         }
     }
 }
@@ -169,7 +216,7 @@ template <typename GfxFamily, typename Dispatcher>
 uint64_t DrmDirectSubmission<GfxFamily, Dispatcher>::updateTagValue() {
     if (!this->disableMonitorFence) {
         this->currentTagData.tagValue++;
-        this->completionRingBuffers[this->currentRingBuffer] = this->currentTagData.tagValue;
+        this->ringBuffers[this->currentRingBuffer].completionFence = this->currentTagData.tagValue;
     }
     return 0ull;
 }
@@ -178,6 +225,24 @@ template <typename GfxFamily, typename Dispatcher>
 void DrmDirectSubmission<GfxFamily, Dispatcher>::getTagAddressValue(TagData &tagData) {
     tagData.tagAddress = this->currentTagData.tagAddress;
     tagData.tagValue = this->currentTagData.tagValue + 1;
+}
+
+template <typename GfxFamily, typename Dispatcher>
+inline bool DrmDirectSubmission<GfxFamily, Dispatcher>::isCompleted(uint32_t ringBufferIndex) {
+    auto taskCount = this->ringBuffers[ringBufferIndex].completionFence;
+    auto pollAddress = this->tagAddress;
+    for (uint32_t i = 0; i < this->activeTiles; i++) {
+        if (*pollAddress < taskCount) {
+            return false;
+        }
+        pollAddress = ptrOffset(pollAddress, this->postSyncOffset);
+    }
+    return true;
+}
+
+template <typename GfxFamily, typename Dispatcher>
+bool DrmDirectSubmission<GfxFamily, Dispatcher>::isCompletionFenceSupported() {
+    return this->completionFenceSupported;
 }
 
 template <typename GfxFamily, typename Dispatcher>

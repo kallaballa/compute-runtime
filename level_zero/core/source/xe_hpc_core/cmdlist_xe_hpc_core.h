@@ -6,6 +6,9 @@
  */
 
 #pragma once
+#include "shared/source/helpers/logical_state_helper.h"
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
+
 #include "level_zero/core/source/cmdlist/cmdlist_hw.h"
 #include "level_zero/core/source/cmdlist/cmdlist_hw_immediate.h"
 

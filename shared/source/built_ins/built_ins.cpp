@@ -9,12 +9,11 @@
 
 #include "shared/source/built_ins/sip.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/memory_manager/memory_manager.h"
-
-#include "compiler_options.h"
 
 #include <cstdint>
 #include <sstream>
@@ -51,10 +50,10 @@ const SipKernel &BuiltIns::getSipKernel(SipKernelType type, Device &device) {
         auto sipAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
 
         auto &hwInfo = device.getHardwareInfo();
-        auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
 
         if (sipAllocation) {
-            MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *sipAllocation),
+            MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(hwInfo, *sipAllocation),
                                                              device, sipAllocation, 0, sipBinary.data(),
                                                              sipBinary.size());
         }

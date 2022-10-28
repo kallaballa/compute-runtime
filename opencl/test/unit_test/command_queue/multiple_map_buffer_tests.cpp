@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "shared/test/common/mocks/mock_allocation_properties.h"
 #include "shared/test/common/mocks/mock_gmm.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/user_event.h"
@@ -21,7 +21,7 @@ struct MultipleMapBufferTest : public ClDeviceFixture, public ::testing::Test {
     template <typename T>
     struct MockBuffer : public BufferHw<T> {
         template <class... Params>
-        MockBuffer(Params... params) : BufferHw<T>(params...) {
+        MockBuffer(Params... params) : BufferHw<T>(std::forward<Params>(params)...) {
             this->createFunction = BufferHw<T>::create;
         };
 
@@ -92,14 +92,15 @@ struct MultipleMapBufferTest : public ClDeviceFixture, public ::testing::Test {
     std::unique_ptr<MockBuffer<FamilyType>> createMockBuffer(bool mapOnGpu) {
         MemoryProperties memoryProperties;
         auto mockAlloc = pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{pDevice->getRootDeviceIndex(), MemoryConstants::pageSize});
+        auto multiGraphicsAllocation = GraphicsAllocationHelper::toMultiGraphicsAllocation(mockAlloc);
 
         auto buffer = new MockBuffer<FamilyType>(context, memoryProperties, 0, 0, 1024, mockAlloc->getUnderlyingBuffer(), mockAlloc->getUnderlyingBuffer(),
-                                                 GraphicsAllocationHelper::toMultiGraphicsAllocation(mockAlloc), false, false, false);
+                                                 std::move(multiGraphicsAllocation), false, false, false);
         if (mapOnGpu) {
             buffer->setSharingHandler(new SharingHandler());
             auto gfxAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
             for (auto handleId = 0u; handleId < gfxAllocation->getNumGmms(); handleId++) {
-                gfxAllocation->setGmm(new MockGmm(pDevice->getGmmClientContext()), handleId);
+                gfxAllocation->setGmm(new MockGmm(pDevice->getGmmHelper()), handleId);
             }
         }
         return std::unique_ptr<MockBuffer<FamilyType>>(buffer);
@@ -111,13 +112,13 @@ struct MultipleMapBufferTest : public ClDeviceFixture, public ::testing::Test {
     }
 
     void SetUp() override {
-        ClDeviceFixture::SetUp();
+        ClDeviceFixture::setUp();
         context = new MockContext(pClDevice);
     }
 
     void TearDown() override {
         delete context;
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     MockContext *context = nullptr;

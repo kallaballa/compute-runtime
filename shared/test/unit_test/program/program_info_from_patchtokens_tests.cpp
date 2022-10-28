@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,11 +10,10 @@
 #include "shared/source/program/kernel_info.h"
 #include "shared/source/program/program_info.h"
 #include "shared/source/program/program_info_from_patchtokens.h"
-#include "shared/test/unit_test/compiler_interface/linker_mock.h"
-#include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
+#include "shared/test/common/compiler_interface/linker_mock.h"
+#include "shared/test/common/device_binary_format/patchtokens_tests.h"
 
 #include "RelocationInfo.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 TEST(PopulateProgramInfoFromPatchtokensTests, WhenRequiresLocalMemoryWindowVAIsCalledThenReturnsTrueOnlyIfAnyOfKernelsRequireLocalMemoryWindowVA) {
@@ -298,4 +297,22 @@ TEST(PopulateProgramInfoFromPatchtokensTests, GivenProgramWithKernelsWhenKernelH
     EXPECT_EQ(reinterpret_cast<void *>(relocationTableBTokenStorage.data() + sizeof(iOpenCL::SPatchFunctionTableInfo)), receivedData[1]);
     EXPECT_EQ(0U, receivedSegmentIds[0]);
     EXPECT_EQ(1U, receivedSegmentIds[1]);
+}
+
+TEST(PopulateProgramInfoFromPatchtokensTests, givenProgramWithKernelWhenKernelHasHostAccessTableThenPopulateDeviceHostNameMapCorrectly) {
+    PatchTokensTestData::ValidProgramWithKernelUsingHostAccessTable programToEncode;
+    programToEncode.headerMutable->NumberOfKernels = 1;
+
+    std::vector<uint8_t> copiedKernelInfo(programToEncode.kernels[0].blobs.kernelInfo.begin(), programToEncode.kernels[0].blobs.kernelInfo.end());
+    programToEncode.storage.insert(programToEncode.storage.end(), copiedKernelInfo.begin(), copiedKernelInfo.end());
+
+    NEO::PatchTokenBinary::ProgramFromPatchtokens decodedProgram;
+    bool decodeSuccess = NEO::PatchTokenBinary::decodeProgramFromPatchtokensBlob(programToEncode.storage, decodedProgram);
+    EXPECT_TRUE(decodeSuccess);
+
+    NEO::ProgramInfo programInfo = {};
+    NEO::populateProgramInfo(programInfo, decodedProgram);
+    EXPECT_EQ(2u, programInfo.globalsDeviceToHostNameMap.size());
+    EXPECT_STREQ("hostNameOne", programInfo.globalsDeviceToHostNameMap["deviceNameOne"].c_str());
+    EXPECT_STREQ("hostNameTwo", programInfo.globalsDeviceToHostNameMap["deviceNameTwo"].c_str());
 }

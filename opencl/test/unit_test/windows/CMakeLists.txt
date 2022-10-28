@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2021 Intel Corporation
+# Copyright (C) 2018-2022 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -21,6 +21,7 @@ if(WIN32)
                  ${CMAKE_CURRENT_SOURCE_DIR}/os_interface_tests.cpp
                  ${CMAKE_CURRENT_SOURCE_DIR}/wddm_create_tests.cpp
                  ${NEO_IGDRCL_WINDOWS_DLL_TESTS_TARGET_OBJECTS}
+                 ${NEO_SHARED_DIRECTORY}/dll/device_dll.cpp
                  ${NEO_SHARED_DIRECTORY}/dll/direct_submission_controller_enabled.cpp
                  ${NEO_SHARED_DIRECTORY}/dll/get_devices.cpp
                  ${NEO_SHARED_DIRECTORY}/dll/windows/os_interface.cpp
@@ -43,19 +44,20 @@ if(WIN32)
                              ${NEO_SHARED_TEST_DIRECTORY}/common/test_macros/header${BRANCH_DIR_SUFFIX}
                              ${NEO_SOURCE_DIR}/opencl/test/unit_test/gen_common${BRANCH_DIR_SUFFIX}
   )
+  add_dependencies(unit_tests igdrcl_windows_dll_tests)
 
   create_project_source_tree(igdrcl_windows_dll_tests)
 
-  add_custom_target(run_windows_dll_tests ALL DEPENDS unit_tests igdrcl_windows_dll_tests)
+  add_custom_target(run_windows_dll_tests ALL DEPENDS unit_tests)
   add_custom_command(
                      TARGET run_windows_dll_tests
                      POST_BUILD
                      COMMAND WORKING_DIRECTORY ${TargetDir}
                      COMMAND echo Target Directory is: ${TargetDir}
                      COMMAND echo Running Windows dll tests
-                     COMMAND igdrcl_windows_dll_tests
+                     COMMAND igdrcl_windows_dll_tests --slices 1 --subslices 2 --eu_per_ss 4
   )
-  add_dependencies(run_unit_tests run_windows_dll_tests)
+  add_dependencies(run_ocl_tests run_windows_dll_tests)
 
   set_target_properties(igdrcl_windows_dll_tests PROPERTIES FOLDER ${OPENCL_TEST_PROJECTS_FOLDER})
   set_target_properties(run_windows_dll_tests PROPERTIES FOLDER ${OPENCL_TEST_PROJECTS_FOLDER})

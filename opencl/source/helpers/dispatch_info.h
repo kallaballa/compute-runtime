@@ -9,7 +9,6 @@
 
 #include "shared/source/helpers/registered_method_dispatcher.h"
 #include "shared/source/helpers/vec.h"
-#include "shared/source/memory_manager/surface.h"
 #include "shared/source/utilities/stackvec.h"
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
@@ -66,8 +65,8 @@ class DispatchInfo {
     bool peekCanBePartitioned() const { return canBePartitioned; }
     void setCanBePartitioned(bool canBePartitioned) { this->canBePartitioned = canBePartitioned; }
 
-    RegisteredMethodDispatcher<DispatchCommandMethodT, EstimateCommandsMethodT> dispatchInitCommands;
-    RegisteredMethodDispatcher<DispatchCommandMethodT, EstimateCommandsMethodT> dispatchEpilogueCommands;
+    RegisteredMethodDispatcher<DispatchCommandMethodT, EstimateCommandsMethodT> dispatchInitCommands{};
+    RegisteredMethodDispatcher<DispatchCommandMethodT, EstimateCommandsMethodT> dispatchEpilogueCommands{};
 
   protected:
     ClDevice *pClDevice = nullptr;
@@ -197,19 +196,19 @@ struct MultiDispatchInfo {
         return builtinOpParams;
     }
 
-    void setKernelObjsForAuxTranslation(const KernelObjsForAuxTranslation &kernelObjsForAuxTranslation) {
-        this->kernelObjsForAuxTranslation = &kernelObjsForAuxTranslation;
+    void setKernelObjsForAuxTranslation(std::unique_ptr<KernelObjsForAuxTranslation> &&kernelObjsForAuxTranslation) {
+        this->kernelObjsForAuxTranslation = std::move(kernelObjsForAuxTranslation);
     }
 
     const KernelObjsForAuxTranslation *getKernelObjsForAuxTranslation() const {
-        return kernelObjsForAuxTranslation;
+        return kernelObjsForAuxTranslation.get();
     }
 
   protected:
     BuiltinOpParams builtinOpParams = {};
     StackVec<DispatchInfo, 9> dispatchInfos;
     StackVec<MemObj *, 2> redescribedSurfaces;
-    const KernelObjsForAuxTranslation *kernelObjsForAuxTranslation = nullptr;
+    std::unique_ptr<const KernelObjsForAuxTranslation> kernelObjsForAuxTranslation;
     Kernel *mainKernel = nullptr;
 };
 } // namespace NEO

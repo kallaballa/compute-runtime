@@ -10,10 +10,10 @@
 
 using Family = NEO::XeHpFamily;
 
-#include "shared/source/command_stream/command_stream_receiver_hw_tgllp_and_later.inl"
 #include "shared/source/command_stream/command_stream_receiver_hw_xehp_and_later.inl"
 #include "shared/source/helpers/blit_commands_helper_xehp_and_later.inl"
 #include "shared/source/helpers/populate_factory.h"
+#include "shared/source/helpers/state_base_address_xehp_and_later.inl"
 
 namespace NEO {
 
@@ -72,7 +72,9 @@ template <>
 void CommandStreamReceiverHw<Family>::addPipeControlBefore3dState(LinearStream &commandStream, DispatchFlags &dispatchFlags) {}
 
 template <>
-void CommandStreamReceiverHw<Family>::setPipeControlPriorToNonPipelinedStateCommandExtraProperties(PipeControlArgs &args) {}
+constexpr bool CommandStreamReceiverHw<Family>::isGlobalAtomicsProgrammingRequired(bool currentValue) const {
+    return currentValue != this->lastSentUseGlobalAtomics;
+}
 
 template <>
 void BlitCommandsHelper<Family>::appendClearColor(const BlitProperties &blitProperties, typename Family::XY_BLOCK_COPY_BLT &blitCmd) {

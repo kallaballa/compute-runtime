@@ -1,17 +1,21 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/source/compiler_interface/compiler_options/compiler_options.h"
+#include "shared/source/compiler_interface/compiler_options.h"
+#include "shared/source/gen8/hw_cmds_bdw.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
+#include "shared/test/common/helpers/test_files.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
 
 #include "opencl/test/unit_test/offline_compiler/mock/mock_offline_compiler.h"
 #include "opencl/test/unit_test/offline_compiler/offline_compiler_tests.h"
 
-#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 using namespace NEO;
 
@@ -24,7 +28,7 @@ BDWTEST_F(MockOfflineCompilerBdwTests, givenDebugOptionAndBdwThenInternalOptionS
         "-options",
         "-g",
         "-file",
-        "test_files/copybuffer.cl",
+        clFiles + "copybuffer.cl",
         "-device",
         "bdw"};
 
@@ -34,7 +38,7 @@ BDWTEST_F(MockOfflineCompilerBdwTests, givenDebugOptionAndBdwThenInternalOptionS
 
     std::string internalOptions = mockOfflineCompiler->internalOptions;
 
-    EXPECT_THAT(internalOptions, Not(::testing::HasSubstr("-cl-kernel-debug-enable")));
+    EXPECT_FALSE(hasSubstr(internalOptions, "-cl-kernel-debug-enable"));
 }
 
 BDWTEST_F(MockOfflineCompilerBdwTests, GivenBdwWhenParseDebugSettingsThenContainsHasBufferOffsetArg) {

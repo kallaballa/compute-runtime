@@ -83,11 +83,13 @@ int32_t convertLinkSpeedToPciGen(double speed) {
 }
 
 ze_result_t PciImp::pciStaticProperties(zes_pci_properties_t *pProperties) {
+    initPci();
     *pProperties = pciProperties;
     return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t PciImp::pciGetInitializedBars(uint32_t *pCount, zes_pci_bar_properties_t *pProperties) {
+    initPci();
     uint32_t pciBarPropertiesSize = static_cast<uint32_t>(pciBarProperties.size());
     uint32_t numToCopy = std::min(*pCount, pciBarPropertiesSize);
     if (0 == *pCount || *pCount > pciBarPropertiesSize) {
@@ -118,6 +120,7 @@ ze_result_t PciImp::pciGetInitializedBars(uint32_t *pCount, zes_pci_bar_properti
 }
 
 ze_result_t PciImp::pciGetState(zes_pci_state_t *pState) {
+    initPci();
     return pOsPci->getState(pState);
 }
 
@@ -125,27 +128,11 @@ void PciImp::pciGetStaticFields() {
     pOsPci->getProperties(&pciProperties);
     resizableBarSupported = pOsPci->resizableBarSupported();
     std::string bdf;
-    pOsPci->getPciBdf(bdf);
-    if (bdf.empty()) {
-        pciProperties.address.domain = 0;
-        pciProperties.address.bus = 0;
-        pciProperties.address.device = 0;
-        pciProperties.address.function = 0;
-    } else {
-        uint16_t domain = -1;
-        uint8_t bus = -1, device = -1, function = -1;
-        NEO::parseBdfString(bdf.c_str(), domain, bus, device, function);
-        pciProperties.address.domain = static_cast<uint32_t>(domain);
-        pciProperties.address.bus = static_cast<uint32_t>(bus);
-        pciProperties.address.device = static_cast<uint32_t>(device);
-        pciProperties.address.function = static_cast<uint32_t>(function);
-    }
-
+    pOsPci->getPciBdf(pciProperties);
     int32_t maxLinkWidth = -1;
     int64_t maxBandWidth = -1;
     double maxLinkSpeed = 0;
-    pOsPci->getMaxLinkSpeed(maxLinkSpeed);
-    pOsPci->getMaxLinkWidth(maxLinkWidth);
+    pOsPci->getMaxLinkCaps(maxLinkSpeed, maxLinkWidth);
     maxBandWidth = maxLinkWidth * convertPcieSpeedFromGTsToBs(maxLinkSpeed);
     if (maxBandWidth == 0) {
         pciProperties.maxSpeed.maxBandwidth = -1;
@@ -156,7 +143,11 @@ void PciImp::pciGetStaticFields() {
     pciProperties.maxSpeed.gen = convertLinkSpeedToPciGen(maxLinkSpeed);
     pOsPci->initializeBarProperties(pciBarProperties);
 }
-
+void PciImp::initPci() {
+    std::call_once(initPciOnce, [this]() {
+        this->init();
+    });
+}
 void PciImp::init() {
     if (pOsPci == nullptr) {
         pOsPci = OsPci::create(pOsSysman);

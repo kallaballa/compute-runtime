@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -19,20 +19,20 @@ class Wddm;
 template <typename GfxFamily, typename Dispatcher>
 class WddmDirectSubmission : public DirectSubmissionHw<GfxFamily, Dispatcher> {
   public:
-    WddmDirectSubmission(Device &device,
-                         OsContext &osContext);
+    WddmDirectSubmission(const DirectSubmissionInputParams &inputParams);
 
-    ~WddmDirectSubmission();
+    ~WddmDirectSubmission() override;
 
   protected:
     bool allocateOsResources() override;
     bool submit(uint64_t gpuAddress, size_t size) override;
 
     bool handleResidency() override;
-    void handleCompletionRingBuffer(uint64_t completionValue, MonitoredFence &fence);
+    void handleCompletionFence(uint64_t completionValue, MonitoredFence &fence);
     void handleSwitchRingBuffers() override;
     uint64_t updateTagValue() override;
     void getTagAddressValue(TagData &tagData) override;
+    bool isCompleted(uint32_t ringBufferIndex) override;
 
     OsContextWin *osContextWin;
     Wddm *wddm;

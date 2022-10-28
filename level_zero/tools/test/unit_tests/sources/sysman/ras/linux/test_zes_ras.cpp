@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -43,22 +43,30 @@ struct SysmanRasFixture : public SysmanDeviceFixture {
             deviceHandles.resize(subDeviceCount, nullptr);
             Device::fromHandle(device->toHandle())->getSubDevices(&subDeviceCount, deviceHandles.data());
         }
-        pSysmanDeviceImp->pRasHandleContext->init(deviceHandles);
     }
     void TearDown() override {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        SysmanDeviceFixture::TearDown();
         pLinuxSysmanImp->pFsAccess = pFsAccessOriginal;
+        SysmanDeviceFixture::TearDown();
     }
 
-    std::vector<zes_ras_handle_t> get_ras_handles(uint32_t count) {
+    std::vector<zes_ras_handle_t> getRasHandles(uint32_t count) {
         std::vector<zes_ras_handle_t> handles(count, nullptr);
         EXPECT_EQ(zesDeviceEnumRasErrorSets(device->toHandle(), &count, handles.data()), ZE_RESULT_SUCCESS);
         return handles;
     }
 };
+
+TEST_F(SysmanRasFixture, GivenValidRasContextWhenRetrievingRasHandlesThenSuccessIsReturned) {
+    uint32_t count = 0;
+    RasHandleContext *pRasHandleContext = new RasHandleContext(pSysmanDeviceImp->pOsSysman);
+    ze_result_t result = pRasHandleContext->rasGet(&count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, mockHandleCount);
+    delete pRasHandleContext;
+}
 
 TEST_F(SysmanRasFixture, GivenValidSysmanHandleWhenRasErrorSetsThenCorrectCountIsReported) {
     uint32_t count = 0;
@@ -96,7 +104,7 @@ TEST_F(SysmanRasFixture, GivenValidRasHandleWhenGettingRasPropertiesThenSuccessI
     RasImp *pTestRasImp = new RasImp(pSysmanDeviceImp->pRasHandleContext->pOsSysman, ZES_RAS_ERROR_TYPE_CORRECTABLE, device->toHandle());
     pSysmanDeviceImp->pRasHandleContext->handleList.push_back(pTestRasImp);
 
-    auto handles = get_ras_handles(mockHandleCount + 1);
+    auto handles = getRasHandles(mockHandleCount + 1);
 
     for (auto handle : handles) {
         zes_ras_properties_t properties = {};
@@ -114,7 +122,7 @@ TEST_F(SysmanRasFixture, GivenValidRasHandleWhileCallingZesRasGetStateThenFailur
     RasImp *pTestRasImp = new RasImp(pSysmanDeviceImp->pRasHandleContext->pOsSysman, ZES_RAS_ERROR_TYPE_CORRECTABLE, device->toHandle());
     pSysmanDeviceImp->pRasHandleContext->handleList.push_back(pTestRasImp);
 
-    auto handles = get_ras_handles(mockHandleCount + 1);
+    auto handles = getRasHandles(mockHandleCount + 1);
 
     for (auto handle : handles) {
         zes_ras_state_t state = {};
@@ -128,7 +136,7 @@ TEST_F(SysmanRasFixture, GivenValidRasHandleWhenCallingzesRasGetConfigAfterzesRa
     RasImp *pTestRasImp = new RasImp(pSysmanDeviceImp->pRasHandleContext->pOsSysman, ZES_RAS_ERROR_TYPE_CORRECTABLE, device->toHandle());
     pSysmanDeviceImp->pRasHandleContext->handleList.push_back(pTestRasImp);
 
-    auto handles = get_ras_handles(mockHandleCount + 1);
+    auto handles = getRasHandles(mockHandleCount + 1);
 
     for (auto handle : handles) {
         zes_ras_config_t setConfig = {};
@@ -151,7 +159,7 @@ TEST_F(SysmanRasFixture, GivenValidRasHandleWhenCallingzesRasSetConfigWithoutPer
     RasImp *pTestRasImp = new RasImp(pSysmanDeviceImp->pRasHandleContext->pOsSysman, ZES_RAS_ERROR_TYPE_CORRECTABLE, device->toHandle());
     pSysmanDeviceImp->pRasHandleContext->handleList.push_back(pTestRasImp);
 
-    auto handles = get_ras_handles(mockHandleCount + 1);
+    auto handles = getRasHandles(mockHandleCount + 1);
 
     for (auto handle : handles) {
         zes_ras_config_t setConfig = {};
@@ -166,7 +174,7 @@ TEST_F(SysmanRasFixture, GivenValidInstanceWhenOsRasImplementationIsNullThenDest
 
     RasImp *pTestRasImp = new RasImp();
     pTestRasImp->pOsRas = nullptr;
-    EXPECT_NO_THROW(delete pTestRasImp;);
+    EXPECT_NO_THROW(delete pTestRasImp;); // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 } // namespace ult

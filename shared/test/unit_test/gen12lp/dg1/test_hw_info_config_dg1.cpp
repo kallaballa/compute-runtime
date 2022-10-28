@@ -5,10 +5,14 @@
  *
  */
 
+#include "shared/source/gen12lp/hw_cmds_dg1.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/helpers/default_hw_info.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
+
+#include "platforms.h"
 
 using namespace NEO;
 
@@ -100,9 +104,26 @@ DG1TEST_F(Dg1HwInfo, givenBoolWhenCallDg1HardwareInfoSetupThenFeatureTableAndWor
     }
 }
 
+DG1TEST_F(Dg1HwInfo, givenDg1WhenObtainingBlitterPreferenceThenReturnTrue) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+    const auto &hardwareInfo = DG1::hwInfo;
+
+    EXPECT_TRUE(hwInfoConfig.obtainBlitterPreference(hardwareInfo));
+}
+
 DG1TEST_F(Dg1HwInfo, whenPlatformIsDg1ThenExpectSvmIsSet) {
     const HardwareInfo &hardwareInfo = DG1::hwInfo;
     EXPECT_TRUE(hardwareInfo.capabilityTable.ftrSvm);
+}
+
+DG1TEST_F(Dg1HwInfo, whenConfigureHwInfoThenBlitterSupportIsEnabled) {
+    auto &hwInfoConfig = *HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+    auto hardwareInfo = *defaultHwInfo;
+
+    hardwareInfo.capabilityTable.blitterOperationsSupported = false;
+    hwInfoConfig.configureHardwareCustom(&hardwareInfo, nullptr);
+
+    EXPECT_TRUE(hardwareInfo.capabilityTable.blitterOperationsSupported);
 }
 
 DG1TEST_F(Dg1HwInfo, givenDg1WhenObtainingFullBlitterSupportThenReturnFalse) {
@@ -115,4 +136,46 @@ DG1TEST_F(Dg1HwInfo, givenDg1WhenObtainingFullBlitterSupportThenReturnFalse) {
 DG1TEST_F(Dg1HwInfo, whenOverrideGfxPartitionLayoutForWslThenReturnTrue) {
     auto hwInfoConfig = HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
     EXPECT_TRUE(hwInfoConfig->overrideGfxPartitionLayoutForWsl());
+}
+
+DG1TEST_F(Dg1HwInfo, givenHwInfoConfigWhenGetProductConfigThenCorrectMatchIsFound) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+    EXPECT_EQ(hwInfoConfig.getProductConfigFromHwInfo(*defaultHwInfo), AOT::DG1);
+}
+
+DG1TEST_F(Dg1HwInfo, givenHwInfoConfigWhenGettingEvictIfNecessaryFlagSupportedThenExpectTrue) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    EXPECT_TRUE(hwInfoConfig.isEvictionIfNecessaryFlagSupported());
+}
+
+DG1TEST_F(Dg1HwInfo, givenHwInfoConfigWhenGetCommandsStreamPropertiesSupportThenExpectCorrectValues) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyThreadArbitrationPolicySupport());
+    EXPECT_TRUE(hwInfoConfig.getScmPropertyCoherencyRequiredSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyZPassAsyncComputeThreadLimitSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyPixelAsyncComputeThreadLimitSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyLargeGrfModeSupport());
+    EXPECT_FALSE(hwInfoConfig.getScmPropertyDevicePreemptionModeSupport());
+
+    EXPECT_FALSE(hwInfoConfig.getSbaPropertyGlobalAtomicsSupport());
+    EXPECT_TRUE(hwInfoConfig.getSbaPropertyStatelessMocsSupport());
+
+    EXPECT_TRUE(hwInfoConfig.getFrontEndPropertyScratchSizeSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyPrivateScratchSizeSupport());
+
+    EXPECT_TRUE(hwInfoConfig.getPreemptionDbgPropertyPreemptionModeSupport());
+    EXPECT_TRUE(hwInfoConfig.getPreemptionDbgPropertyStateSipSupport());
+    EXPECT_TRUE(hwInfoConfig.getPreemptionDbgPropertyCsrSurfaceSupport());
+
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyComputeDispatchAllWalkerSupport());
+    EXPECT_TRUE(hwInfoConfig.getFrontEndPropertyDisableEuFusionSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertyDisableOverDispatchSupport());
+    EXPECT_FALSE(hwInfoConfig.getFrontEndPropertySingleSliceDispatchCcsModeSupport());
+
+    EXPECT_TRUE(hwInfoConfig.getPipelineSelectPropertyModeSelectedSupport());
+    EXPECT_TRUE(hwInfoConfig.getPipelineSelectPropertyMediaSamplerDopClockGateSupport());
+    EXPECT_FALSE(hwInfoConfig.getPipelineSelectPropertySystolicModeSupport());
 }

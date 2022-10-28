@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "graphics_allocation.h"
 
+#include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/aligned_memory.h"
@@ -16,31 +17,33 @@
 namespace NEO {
 void GraphicsAllocation::setAllocationType(AllocationType allocationType) {
     this->allocationType = allocationType;
-    FileLoggerInstance().logAllocation(this);
+    fileLoggerInstance().logAllocation(this);
 }
 
-GraphicsAllocation::GraphicsAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, void *cpuPtrIn, uint64_t gpuAddress,
-                                       uint64_t baseAddress, size_t sizeIn, MemoryPool::Type pool, size_t maxOsContextCount)
+GraphicsAllocation::GraphicsAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, void *cpuPtrIn, uint64_t canonizedGpuAddress,
+                                       uint64_t baseAddress, size_t sizeIn, MemoryPool pool, size_t maxOsContextCount)
     : rootDeviceIndex(rootDeviceIndex),
       gpuBaseAddress(baseAddress),
-      gpuAddress(GmmHelper::canonize(gpuAddress)),
+      gpuAddress(canonizedGpuAddress),
       size(sizeIn),
       cpuPtr(cpuPtrIn),
       memoryPool(pool),
       allocationType(allocationType),
-      usageInfos(maxOsContextCount) {
+      usageInfos(maxOsContextCount),
+      residency(maxOsContextCount) {
     gmms.resize(numGmms);
 }
 
 GraphicsAllocation::GraphicsAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, void *cpuPtrIn, size_t sizeIn,
-                                       osHandle sharedHandleIn, MemoryPool::Type pool, size_t maxOsContextCount)
+                                       osHandle sharedHandleIn, MemoryPool pool, size_t maxOsContextCount, uint64_t canonizedGpuAddress)
     : rootDeviceIndex(rootDeviceIndex),
-      gpuAddress(GmmHelper::canonize(castToUint64(cpuPtrIn))),
+      gpuAddress(canonizedGpuAddress),
       size(sizeIn),
       cpuPtr(cpuPtrIn),
       memoryPool(pool),
       allocationType(allocationType),
-      usageInfos(maxOsContextCount) {
+      usageInfos(maxOsContextCount),
+      residency(maxOsContextCount) {
     sharingInfo.sharedHandle = sharedHandleIn;
     gmms.resize(numGmms);
 }
@@ -100,6 +103,17 @@ bool GraphicsAllocation::isCompressionEnabled() const {
 
 bool GraphicsAllocation::isTbxWritable(uint32_t banks) const {
     return isAnyBitSet(aubInfo.tbxWritable, banks);
+}
+
+void GraphicsAllocation::prepareHostPtrForResidency(CommandStreamReceiver *csr) {
+    if (hostPtrTaskCountAssignment > 0) {
+        auto allocTaskCount = getTaskCount(csr->getOsContext().getContextId());
+        auto currentTaskCount = csr->peekTaskCount() + 1;
+        if (currentTaskCount > allocTaskCount) {
+            updateTaskCount(currentTaskCount, csr->getOsContext().getContextId());
+            hostPtrTaskCountAssignment--;
+        }
+    }
 }
 
 constexpr uint32_t GraphicsAllocation::objectNotUsed;

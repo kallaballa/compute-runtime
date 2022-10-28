@@ -43,9 +43,11 @@ struct SysmanDeviceImp : SysmanDevice, NEO::NonCopyableOrMovableClass {
     FirmwareHandleContext *pFirmwareHandleContext = nullptr;
     DiagnosticsHandleContext *pDiagnosticsHandleContext = nullptr;
     PerformanceHandleContext *pPerformanceHandleContext = nullptr;
+    Ecc *pEcc = nullptr;
 
     ze_result_t performanceGet(uint32_t *pCount, zes_perf_handle_t *phPerformance) override;
     ze_result_t powerGet(uint32_t *pCount, zes_pwr_handle_t *phPower) override;
+    ze_result_t powerGetCardDomain(zes_pwr_handle_t *phPower) override;
     ze_result_t frequencyGet(uint32_t *pCount, zes_freq_handle_t *phFrequency) override;
     ze_result_t fabricPortGet(uint32_t *pCount, zes_fabric_port_handle_t *phPort) override;
     ze_result_t temperatureGet(uint32_t *pCount, zes_temp_handle_t *phTemperature) override;
@@ -66,8 +68,13 @@ struct SysmanDeviceImp : SysmanDevice, NEO::NonCopyableOrMovableClass {
     ze_result_t diagnosticsGet(uint32_t *pCount, zes_diag_handle_t *phFirmware) override;
     ze_result_t firmwareGet(uint32_t *pCount, zes_firmware_handle_t *phFirmware) override;
     ze_result_t deviceEventRegister(zes_event_type_flags_t events) override;
+    ze_result_t deviceEccAvailable(ze_bool_t *pAvailable) override;
+    ze_result_t deviceEccConfigurable(ze_bool_t *pConfigurable) override;
+    ze_result_t deviceGetEccState(zes_device_ecc_properties_t *pState) override;
+    ze_result_t deviceSetEccState(const zes_device_ecc_desc_t *newState, zes_device_ecc_properties_t *pState) override;
     bool deviceEventListen(zes_event_type_flags_t &pEvent, uint64_t timeout) override;
     static void getSysmanDeviceInfo(zes_device_handle_t hDevice, uint32_t &subdeviceId, ze_bool_t &onSubdevice);
+    static PRODUCT_FAMILY getProductFamily(Device *pDevice);
 
     void updateSubDeviceHandlesLocally();
 
@@ -80,5 +87,7 @@ struct SysmanDeviceImp : SysmanDevice, NEO::NonCopyableOrMovableClass {
         }
     }
 };
-
+namespace SysmanUtils {
+void sleep(int64_t seconds);
+}
 } // namespace L0

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,12 @@
 
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
+#include "shared/source/xe_hp_core/hw_cmds.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
@@ -49,9 +51,9 @@ XEHPTEST_F(CommandStreamReceiverWithActiveDebuggerXehpTest, GivenASteppingAndAct
 
     mockCsr->flushTask(commandStream,
                        0,
-                       *heap.get(),
-                       *heap.get(),
-                       *heap.get(),
+                       heap.get(),
+                       heap.get(),
+                       heap.get(),
                        0,
                        dispatchFlags,
                        neoDevice);
@@ -66,9 +68,9 @@ XEHPTEST_F(CommandStreamReceiverWithActiveDebuggerXehpTest, GivenASteppingAndAct
 
     mockCsr->flushTask(commandStream,
                        0,
-                       *heap.get(),
-                       *heap.get(),
-                       *heap.get(),
+                       heap.get(),
+                       heap.get(),
+                       heap.get(),
                        0,
                        dispatchFlags,
                        neoDevice);

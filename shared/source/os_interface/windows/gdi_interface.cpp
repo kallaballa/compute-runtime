@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,6 +23,15 @@ inline const std::string getGdiName() {
 Gdi::Gdi() : gdiDll(NEO::OsLibrary::load(getGdiName(), nullptr)) {
     if (gdiDll) {
         initialized = Gdi::getAllProcAddresses();
+    }
+    if constexpr (GdiLogging::gdiLoggingSupport) {
+        GdiLogging::init();
+    }
+}
+
+Gdi::~Gdi() {
+    if constexpr (GdiLogging::gdiLoggingSupport) {
+        GdiLogging::close();
     }
 }
 
@@ -77,6 +86,7 @@ bool Gdi::getAllProcAddresses() {
     registerTrimNotification = gdiDll->getProcAddress("D3DKMTRegisterTrimNotification");
     unregisterTrimNotification = gdiDll->getProcAddress("D3DKMTUnregisterTrimNotification");
     setAllocationPriority = gdiDll->getProcAddress("D3DKMTSetAllocationPriority");
+    setSchedulingPriority = gdiDll->getProcAddress("D3DKMTSetContextSchedulingPriority");
 
     // For debug purposes
     getDeviceState = gdiDll->getProcAddress("D3DKMTGetDeviceState");
@@ -93,7 +103,7 @@ bool Gdi::getAllProcAddresses() {
         && signalSynchronizationObjectFromGpu && createPagingQueue && destroyPagingQueue
         && lock2 && unlock2 && mapGpuVirtualAddress && reserveGpuVirtualAddress
         && freeGpuVirtualAddress && updateGpuVirtualAddress &&submitCommand 
-        && makeResident && evict){
+        && makeResident && evict && setSchedulingPriority){
         if (NEO::OSInterface::requiresSupportForWddmTrimNotification) {
             if(registerTrimNotification && unregisterTrimNotification){
                 return true;

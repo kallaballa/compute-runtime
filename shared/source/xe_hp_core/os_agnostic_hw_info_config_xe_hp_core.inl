@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,6 +18,11 @@ uint32_t HwInfoConfigHw<gfxProduct>::getHwRevIdFromStepping(uint32_t stepping, c
         return 0x4;
     }
     return CommonConstants::invalidStepping;
+}
+
+template <>
+AOT::PRODUCT_CONFIG HwInfoConfigHw<gfxProduct>::getProductConfigFromHwInfo(const HardwareInfo &hwInfo) const {
+    return AOT::XEHP_SDV;
 }
 
 template <>
@@ -104,14 +109,15 @@ LocalMemoryAccessMode HwInfoConfigHw<gfxProduct>::getDefaultLocalMemoryAccessMod
 }
 
 template <>
-bool HwInfoConfigHw<gfxProduct>::isPipeControlPriorToNonPipelinedStateCommandsWARequired(const HardwareInfo &hwInfo, bool isRcs) const {
-    bool required = hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled > 1;
+std::pair<bool, bool> HwInfoConfigHw<gfxProduct>::isPipeControlPriorToNonPipelinedStateCommandsWARequired(const HardwareInfo &hwInfo, bool isRcs) const {
+    auto isBasicWARequired = true;
+    auto isExtendedWARequired = hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled > 1;
 
-    if (DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.get() != -1) {
-        required = DebugManager.flags.ProgramPipeControlPriorToNonPipelinedStateCommand.get();
+    if (DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.get() != -1) {
+        isExtendedWARequired = DebugManager.flags.ProgramExtendedPipeControlPriorToNonPipelinedStateCommand.get();
     }
 
-    return required;
+    return {isBasicWARequired, isExtendedWARequired};
 }
 
 template <>
@@ -126,5 +132,10 @@ bool HwInfoConfigHw<gfxProduct>::extraParametersInvalid(const HardwareInfo &hwIn
 
 template <>
 bool HwInfoConfigHw<gfxProduct>::isBlitterForImagesSupported() const {
+    return true;
+}
+
+template <>
+bool HwInfoConfigHw<gfxProduct>::isImplicitScalingSupported(const HardwareInfo &hwInfo) const {
     return true;
 }

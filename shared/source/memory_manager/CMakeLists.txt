@@ -57,6 +57,12 @@ set(NEO_CORE_MEMORY_MANAGER
     ${CMAKE_CURRENT_SOURCE_DIR}/page_table.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/page_table.h
     ${CMAKE_CURRENT_SOURCE_DIR}/page_table.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/prefetch_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/prefetch_manager.h
 )
+
+if(ENABLE_DYNAMIC_MEMORY_TRACKING)
+  list(APPEND NEO_CORE_MEMORY_MANAGER ${CMAKE_CURRENT_SOURCE_DIR}/dynamic_memory_tracking.cpp)
+endif()
 
 set_property(GLOBAL PROPERTY NEO_CORE_MEMORY_MANAGER ${NEO_CORE_MEMORY_MANAGER})

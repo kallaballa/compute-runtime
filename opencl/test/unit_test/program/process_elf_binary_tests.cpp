@@ -1,24 +1,28 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/compiler_interface/compiler_options.h"
+#include "shared/source/compiler_interface/intermediate_representations.h"
 #include "shared/source/device/device.h"
 #include "shared/source/device_binary_format/elf/elf.h"
 #include "shared/source/device_binary_format/elf/elf_decoder.h"
 #include "shared/source/device_binary_format/elf/ocl_elf.h"
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/string.h"
+#include "shared/test/common/device_binary_format/elf/elf_tests_data.h"
+#include "shared/test/common/device_binary_format/patchtokens_tests.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/helpers/test_files.h"
 #include "shared/test/common/mocks/mock_device.h"
-#include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
+#include "shared/test/common/mocks/mock_elf.h"
 
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 
-#include "compiler_options.h"
 #include "gtest/gtest.h"
 
 #include <cstring>
@@ -51,15 +55,14 @@ TEST_F(ProcessElfBinaryTests, GivenInvalidBinaryWhenCreatingProgramFromBinaryThe
 }
 
 TEST_F(ProcessElfBinaryTests, GivenValidBinaryWhenCreatingProgramFromBinaryThenSuccessIsReturned) {
-    std::string filePath;
-    retrieveBinaryKernelFilename(filePath, "CopyBuffer_simd16_", ".bin");
+    auto mockElf = std::make_unique<MockElfBinaryPatchtokens<>>(device->getHardwareInfo());
+    auto pBinary = mockElf->storage;
+    auto binarySize = mockElf->storage.size();
 
-    size_t binarySize = 0;
-    auto pBinary = loadDataFromFile(filePath.c_str(), binarySize);
-    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize, *device);
+    cl_int retVal = program->createProgramFromBinary(pBinary.data(), binarySize, *device);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, memcmp(pBinary.get(), program->buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize));
+    EXPECT_EQ(0, memcmp(pBinary.data(), program->buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize));
 }
 
 TEST_F(ProcessElfBinaryTests, GivenValidSpirBinaryWhenCreatingProgramFromBinaryThenSuccessIsReturned) {
@@ -118,19 +121,17 @@ class ProcessElfBinaryTestsWithBinaryType : public ::testing::TestWithParam<unsi
         device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr, rootDeviceIndex));
         program = std::make_unique<MockProgram>(nullptr, false, toClDeviceVector(*device));
     }
-
     std::unique_ptr<MockProgram> program;
     std::unique_ptr<ClDevice> device;
     const uint32_t rootDeviceIndex = 1;
 };
 
 TEST_P(ProcessElfBinaryTestsWithBinaryType, GivenBinaryTypeWhenResolveProgramThenProgramIsProperlyResolved) {
-    std::string filePath;
-    retrieveBinaryKernelFilename(filePath, "CopyBuffer_simd16_", ".bin");
+    auto mockElf = std::make_unique<MockElfBinaryPatchtokens<enabledIrFormat::ENABLE_SPIRV>>(device->getHardwareInfo());
+    auto pBinary = mockElf->storage;
+    auto binarySize = mockElf->storage.size();
 
-    size_t binarySize = 0;
-    auto pBinary = loadDataFromFile(filePath.c_str(), binarySize);
-    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize, *device);
+    cl_int retVal = program->createProgramFromBinary(pBinary.data(), binarySize, *device);
     auto options = program->options;
     auto genBinary = makeCopy(program->buildInfos[rootDeviceIndex].unpackedDeviceBinary.get(), program->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize);
     auto genBinarySize = program->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize;
@@ -139,7 +140,7 @@ TEST_P(ProcessElfBinaryTestsWithBinaryType, GivenBinaryTypeWhenResolveProgramThe
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_EQ(binarySize, program->buildInfos[rootDeviceIndex].packedDeviceBinarySize);
-    EXPECT_EQ(0, memcmp(pBinary.get(), program->buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize));
+    EXPECT_EQ(0, memcmp(pBinary.data(), program->buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize));
 
     // delete program's elf reference to force a resolve
     program->buildInfos[rootDeviceIndex].packedDeviceBinary.reset();
@@ -177,7 +178,6 @@ TEST_P(ProcessElfBinaryTestsWithBinaryType, GivenBinaryTypeWhenResolveProgramThe
     ASSERT_EQ(options.size(), decodedOptions.size());
     ASSERT_EQ(genBinarySize, decodedDeviceBinary.size());
     ASSERT_EQ(irBinarySize, decodedIr.size());
-
     EXPECT_EQ(0, memcmp(genBinary.get(), decodedDeviceBinary.begin(), genBinarySize));
     EXPECT_EQ(0, memcmp(irBinary.get(), decodedIr.begin(), irBinarySize));
 }
@@ -186,34 +186,12 @@ INSTANTIATE_TEST_CASE_P(ResolveBinaryTests,
                         ProcessElfBinaryTestsWithBinaryType,
                         ::testing::ValuesIn(BinaryTypeValues));
 
-TEST_F(ProcessElfBinaryTests, GivenMultipleCallsWhenCreatingProgramFromBinaryThenEachProgramIsCorrect) {
-    std::string filePath;
-    retrieveBinaryKernelFilename(filePath, "CopyBuffer_simd16_", ".bin");
-
-    size_t binarySize = 0;
-    auto pBinary = loadDataFromFile(filePath.c_str(), binarySize);
-    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize, *device);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, memcmp(pBinary.get(), program->buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize));
-
-    std::string filePath2;
-    retrieveBinaryKernelFilename(filePath2, "simple_arg_int_", ".bin");
-
-    pBinary = loadDataFromFile(filePath2.c_str(), binarySize);
-    retVal = program->createProgramFromBinary(pBinary.get(), binarySize, *device);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, memcmp(pBinary.get(), program->buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize));
-}
-
 TEST_F(ProcessElfBinaryTests, GivenEmptyBuildOptionsWhenCreatingProgramFromBinaryThenSuccessIsReturned) {
-    std::string filePath;
-    retrieveBinaryKernelFilename(filePath, "simple_kernels_", ".bin");
+    auto mockElf = std::make_unique<MockElfBinaryPatchtokens<>>(device->getHardwareInfo());
+    auto pBinary = mockElf->storage;
+    auto binarySize = mockElf->storage.size();
 
-    size_t binarySize = 0;
-    auto pBinary = loadDataFromFile(filePath.c_str(), binarySize);
-    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize, *device);
+    cl_int retVal = program->createProgramFromBinary(pBinary.data(), binarySize, *device);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     const auto &options = program->getOptions();
@@ -222,17 +200,16 @@ TEST_F(ProcessElfBinaryTests, GivenEmptyBuildOptionsWhenCreatingProgramFromBinar
 }
 
 TEST_F(ProcessElfBinaryTests, GivenNonEmptyBuildOptionsWhenCreatingProgramFromBinaryThenSuccessIsReturned) {
-    std::string filePath;
-    retrieveBinaryKernelFilename(filePath, "simple_kernels_opts_", ".bin");
+    auto buildOptionsNotEmpty = CompilerOptions::concatenate(CompilerOptions::optDisable, "-DDEF_WAS_SPECIFIED=1");
+    auto mockElf = std::make_unique<MockElfBinaryPatchtokens<>>(buildOptionsNotEmpty, device->getHardwareInfo());
+    auto pBinary = mockElf->storage;
+    auto binarySize = mockElf->storage.size();
 
-    size_t binarySize = 0;
-    auto pBinary = loadDataFromFile(filePath.c_str(), binarySize);
-    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize, *device);
+    cl_int retVal = program->createProgramFromBinary(pBinary.data(), binarySize, *device);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     const auto &options = program->getOptions();
-    std::string buildOptionsNotEmpty = CompilerOptions::concatenate(CompilerOptions::optDisable, "-DDEF_WAS_SPECIFIED=1");
-    EXPECT_THAT(options.c_str(), ::testing::HasSubstr(buildOptionsNotEmpty.c_str()));
+    EXPECT_TRUE(hasSubstr(options, buildOptionsNotEmpty));
 }
 
 TEST_F(ProcessElfBinaryTests, GivenBinaryWhenIncompatiblePatchtokenVerionThenProramCreationFails) {

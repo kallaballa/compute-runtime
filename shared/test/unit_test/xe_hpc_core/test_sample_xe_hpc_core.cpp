@@ -6,15 +6,12 @@
  */
 
 #include "shared/test/common/fixtures/device_fixture.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
 
+#include "hw_cmds_xe_hpc_core_base.h"
+
 using namespace NEO;
-
-using PvcOnlyTest = Test<DeviceFixture>;
-
-PVCTEST_F(PvcOnlyTest, WhenGettingHardwareInfoThenPvcIsReturned) {
-    EXPECT_EQ(IGFX_PVC, pDevice->getHardwareInfo().platform.eProductFamily);
-}
 
 using XeHpcCoreOnlyTest = Test<DeviceFixture>;
 

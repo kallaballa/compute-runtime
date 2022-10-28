@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,9 +34,13 @@ class BinaryDecoder {
   public:
     BinaryDecoder(const std::string &file, const std::string &patch, const std::string &dump)
         : binaryFile(file), pathToPatch(patch), pathToDump(dump){};
+
     BinaryDecoder(OclocArgHelper *helper) : argHelper(helper), iga(new IgaWrapper) {
         iga->setMessagePrinter(argHelper->getPrinterRef());
-    };
+    }
+
+    MOCKABLE_VIRTUAL ~BinaryDecoder() = default;
+
     int decode();
     int validateInput(const std::vector<std::string> &args);
 
@@ -54,9 +58,9 @@ class BinaryDecoder {
 
     void dumpField(const void *&binaryPtr, const PTField &field, std::ostream &ptmFile);
     uint8_t getSize(const std::string &typeStr);
-    const void *getDevBinary();
+    MOCKABLE_VIRTUAL const void *getDevBinary();
     std::vector<std::string> loadPatchList();
-    void parseTokens();
+    MOCKABLE_VIRTUAL void parseTokens();
     int processBinary(const void *&ptr, std::ostream &ptmFile);
     void processKernel(const void *&ptr, std::ostream &ptmFile);
     void readPatchTokens(const void *&patchListPtr, uint32_t patchListSize, std::ostream &ptmFile);

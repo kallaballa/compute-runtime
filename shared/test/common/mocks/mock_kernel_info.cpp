@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -113,20 +113,6 @@ void MockKernelInfo::addExtendedMetadata(uint32_t index, const std::string &argN
     extendedMetadata[index] = {argName, type, accessQualifier, addressQualifier, typeQualifiers};
 }
 
-void MockKernelInfo::addExtendedDeviceSideEnqueueDescriptor(uint32_t index, uint32_t objectId) {
-    auto &explicitArgsExtendedDescriptors = kernelDescriptor.payloadMappings.explicitArgsExtendedDescriptors;
-    auto &explicitArgs = kernelDescriptor.payloadMappings.explicitArgs;
-    if (index >= explicitArgsExtendedDescriptors.size()) {
-        explicitArgsExtendedDescriptors.resize(index + 1);
-    }
-
-    auto deviceSideEnqueueDescriptor = std::make_unique<ArgDescriptorDeviceSideEnqueue>();
-    deviceSideEnqueueDescriptor->objectId = objectId;
-    explicitArgsExtendedDescriptors[index] = std::move(deviceSideEnqueueDescriptor);
-
-    explicitArgs[index].getExtendedTypeInfo().hasDeviceSideEnqueueExtendedDescriptor = true;
-}
-
 void MockKernelInfo::addExtendedVmeDescriptor(uint32_t index, CrossThreadDataOffset mbBlockType, CrossThreadDataOffset sadAdjustMode, CrossThreadDataOffset searchPathType, CrossThreadDataOffset subpixelMode) {
     auto &explicitArgsExtendedDescriptors = kernelDescriptor.payloadMappings.explicitArgsExtendedDescriptors;
     if (index >= explicitArgsExtendedDescriptors.size()) {
@@ -191,10 +177,6 @@ void MockKernelInfo::setSamplerTable(DynamicStateHeapOffset borderColor, uint8_t
     samplerTable.borderColor = borderColor;
     samplerTable.numSamplers = numSamplers;
     samplerTable.tableOffset = tableOffset;
-}
-
-void MockKernelInfo::setDeviceSideEnqueueBlockInterfaceDescriptorOffset(uint32_t offset) {
-    kernelDescriptor.kernelMetadata.deviceSideEnqueueBlockInterfaceDescriptorOffset = offset;
 }
 
 void MockKernelInfo::setPerThreadScratchSize(uint32_t perThreadScratchSize, uint32_t slot) {

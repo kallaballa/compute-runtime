@@ -24,11 +24,12 @@ using namespace NEO;
 TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFromMultipleThreadsThenSingleBoIsReused) {
     class MockDrm : public Drm {
       public:
+        using Drm::setupIoctlHelper;
         MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, ""), rootDeviceEnvironment) {}
 
-        int ioctl(unsigned long request, void *arg) override {
-            if (request == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
-                auto *primeToHandleParams = (drm_prime_handle *)arg;
+        int ioctl(DrmIoctl request, void *arg) override {
+            if (request == DrmIoctl::PrimeFdToHandle) {
+                auto *primeToHandleParams = static_cast<PrimeHandle *>(arg);
                 primeToHandleParams->handle = 10;
             }
             return 0;
@@ -37,6 +38,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto mock = new MockDrm(0, *executionEnvironment.rootDeviceEnvironments[0]);
+    mock->setupIoctlHelper(defaultHwInfo->platform.eProductFamily);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
@@ -76,6 +78,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
 TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThenPrimeFdToHandleDoesNotRaceWithClose) {
     class MockDrm : public Drm {
       public:
+        using Drm::setupIoctlHelper;
         MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, ""), rootDeviceEnvironment) {
             primeFdHandle = 1;
             closeHandle = 1;
@@ -83,9 +86,9 @@ TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThen
         std::atomic<int> primeFdHandle;
         std::atomic<int> closeHandle;
 
-        int ioctl(unsigned long request, void *arg) override {
-            if (request == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
-                auto *primeToHandleParams = (drm_prime_handle *)arg;
+        int ioctl(DrmIoctl request, void *arg) override {
+            if (request == DrmIoctl::PrimeFdToHandle) {
+                auto *primeToHandleParams = static_cast<PrimeHandle *>(arg);
                 primeToHandleParams->handle = primeFdHandle;
 
                 // PrimeFdHandle should not be lower than closeHandle
@@ -93,7 +96,7 @@ TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThen
                 EXPECT_EQ(closeHandle.load(), primeFdHandle.load());
             }
 
-            else if (request == DRM_IOCTL_GEM_CLOSE) {
+            else if (request == DrmIoctl::GemClose) {
                 closeHandle++;
                 std::this_thread::yield();
 
@@ -107,6 +110,7 @@ TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThen
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto mock = new MockDrm(0, *executionEnvironment.rootDeviceEnvironments[0]);
+    mock->setupIoctlHelper(defaultHwInfo->platform.eProductFamily);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,8 @@
 #include "shared/source/program/kernel_info.h"
 #include "shared/source/program/kernel_info_from_patchtokens.h"
 #include "shared/source/program/program_info.h"
+
+#include <RelocationInfo.h>
 
 namespace NEO {
 
@@ -33,13 +35,16 @@ void populateSingleKernelInfo(ProgramInfo &dst, const PatchTokenBinary::ProgramF
 
     if (decodedKernel.tokens.programSymbolTable) {
         dst.prepareLinkerInputStorage();
-        dst.linkerInput->undefinedSymbolsAllowed = dst.levelZeroDynamicLinkProgram;
         dst.linkerInput->decodeExportedFunctionsSymbolTable(decodedKernel.tokens.programSymbolTable + 1, decodedKernel.tokens.programSymbolTable->NumEntries, kernelNum);
     }
 
     if (decodedKernel.tokens.programRelocationTable) {
         dst.prepareLinkerInputStorage();
         dst.linkerInput->decodeRelocationTable(decodedKernel.tokens.programRelocationTable + 1, decodedKernel.tokens.programRelocationTable->NumEntries, kernelNum);
+    }
+
+    if (decodedKernel.tokens.hostAccessTable) {
+        parseHostAccessTable(dst, decodedKernel.tokens.hostAccessTable);
     }
 
     dst.kernelInfos.push_back(kernelInfo.release());
@@ -108,4 +113,21 @@ void populateProgramInfo(ProgramInfo &dst, const PatchTokenBinary::ProgramFromPa
     }
 }
 
+void parseHostAccessTable(ProgramInfo &dst, const void *hostAccessTable) {
+    hostAccessTable = ptrOffset(hostAccessTable, sizeof(iOpenCL::SPatchItemHeader));
+    const uint32_t numEntries = *reinterpret_cast<const uint32_t *>(hostAccessTable);
+    hostAccessTable = ptrOffset(hostAccessTable, sizeof(uint32_t));
+    auto &deviceToHostNameMap = dst.globalsDeviceToHostNameMap;
+
+    struct HostAccessTableEntry {
+        const char deviceName[vISA::MAX_SYMBOL_NAME_LENGTH];
+        const char hostName[vISA::MAX_SYMBOL_NAME_LENGTH];
+    };
+    ArrayRef<const HostAccessTableEntry> hostAccessTableEntries = {reinterpret_cast<const HostAccessTableEntry *>(hostAccessTable),
+                                                                   numEntries};
+    for (size_t i = 0; i < hostAccessTableEntries.size(); i++) {
+        auto &entry = hostAccessTableEntries[i];
+        deviceToHostNameMap[entry.deviceName] = entry.hostName;
+    }
+}
 } // namespace NEO

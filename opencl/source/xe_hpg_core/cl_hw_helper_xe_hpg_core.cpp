@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,16 +8,15 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/populate_factory.h"
 #include "shared/source/os_interface/hw_info_config.h"
+#include "shared/source/xe_hpg_core/hw_cmds_xe_hpg_core_base.h"
 
 #include "opencl/source/helpers/cl_hw_helper_base.inl"
 #include "opencl/source/helpers/cl_hw_helper_xehp_and_later.inl"
 #include "opencl/source/helpers/surface_formats.h"
 
-#include "hw_cmds.h"
-
 namespace NEO {
 
-using Family = XE_HPG_COREFamily;
+using Family = XeHpgCoreFamily;
 static auto gfxCore = IGFX_XE_HPG_CORE;
 
 template <>
@@ -46,7 +45,7 @@ bool ClHwHelperHw<Family>::requiresAuxResolves(const KernelInfo &kernelInfo, con
 
 template <>
 std::vector<uint32_t> ClHwHelperHw<Family>::getSupportedThreadArbitrationPolicies() const {
-    return std::vector<uint32_t>{};
+    return {};
 }
 
 template <>

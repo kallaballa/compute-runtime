@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,9 +9,10 @@
 
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/test/unit_test/fixtures/mock_aub_center_fixture.h"
+#include "shared/test/common/fixtures/mock_aub_center_fixture.h"
 
 namespace NEO {
+extern bool useMockGmm;
 
 struct MockRootDeviceEnvironment : public RootDeviceEnvironment {
     using RootDeviceEnvironment::RootDeviceEnvironment;
@@ -53,6 +54,9 @@ struct MockExecutionEnvironment : ExecutionEnvironment {
                 rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(hwInfo);
             } else {
                 rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(defaultHwInfo.get());
+            }
+            if (useMockGmm) {
+                rootDeviceEnvironments[rootDeviceIndex]->initGmm();
             }
         }
 

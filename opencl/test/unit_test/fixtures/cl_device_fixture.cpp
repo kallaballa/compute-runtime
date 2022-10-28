@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,12 +12,12 @@
 #include "gtest/gtest.h"
 
 namespace NEO {
-void ClDeviceFixture::SetUp() {
+void ClDeviceFixture::setUp() {
     hardwareInfo = *defaultHwInfo;
-    SetUpImpl(&hardwareInfo);
+    setUpImpl(&hardwareInfo);
 }
 
-void ClDeviceFixture::SetUpImpl(const NEO::HardwareInfo *hardwareInfo) {
+void ClDeviceFixture::setUpImpl(const NEO::HardwareInfo *hardwareInfo) {
     pDevice = MockClDevice::createWithNewExecutionEnvironment<MockDevice>(hardwareInfo, rootDeviceIndex);
     ASSERT_NE(nullptr, pDevice);
     pClExecutionEnvironment = static_cast<MockClExecutionEnvironment *>(pDevice->getExecutionEnvironment());
@@ -30,7 +30,7 @@ void ClDeviceFixture::SetUpImpl(const NEO::HardwareInfo *hardwareInfo) {
     this->osContext = pDevice->getDefaultEngine().osContext;
 }
 
-void ClDeviceFixture::TearDown() {
+void ClDeviceFixture::tearDown() {
     delete pClDevice;
     pClDevice = nullptr;
     pDevice = nullptr;

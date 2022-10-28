@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,11 +13,10 @@
 #include "shared/source/direct_submission/dispatchers/dispatcher.inl"
 #include "shared/source/direct_submission/dispatchers/render_dispatcher.inl"
 #include "shared/source/direct_submission/linux/drm_direct_submission.inl"
-
-#include "hw_cmds.h"
+#include "shared/source/gen12lp/hw_cmds.h"
 
 namespace NEO {
-using GfxFamily = TGLLPFamily;
+using GfxFamily = Gen12LpFamily;
 
 template class Dispatcher<GfxFamily>;
 template class BlitterDispatcher<GfxFamily>;

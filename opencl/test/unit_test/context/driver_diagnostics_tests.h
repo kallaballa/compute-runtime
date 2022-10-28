@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,11 +22,9 @@
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 
-#include "gtest/gtest.h"
-
 using namespace NEO;
 
-const int maxHintCounter = 6;
+constexpr int maxHintCounter = 6;
 
 bool containsHint(const char *providedHint, char *userData);
 
@@ -34,14 +32,14 @@ void CL_CALLBACK callbackFunction(const char *providedHint, const void *flags, s
 
 struct DriverDiagnosticsTest : public PlatformFixture,
                                public ::testing::Test {
-    using PlatformFixture::SetUp;
+    using PlatformFixture::setUp;
     void SetUp() override {
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
         memset(userData, 0, maxHintCounter * DriverDiagnostics::maxHintStringSize);
     }
 
     void TearDown() override {
-        PlatformFixture::TearDown();
+        PlatformFixture::tearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
@@ -80,7 +78,7 @@ struct PerformanceHintTest : public DriverDiagnosticsTest,
     }
 
     void TearDown() override {
-        CommandQueueHwFixture::TearDown();
+        CommandQueueHwFixture::tearDown();
         DriverDiagnosticsTest::TearDown();
     }
 };
@@ -227,7 +225,7 @@ struct PerformanceHintEnqueueKernelTest : public PerformanceHintEnqueueTest,
 
     void SetUp() override {
         PerformanceHintEnqueueTest::SetUp();
-        CreateProgramFromBinary(context, context->getDevices(), "CopyBuffer_simd32");
+        createProgramFromBinary(context, context->getDevices(), "CopyBuffer_simd32");
         retVal = pProgram->build(pProgram->getDevices(), nullptr, false);
         ASSERT_EQ(CL_SUCCESS, retVal);
         kernel = Kernel::create<MockKernel>(pProgram, pProgram->getKernelInfoForKernel("CopyBuffer"), *context->getDevice(0), &retVal);
@@ -238,7 +236,7 @@ struct PerformanceHintEnqueueKernelTest : public PerformanceHintEnqueueTest,
 
     void TearDown() override {
         delete kernel;
-        ProgramFixture::TearDown();
+        ProgramFixture::tearDown();
         PerformanceHintEnqueueTest::TearDown();
     }
     MockKernel *kernel = nullptr;
@@ -264,7 +262,7 @@ struct PerformanceHintEnqueueKernelPrintfTest : public PerformanceHintEnqueueTes
 
     void SetUp() override {
         PerformanceHintEnqueueTest::SetUp();
-        CreateProgramFromBinary(context, context->getDevices(), "printf");
+        createProgramFromBinary(context, context->getDevices(), "printf");
         retVal = pProgram->build(pProgram->getDevices(), nullptr, false);
         ASSERT_EQ(CL_SUCCESS, retVal);
         kernel = Kernel::create(pProgram, pProgram->getKernelInfoForKernel("test"), *context->getDevice(0), &retVal);
@@ -274,7 +272,7 @@ struct PerformanceHintEnqueueKernelPrintfTest : public PerformanceHintEnqueueTes
 
     void TearDown() override {
         delete kernel;
-        ProgramFixture::TearDown();
+        ProgramFixture::tearDown();
         PerformanceHintEnqueueTest::TearDown();
     }
     Kernel *kernel = nullptr;

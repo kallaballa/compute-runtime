@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
-#include "shared/source/gen11/hw_cmds.h"
+#include "shared/source/gen11/hw_cmds_ehl.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
@@ -15,13 +15,6 @@ namespace NEO {
 
 const char *HwMapper<IGFX_ELKHARTLAKE>::abbreviation = "ehl";
 
-bool isSimulationEHL(unsigned short deviceId) {
-    switch (deviceId) {
-    case IEHL_1x4x8_SUPERSKU_DEVICE_A0_ID:
-        return true;
-    }
-    return false;
-};
 const PLATFORM EHL::platform = {
     IGFX_ELKHARTLAKE,
     PCH_UNKNOWN,
@@ -42,7 +35,6 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     0,                                             // sharedSystemMemCapabilities
     83.333,                                        // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                     // requiredPreemptionSurfaceSize
-    &isSimulationEHL,                              // isSimulation
     "lp",                                          // platformType
     "",                                            // deviceName
     PreemptionMode::MidThread,                     // defaultPreemptionMode
@@ -82,7 +74,8 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     true,                                          // supportsMediaBlock
     false,                                         // p2pAccessSupported
     false,                                         // p2pAtomicAccessSupported
-    false                                          // fusedEuEnabled
+    false,                                         // fusedEuEnabled
+    false                                          // l0DebuggerSupported;
 };
 
 WorkaroundTable EHL::workaroundTable = {};
@@ -123,21 +116,9 @@ void EHL::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waReportPerfCountUseGlobalContextID = true;
 };
 
-const HardwareInfo EHL_HW_CONFIG::hwInfo = {
-    &EHL::platform,
-    &EHL::featureTable,
-    &EHL::workaroundTable,
-    &EHL_HW_CONFIG::gtSystemInfo,
-    EHL::capabilityTable,
-};
-GT_SYSTEM_INFO EHL_HW_CONFIG::gtSystemInfo = {0};
-void EHL_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+void EHL::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * EHL::threadsPerEu;
-    gtSysInfo->SliceCount = 1;
-    gtSysInfo->L3CacheSizeInKb = 1280;
-    gtSysInfo->L3BankCount = 4;
-    gtSysInfo->MaxFillRate = 8;
     gtSysInfo->TotalVsThreads = 0;
     gtSysInfo->TotalHsThreads = 0;
     gtSysInfo->TotalDsThreads = 0;
@@ -149,16 +130,36 @@ void EHL_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTab
     gtSysInfo->MaxSubSlicesSupported = EHL::maxSubslicesSupported;
     gtSysInfo->IsL3HashModeEnabled = false;
     gtSysInfo->IsDynamicallyPopulated = false;
+
     if (setupFeatureTableAndWorkaroundTable) {
         setupFeatureAndWorkaroundTable(hwInfo);
     }
+}
+
+const HardwareInfo EhlHwConfig::hwInfo = {
+    &EHL::platform,
+    &EHL::featureTable,
+    &EHL::workaroundTable,
+    &EhlHwConfig::gtSystemInfo,
+    EHL::capabilityTable,
 };
 
-const HardwareInfo EHL::hwInfo = EHL_HW_CONFIG::hwInfo;
+GT_SYSTEM_INFO EhlHwConfig::gtSystemInfo = {0};
+void EhlHwConfig::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    EHL::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->SliceCount = 1;
+    gtSysInfo->L3CacheSizeInKb = 1280;
+    gtSysInfo->L3BankCount = 4;
+    gtSysInfo->MaxFillRate = 8;
+};
+
+const HardwareInfo EHL::hwInfo = EhlHwConfig::hwInfo;
 const uint64_t EHL::defaultHardwareInfoConfig = 0x100040008;
 
 void setupEHLHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
-    EHL_HW_CONFIG::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+    EhlHwConfig::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
 }
 void (*EHL::setupHardwareInfo)(HardwareInfo *, bool, uint64_t) = setupEHLHardwareInfoImpl;
 } // namespace NEO

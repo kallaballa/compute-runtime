@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,16 +7,22 @@
 
 #pragma once
 
-#include "shared/source/memory_manager/unified_memory_manager.h"
-
-#include "level_zero/core/source/context/context.h"
-#include "level_zero/core/source/device/device.h"
 #include <level_zero/ze_api.h>
 #include <level_zero/zes_api.h>
 
+#include <memory>
+#include <vector>
 struct _ze_driver_handle_t {
     virtual ~_ze_driver_handle_t() = default;
 };
+
+namespace NEO {
+class Device;
+class MemoryManager;
+class SVMAllocsManager;
+class GraphicsAllocation;
+struct SvmAllocationData;
+} // namespace NEO
 
 namespace L0 {
 struct Device;
@@ -59,6 +65,7 @@ struct DriverHandle : _ze_driver_handle_t {
                                                                      size_t size,
                                                                      uint32_t rootDeviceIndex,
                                                                      uintptr_t *gpuAddress) = 0;
+    virtual ze_result_t fabricVertexGetExp(uint32_t *pCount, ze_fabric_vertex_handle_t *phDevices) = 0;
 
     static DriverHandle *fromHandle(ze_driver_handle_t handle) { return static_cast<DriverHandle *>(handle); }
     inline ze_driver_handle_t toHandle() { return this; }

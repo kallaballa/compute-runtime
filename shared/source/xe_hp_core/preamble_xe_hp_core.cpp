@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "hw_cmds.h"
+#include "shared/source/xe_hp_core/hw_cmds.h"
 
 namespace NEO {
 struct XeHpFamily;
@@ -36,7 +36,7 @@ void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, c
     }
 
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-    if (!hwHelper.isFusedEuDispatchEnabled(hwInfo)) {
+    if (!hwHelper.isFusedEuDispatchEnabled(hwInfo, false)) {
         command->setFusedEuDispatch(true);
     }
 
@@ -44,17 +44,6 @@ void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, c
     if (DebugManager.flags.CFENumberOfWalkers.get() != -1) {
         command->setNumberOfWalkers(DebugManager.flags.CFENumberOfWalkers.get());
     }
-}
-
-template <>
-bool PreambleHelper<Family>::isSpecialPipelineSelectModeChanged(bool lastSpecialPipelineSelectMode, bool newSpecialPipelineSelectMode,
-                                                                const HardwareInfo &hwInfo) {
-    return lastSpecialPipelineSelectMode != newSpecialPipelineSelectMode;
-}
-
-template <>
-bool PreambleHelper<Family>::isSystolicModeConfigurable(const HardwareInfo &hwInfo) {
-    return true;
 }
 
 template struct PreambleHelper<Family>;

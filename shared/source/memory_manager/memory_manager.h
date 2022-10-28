@@ -6,7 +6,6 @@
  */
 
 #pragma once
-#include "shared/source/command_stream/preemption_mode.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/bit_helpers.h"
 #include "shared/source/helpers/common_types.h"
@@ -24,10 +23,8 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/page_fault_manager/cpu_page_fault_manager.h"
 
-#include "engine_node.h"
-
-#include <bitset>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <vector>
 
@@ -37,10 +34,12 @@ class ExecutionEnvironment;
 class Gmm;
 class HostPtrManager;
 class OsContext;
+class PrefetchManager;
 
 enum AllocationUsage {
     TEMPORARY_ALLOCATION,
-    REUSABLE_ALLOCATION
+    REUSABLE_ALLOCATION,
+    DEFERRED_DEALLOCATION
 };
 
 struct AlignedMallocRestrictions {
@@ -92,6 +91,7 @@ class MemoryManager {
 
     virtual bool verifyHandle(osHandle handle, uint32_t rootDeviceIndex, bool) { return true; }
     virtual bool isNTHandle(osHandle handle, uint32_t rootDeviceIndex) { return false; }
+    virtual GraphicsAllocation *createGraphicsAllocationFromMultipleSharedHandles(std::vector<osHandle> handles, AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) = 0;
     virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) = 0;
     virtual void closeSharedHandle(GraphicsAllocation *graphicsAllocation){};
     virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, AllocationType allocType) = 0;
@@ -113,10 +113,11 @@ class MemoryManager {
     }
 
     void cleanGraphicsMemoryCreatedFromHostPtr(GraphicsAllocation *);
-    GraphicsAllocation *createGraphicsAllocationWithPadding(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
-    virtual GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
 
-    MOCKABLE_VIRTUAL void *createMultiGraphicsAllocationInSystemMemoryPool(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation);
+    MOCKABLE_VIRTUAL void *createMultiGraphicsAllocationInSystemMemoryPool(RootDeviceIndicesContainer &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation, void *ptr);
+    MOCKABLE_VIRTUAL void *createMultiGraphicsAllocationInSystemMemoryPool(RootDeviceIndicesContainer &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation) {
+        return createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, properties, multiGraphicsAllocation, nullptr);
+    }
     virtual GraphicsAllocation *createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation);
 
     virtual AllocationStatus populateOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) = 0;
@@ -125,7 +126,9 @@ class MemoryManager {
     void freeSystemMemory(void *ptr);
 
     virtual void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) = 0;
+    virtual void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation, bool isImportedAllocation) = 0;
     MOCKABLE_VIRTUAL void freeGraphicsMemory(GraphicsAllocation *gfxAllocation);
+    MOCKABLE_VIRTUAL void freeGraphicsMemory(GraphicsAllocation *gfxAllocation, bool isImportedAllocation);
     virtual void handleFenceCompletion(GraphicsAllocation *allocation){};
 
     void checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocation *gfxAllocation);
@@ -144,15 +147,16 @@ class MemoryManager {
     bool peekForce32BitAllocations() const { return force32bitAllocations; }
     void setForce32BitAllocations(bool newValue) { force32bitAllocations = newValue; }
 
-    bool peekVirtualPaddingSupport() const { return virtualPaddingAvailable; }
-    void setVirtualPaddingSupport(bool virtualPaddingSupport) { virtualPaddingAvailable = virtualPaddingSupport; }
-
     DeferredDeleter *getDeferredDeleter() const {
         return deferredDeleter.get();
     }
 
     PageFaultManager *getPageFaultManager() const {
         return pageFaultManager.get();
+    }
+
+    PrefetchManager *getPrefetchManager() const {
+        return prefetchManager.get();
     }
 
     void waitForDeletions();
@@ -201,6 +205,9 @@ class MemoryManager {
     virtual void releaseReservedCpuAddressRange(void *reserved, size_t size, uint32_t rootDeviceIndex){};
     void *getReservedMemory(size_t size, size_t alignment);
     GfxPartition *getGfxPartition(uint32_t rootDeviceIndex) { return gfxPartitions.at(rootDeviceIndex).get(); }
+    GmmHelper *getGmmHelper(uint32_t rootDeviceIndex) {
+        return executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getGmmHelper();
+    }
     virtual AddressRange reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) = 0;
     virtual void freeGpuAddress(AddressRange addressRange, uint32_t rootDeviceIndex) = 0;
     static HeapIndex selectInternalHeap(bool useLocalMemory) { return useLocalMemory ? HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY : HeapIndex::HEAP_INTERNAL; }
@@ -209,11 +216,13 @@ class MemoryManager {
     static uint32_t maxOsContextCount;
     virtual void commonCleanup(){};
     virtual bool isCpuCopyRequired(const void *ptr) { return false; }
+    virtual bool isWCMemory(const void *ptr) { return false; }
 
     virtual void registerSysMemAlloc(GraphicsAllocation *allocation){};
     virtual void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex){};
 
     virtual bool setMemAdvise(GraphicsAllocation *gfxAllocation, MemAdviseFlags flags, uint32_t rootDeviceIndex) { return true; }
+    virtual bool setMemPrefetch(GraphicsAllocation *gfxAllocation, uint32_t subDeviceId, uint32_t rootDeviceIndex) { return true; }
 
     bool isExternalAllocation(AllocationType allocationType);
     LocalMemoryUsageBankSelector *getLocalMemoryUsageBankSelector(AllocationType allocationType, uint32_t rootDeviceIndex);
@@ -232,6 +241,26 @@ class MemoryManager {
     virtual bool allowIndirectAllocationsAsPack(uint32_t rootDeviceIndex) {
         return false;
     }
+
+    bool isKernelBinaryReuseEnabled() {
+        auto reuseBinaries = false;
+
+        if (DebugManager.flags.ReuseKernelBinaries.get() != -1) {
+            reuseBinaries = DebugManager.flags.ReuseKernelBinaries.get();
+        }
+
+        return reuseBinaries;
+    }
+
+    struct KernelAllocationInfo {
+        KernelAllocationInfo(GraphicsAllocation *allocation, uint32_t reuseCounter) : kernelAllocation(allocation), reuseCounter(reuseCounter) {}
+
+        GraphicsAllocation *kernelAllocation;
+        uint32_t reuseCounter;
+    };
+
+    std::unordered_map<std::string, KernelAllocationInfo> &getKernelAllocationMap() { return this->kernelAllocationMap; };
+    [[nodiscard]] std::unique_lock<std::mutex> lockKernelAllocationMap() { return std::unique_lock<std::mutex>(this->kernelAllocationMutex); };
 
   protected:
     bool getAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const void *hostPtr, const StorageInfo &storageInfo);
@@ -272,7 +301,6 @@ class MemoryManager {
     bool initialized = false;
     bool forceNonSvmForExternalHostPtr = false;
     bool force32bitAllocations = false;
-    bool virtualPaddingAvailable = false;
     std::unique_ptr<DeferredDeleter> deferredDeleter;
     bool asyncDeleterEnabled = false;
     std::vector<bool> enable64kbpages;
@@ -290,11 +318,14 @@ class MemoryManager {
     std::vector<std::unique_ptr<LocalMemoryUsageBankSelector>> externalLocalMemoryUsageBankSelector;
     void *reservedMemory = nullptr;
     std::unique_ptr<PageFaultManager> pageFaultManager;
+    std::unique_ptr<PrefetchManager> prefetchManager;
     OSMemory::ReservedCpuAddressRange reservedCpuAddressRange;
     HeapAssigner heapAssigner;
     AlignmentSelector alignmentSelector = {};
     std::unique_ptr<std::once_flag[]> checkIsaPlacementOnceFlags;
     std::vector<bool> isaInLocalMemory;
+    std::unordered_map<std::string, KernelAllocationInfo> kernelAllocationMap;
+    std::mutex kernelAllocationMutex;
 };
 
 std::unique_ptr<DeferredDeleter> createDeferredDeleter();

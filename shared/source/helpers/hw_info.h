@@ -27,7 +27,6 @@ struct RuntimeCapabilityTable {
     uint64_t sharedSystemMemCapabilities;
     double defaultProfilingTimerResolution;
     size_t requiredPreemptionSurfaceSize;
-    bool (*isSimulation)(unsigned short);
     const char *platformType;
     const char *deviceName;
     PreemptionMode defaultPreemptionMode;
@@ -68,6 +67,7 @@ struct RuntimeCapabilityTable {
     bool p2pAccessSupported;
     bool p2pAtomicAccessSupported;
     bool fusedEuEnabled;
+    bool l0DebuggerSupported;
 };
 
 inline bool operator==(const RuntimeCapabilityTable &lhs, const RuntimeCapabilityTable &rhs) {
@@ -94,7 +94,6 @@ inline bool operator==(const RuntimeCapabilityTable &lhs, const RuntimeCapabilit
     result &= (lhs.sharedSystemMemCapabilities == rhs.sharedSystemMemCapabilities);
     result &= (lhs.defaultProfilingTimerResolution == rhs.defaultProfilingTimerResolution);
     result &= (lhs.requiredPreemptionSurfaceSize == rhs.requiredPreemptionSurfaceSize);
-    result &= (lhs.isSimulation == rhs.isSimulation);
     result &= (lhs.defaultPreemptionMode == rhs.defaultPreemptionMode);
     result &= (lhs.defaultEngineType == rhs.defaultEngineType);
     result &= (lhs.maxRenderFrequency == rhs.maxRenderFrequency);
@@ -133,6 +132,7 @@ inline bool operator==(const RuntimeCapabilityTable &lhs, const RuntimeCapabilit
     result &= (lhs.isIntegratedDevice == rhs.isIntegratedDevice);
     result &= (lhs.supportsMediaBlock == rhs.supportsMediaBlock);
     result &= (lhs.fusedEuEnabled == rhs.fusedEuEnabled);
+    result &= (lhs.l0DebuggerSupported == rhs.l0DebuggerSupported);
 
     return result;
 }
@@ -163,6 +163,7 @@ extern const char *hardwarePrefix[IGFX_MAX_PRODUCT];
 extern uint64_t defaultHardwareInfoConfigTable[IGFX_MAX_PRODUCT];
 extern const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT];
 extern void (*hardwareInfoSetup[IGFX_MAX_PRODUCT])(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig);
+extern void (*hardwareInfoBaseSetup[IGFX_MAX_PRODUCT])(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable);
 
 template <GFXCORE_FAMILY gfxFamily>
 struct EnableGfxFamilyHw {

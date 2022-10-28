@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/command_stream/csr_definitions.h"
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/helpers/pipe_control_args.h"
 #include "shared/source/memory_manager/residency_container.h"
 #include "shared/source/utilities/idlist.h"
 #include "shared/source/utilities/stackvec.h"
@@ -48,6 +49,7 @@ struct BatchBuffer {
     void *endCmdPtr = nullptr;
 
     bool useSingleSubdevice = false;
+    bool ringBufferRestartRequest = false;
 };
 
 struct CommandBuffer : public IDNode<CommandBuffer> {
@@ -59,6 +61,7 @@ struct CommandBuffer : public IDNode<CommandBuffer> {
     uint32_t taskCount = 0u;
     void *pipeControlThatMayBeErasedLocation = nullptr;
     void *epiloguePipeControlLocation = nullptr;
+    PipeControlArgs epiloguePipeControlArgs;
     std::unique_ptr<FlushStampTracker> flushStamp;
     Device &device;
 };

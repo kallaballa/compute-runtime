@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -33,8 +33,8 @@ class SamplerSetArgFixture : public ClDeviceFixture {
     }
 
   protected:
-    void SetUp() {
-        ClDeviceFixture::SetUp();
+    void setUp() {
+        ClDeviceFixture::setUp();
         pKernelInfo = std::make_unique<MockKernelInfo>();
         pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
 
@@ -43,7 +43,6 @@ class SamplerSetArgFixture : public ClDeviceFixture {
 
         // setup kernel arg offsets
         pKernelInfo->addArgSampler(0, 0x40, 0x8, 0x10, 0x4);
-        pKernelInfo->addExtendedDeviceSideEnqueueDescriptor(0, 0x0);
 
         pKernelInfo->addArgSampler(1, 0x40);
 
@@ -63,12 +62,12 @@ class SamplerSetArgFixture : public ClDeviceFixture {
         retVal = CL_INVALID_VALUE;
     }
 
-    void TearDown() {
+    void tearDown() {
         delete pMultiDeviceKernel;
 
         delete sampler;
         delete context;
-        ClDeviceFixture::TearDown();
+        ClDeviceFixture::tearDown();
     }
 
     bool crossThreadDataUnchanged() {
@@ -127,6 +126,7 @@ HWTEST_F(SamplerSetArgTest, WhenSettingKernelArgSamplerThenSamplerStatesAreCorre
     EXPECT_EQ(SAMPLER_STATE::MIN_MODE_FILTER_NEAREST, samplerState->getMinModeFilter());
     EXPECT_EQ(SAMPLER_STATE::MAG_MODE_FILTER_NEAREST, samplerState->getMagModeFilter());
     EXPECT_EQ(SAMPLER_STATE::MIP_MODE_FILTER_NEAREST, samplerState->getMipModeFilter());
+    EXPECT_EQ(SAMPLER_STATE::LOD_PRECLAMP_MODE::LOD_PRECLAMP_MODE_OGL, samplerState->getLodPreclampMode());
 
     std::vector<Surface *> surfaces;
     pKernel->getResidency(surfaces);
@@ -310,10 +310,8 @@ HWTEST_F(SamplerSetArgTest, GivenFilteringNearestAndAddressingClampWhenSettingKe
     auto snapWaCrossThreadData = ptrOffset(crossThreadData, 0x4);
 
     unsigned int snapWaValue = 0xffffffff;
-    unsigned int objectId = SAMPLER_OBJECT_ID_SHIFT + pKernelInfo->argAsSmp(0).bindful;
 
     EXPECT_EQ(snapWaValue, *snapWaCrossThreadData);
-    EXPECT_EQ(objectId, *crossThreadData);
 }
 
 HWTEST_F(SamplerSetArgTest, GivenKernelWithoutObjIdOffsetWhenSettingArgThenObjIdNotPatched) {
@@ -392,10 +390,10 @@ struct NormalizedTest
     : public SamplerSetArgFixture,
       public ::testing::TestWithParam<uint32_t /*cl_bool*/> {
     void SetUp() override {
-        SamplerSetArgFixture::SetUp();
+        SamplerSetArgFixture::setUp();
     }
     void TearDown() override {
-        SamplerSetArgFixture::TearDown();
+        SamplerSetArgFixture::tearDown();
     }
 };
 
@@ -425,7 +423,7 @@ HWTEST_P(NormalizedTest, WhenSettingKernelArgSamplerThenCoordsAreCorrect) {
 
     auto crossThreadData = reinterpret_cast<uint32_t *>(pKernel->getCrossThreadData());
     auto normalizedCoordsAddress = ptrOffset(crossThreadData, 0x10);
-    unsigned int normalizedCoordsValue = GetNormCoordsEnum(normalizedCoordinates);
+    unsigned int normalizedCoordsValue = getNormCoordsEnum(normalizedCoordinates);
 
     EXPECT_EQ(normalizedCoordsValue, *normalizedCoordsAddress);
 }
@@ -443,10 +441,10 @@ struct AddressingModeTest
     : public SamplerSetArgFixture,
       public ::testing::TestWithParam<uint32_t /*cl_addressing_mode*/> {
     void SetUp() override {
-        SamplerSetArgFixture::SetUp();
+        SamplerSetArgFixture::setUp();
     }
     void TearDown() override {
-        SamplerSetArgFixture::TearDown();
+        SamplerSetArgFixture::tearDown();
     }
 };
 
@@ -509,7 +507,7 @@ HWTEST_P(AddressingModeTest, WhenSettingKernelArgSamplerThenModesAreCorrect) {
     auto crossThreadData = reinterpret_cast<uint32_t *>(pKernel->getCrossThreadData());
     auto addressingModeAddress = ptrOffset(crossThreadData, 0x8);
 
-    unsigned int addresingValue = GetAddrModeEnum(addressingMode);
+    unsigned int addresingValue = getAddrModeEnum(addressingMode);
 
     EXPECT_EQ(addresingValue, *addressingModeAddress);
 }
@@ -562,10 +560,10 @@ struct FilterModeTest
     : public SamplerSetArgFixture,
       public ::testing::TestWithParam<uint32_t /*cl_filter_mode*/> {
     void SetUp() override {
-        SamplerSetArgFixture::SetUp();
+        SamplerSetArgFixture::setUp();
     }
     void TearDown() override {
-        SamplerSetArgFixture::TearDown();
+        SamplerSetArgFixture::tearDown();
     }
 };
 

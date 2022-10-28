@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2021 Intel Corporation
+# Copyright (C) 2021-2022 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -12,7 +12,7 @@ set(L0_AUB_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 list(APPEND L0_AUB_TESTS__TARGET_OBJECTS
      ${CMAKE_CURRENT_SOURCE_DIR}/aub_hello_world_test.cpp
      ${NEO_SOURCE_DIR}/level_zero/core/test/unit_tests/main.cpp
-     ${NEO_SHARED_TEST_DIRECTORY}/unit_test/tests_configuration.h
+     ${NEO_SHARED_TEST_DIRECTORY}/common/tests_configuration.h
 )
 
 function(ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION)
@@ -52,6 +52,7 @@ target_sources(${TARGET_NAME} PRIVATE
                $<TARGET_OBJECTS:neo_libult_cs>
                $<TARGET_OBJECTS:neo_libult>
                $<TARGET_OBJECTS:neo_shared_mocks>
+               $<TARGET_OBJECTS:${BUILTINS_BINARIES_STATELESS_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDLESS_LIB_NAME}>
                $<TARGET_OBJECTS:neo_aub_tests_config>

@@ -47,6 +47,64 @@ TEST(clUnifiedSharedMemoryTests, whenClHostMemAllocIntelIsCalledThenItAllocatesH
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
+TEST(clUnifiedSharedMemoryTests, GivenForceExtendedUSMBufferSizeDebugFlagWhenUSMAllocationIsCreatedThenSizeIsProperlyExtended) {
+    DebugManagerStateRestore restorer;
+
+    MockContext mockContext;
+    auto device = mockContext.getDevice(0u);
+    REQUIRE_SVM_OR_SKIP(device);
+
+    constexpr auto bufferSize = 16;
+    auto pageSizeNumber = 2;
+    DebugManager.flags.ForceExtendedUSMBufferSize.set(pageSizeNumber);
+    auto extendedBufferSize = bufferSize + MemoryConstants::pageSize * pageSizeNumber;
+
+    cl_int retVal = CL_SUCCESS;
+    auto usmAllocation = clHostMemAllocINTEL(&mockContext, nullptr, bufferSize, 0, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, usmAllocation);
+
+    auto allocationsManager = mockContext.getSVMAllocsManager();
+    EXPECT_EQ(1u, allocationsManager->getNumAllocs());
+    auto graphicsAllocation = allocationsManager->getSVMAlloc(usmAllocation);
+    EXPECT_EQ(graphicsAllocation->size, extendedBufferSize);
+
+    retVal = clMemFreeINTEL(&mockContext, usmAllocation);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    pageSizeNumber = 4;
+    DebugManager.flags.ForceExtendedUSMBufferSize.set(pageSizeNumber);
+    extendedBufferSize = bufferSize + MemoryConstants::pageSize * pageSizeNumber;
+
+    usmAllocation = clDeviceMemAllocINTEL(&mockContext, mockContext.getDevice(0u), nullptr, bufferSize, 0, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, usmAllocation);
+
+    allocationsManager = mockContext.getSVMAllocsManager();
+    EXPECT_EQ(1u, allocationsManager->getNumAllocs());
+    graphicsAllocation = allocationsManager->getSVMAlloc(usmAllocation);
+    EXPECT_EQ(graphicsAllocation->size, extendedBufferSize);
+
+    retVal = clMemFreeINTEL(&mockContext, usmAllocation);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    pageSizeNumber = 8;
+    DebugManager.flags.ForceExtendedUSMBufferSize.set(pageSizeNumber);
+    extendedBufferSize = bufferSize + MemoryConstants::pageSize * pageSizeNumber;
+
+    usmAllocation = clSharedMemAllocINTEL(&mockContext, nullptr, nullptr, bufferSize, 0, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, usmAllocation);
+
+    allocationsManager = mockContext.getSVMAllocsManager();
+    EXPECT_EQ(1u, allocationsManager->getNumAllocs());
+    graphicsAllocation = allocationsManager->getSVMAlloc(usmAllocation);
+    EXPECT_EQ(graphicsAllocation->size, extendedBufferSize);
+
+    retVal = clMemFreeINTEL(&mockContext, usmAllocation);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
 TEST(clUnifiedSharedMemoryTests, givenMappedAllocationWhenClMemFreeIntelIscalledThenMappingIsRemoved) {
 
     MockContext mockContext;
@@ -648,12 +706,16 @@ TEST(clUnifiedSharedMemoryTests, whenDeviceSupportSharedMemoryAllocationsAndSyst
     auto device = mockContext->getDevice(0u);
     REQUIRE_SVM_OR_SKIP(device);
 
-    MockKernelWithInternals mockKernel(*mockContext->getDevice(0u), mockContext.get(), true);
+    MockKernelWithInternals mockKernel(*device, mockContext.get(), true);
 
     auto systemPointer = reinterpret_cast<void *>(0xfeedbac);
 
+    auto kernel = mockKernel.mockMultiDeviceKernel->getKernel(device->getRootDeviceIndex());
+    EXPECT_FALSE(kernel->isAnyKernelArgumentUsingSystemMemory());
+
     auto retVal = clSetKernelArgMemPointerINTEL(mockKernel.mockMultiDeviceKernel, 0, systemPointer);
     EXPECT_EQ(retVal, CL_SUCCESS);
+    EXPECT_TRUE(kernel->isAnyKernelArgumentUsingSystemMemory());
 
     //check if cross thread is updated
     auto crossThreadLocation = reinterpret_cast<uintptr_t *>(ptrOffset(mockKernel.mockKernel->getCrossThreadData(), mockKernel.kernelInfo.argAsPtr(0).stateless));
@@ -835,6 +897,90 @@ TEST(clUnifiedSharedMemoryTests, whenClEnqueueMigrateMemINTELisCalledWithProperP
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
+TEST(clUnifiedSharedMemoryTests, givenUseKmdMigrationAndAppendMemoryPrefetchForKmdMigratedSharedAllocationsWhenClEnqueueMigrateMemINTELisCalledThenExplicitlyMigrateMemoryToTheDeviceAssociatedWithCommandQueue) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseKmdMigration.set(1);
+    DebugManager.flags.AppendMemoryPrefetchForKmdMigratedSharedAllocations.set(1);
+
+    MockContext mockContext;
+    auto device = mockContext.getDevice(0u);
+    REQUIRE_SVM_OR_SKIP(device);
+
+    MockCommandQueue mockCmdQueue{mockContext};
+    cl_int retVal = CL_SUCCESS;
+
+    auto unifiedMemorySharedAllocation = clSharedMemAllocINTEL(&mockContext, device, nullptr, 4, 0, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, unifiedMemorySharedAllocation);
+
+    retVal = clEnqueueMigrateMemINTEL(&mockCmdQueue, unifiedMemorySharedAllocation, 10, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto mockMemoryManager = static_cast<MockMemoryManager *>(device->getMemoryManager());
+    EXPECT_TRUE(mockMemoryManager->setMemPrefetchCalled);
+    EXPECT_EQ(0u, mockMemoryManager->memPrefetchSubDeviceId);
+
+    clMemFreeINTEL(&mockContext, unifiedMemorySharedAllocation);
+}
+
+TEST(clUnifiedSharedMemoryTests, givenContextWithMultipleSubdevicesWhenClEnqueueMigrateMemINTELisCalledThenExplicitlyMigrateMemoryToTheSubDeviceAssociatedWithCommandQueue) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseKmdMigration.set(1);
+    DebugManager.flags.AppendMemoryPrefetchForKmdMigratedSharedAllocations.set(1);
+
+    UltClDeviceFactory deviceFactory{1, 4};
+    cl_device_id allDevices[] = {deviceFactory.rootDevices[0], deviceFactory.subDevices[0], deviceFactory.subDevices[1],
+                                 deviceFactory.subDevices[2], deviceFactory.subDevices[3]};
+    MockContext multiTileContext(ClDeviceVector{allDevices, 5});
+    auto subDevice = deviceFactory.subDevices[1];
+    REQUIRE_SVM_OR_SKIP(subDevice);
+
+    MockCommandQueue mockCmdQueue(&multiTileContext, subDevice, 0, false);
+    cl_int retVal = CL_SUCCESS;
+
+    auto unifiedMemorySharedAllocation = clSharedMemAllocINTEL(&multiTileContext, subDevice, nullptr, 4, 0, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, unifiedMemorySharedAllocation);
+
+    retVal = clEnqueueMigrateMemINTEL(&mockCmdQueue, unifiedMemorySharedAllocation, 10, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto mockMemoryManager = static_cast<MockMemoryManager *>(subDevice->getMemoryManager());
+    EXPECT_TRUE(mockMemoryManager->setMemPrefetchCalled);
+    EXPECT_EQ(1u, mockMemoryManager->memPrefetchSubDeviceId);
+
+    clMemFreeINTEL(&multiTileContext, unifiedMemorySharedAllocation);
+}
+
+TEST(clUnifiedSharedMemoryTests, givenContextWithMultipleSubdevicesWhenClEnqueueMigrateMemINTELisCalledThenExplicitlyMigrateMemoryToTheRootDeviceAssociatedWithCommandQueue) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseKmdMigration.set(1);
+    DebugManager.flags.AppendMemoryPrefetchForKmdMigratedSharedAllocations.set(1);
+
+    UltClDeviceFactory deviceFactory{1, 4};
+    cl_device_id allDevices[] = {deviceFactory.rootDevices[0], deviceFactory.subDevices[0], deviceFactory.subDevices[1],
+                                 deviceFactory.subDevices[2], deviceFactory.subDevices[3]};
+    MockContext multiTileContext(ClDeviceVector{allDevices, 5});
+    auto device = deviceFactory.rootDevices[0];
+    REQUIRE_SVM_OR_SKIP(device);
+
+    MockCommandQueue mockCmdQueue(&multiTileContext, device, 0, false);
+    cl_int retVal = CL_SUCCESS;
+
+    auto unifiedMemorySharedAllocation = clSharedMemAllocINTEL(&multiTileContext, device, nullptr, 4, 0, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, unifiedMemorySharedAllocation);
+
+    retVal = clEnqueueMigrateMemINTEL(&mockCmdQueue, unifiedMemorySharedAllocation, 10, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto mockMemoryManager = static_cast<MockMemoryManager *>(device->getMemoryManager());
+    EXPECT_TRUE(mockMemoryManager->setMemPrefetchCalled);
+    EXPECT_EQ(0u, mockMemoryManager->memPrefetchSubDeviceId);
+
+    clMemFreeINTEL(&multiTileContext, unifiedMemorySharedAllocation);
+}
+
 TEST(clUnifiedSharedMemoryTests, whenClEnqueueMemAdviseINTELisCalledWithWrongQueueThenInvalidQueueErrorIsReturned) {
     auto retVal = clEnqueueMemAdviseINTEL(0, nullptr, 0, 0, 0, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_COMMAND_QUEUE, retVal);
@@ -848,7 +994,7 @@ TEST(clUnifiedSharedMemoryTests, whenClEnqueueMemAdviseINTELisCalledWithProperPa
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-class clUnifiedSharedMemoryEventTests : public CommandQueueHwFixture,
+class ClUnifiedSharedMemoryEventTests : public CommandQueueHwFixture,
                                         public ::testing::Test {
   public:
     void SetUp() override {
@@ -856,13 +1002,13 @@ class clUnifiedSharedMemoryEventTests : public CommandQueueHwFixture,
     }
     void TearDown() override {
         clReleaseEvent(event);
-        CommandQueueHwFixture::TearDown();
+        CommandQueueHwFixture::tearDown();
     }
 
     cl_event event = nullptr;
 };
 
-TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMigrateMemINTELIsCalledWithEventThenProperCmdTypeIsSet) {
+TEST_F(ClUnifiedSharedMemoryEventTests, whenClEnqueueMigrateMemINTELIsCalledWithEventThenProperCmdTypeIsSet) {
     void *unifiedMemoryAlloc = reinterpret_cast<void *>(0x1234);
 
     auto retVal = clEnqueueMigrateMemINTEL(this->pCmdQ, unifiedMemoryAlloc, 10, 0, 0, nullptr, &event);
@@ -873,7 +1019,7 @@ TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMigrateMemINTELIsCalledWith
     EXPECT_EQ(expectedCmd, actualCmd);
 }
 
-TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemAdviseINTELIsCalledWithEventThenProperCmdTypeIsSet) {
+TEST_F(ClUnifiedSharedMemoryEventTests, whenClEnqueueMemAdviseINTELIsCalledWithEventThenProperCmdTypeIsSet) {
     void *unifiedMemoryAlloc = reinterpret_cast<void *>(0x1234);
 
     auto retVal = clEnqueueMemAdviseINTEL(this->pCmdQ, unifiedMemoryAlloc, 10, 0, 0, nullptr, &event);
@@ -884,7 +1030,7 @@ TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemAdviseINTELIsCalledWithE
     EXPECT_EQ(expectedCmd, actualCmd);
 }
 
-TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemcpyINTELIsCalledWithEventThenProperCmdTypeIsSet) {
+TEST_F(ClUnifiedSharedMemoryEventTests, whenClEnqueueMemcpyINTELIsCalledWithEventThenProperCmdTypeIsSet) {
     const ClDeviceInfo &devInfo = this->context->getDevice(0u)->getDeviceInfo();
     if (devInfo.svmCapabilities == 0) {
         GTEST_SKIP();
@@ -905,7 +1051,7 @@ TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemcpyINTELIsCalledWithEven
     clMemFreeINTEL(this->context, unifiedMemorySrc);
 }
 
-TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemsetINTELIsCalledWithEventThenProperCmdTypeIsSet) {
+TEST_F(ClUnifiedSharedMemoryEventTests, whenClEnqueueMemsetINTELIsCalledWithEventThenProperCmdTypeIsSet) {
     const ClDeviceInfo &devInfo = this->context->getDevice(0u)->getDeviceInfo();
     if (devInfo.svmCapabilities == 0) {
         GTEST_SKIP();
@@ -924,7 +1070,7 @@ TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemsetINTELIsCalledWithEven
     clMemFreeINTEL(this->context, unifiedMemorySharedAllocation);
 }
 
-TEST_F(clUnifiedSharedMemoryEventTests, whenClEnqueueMemFillINTELIsCalledWithEventThenProperCmdTypeIsSet) {
+TEST_F(ClUnifiedSharedMemoryEventTests, whenClEnqueueMemFillINTELIsCalledWithEventThenProperCmdTypeIsSet) {
     const ClDeviceInfo &devInfo = this->context->getDevice(0u)->getDeviceInfo();
     if (devInfo.svmCapabilities == 0) {
         GTEST_SKIP();
@@ -1130,7 +1276,7 @@ TEST_F(MultiRootDeviceClUnifiedSharedMemoryTests, WhenClHostMemAllocIntelIsCalle
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, unifiedMemoryHostAllocation);
 
-    auto allocationsManager = context.get()->getSVMAllocsManager();
+    auto allocationsManager = context->getSVMAllocsManager();
 
     EXPECT_EQ(allocationsManager->getNumAllocs(), 1u);
 
@@ -1167,7 +1313,7 @@ TEST_F(MultiRootDeviceClUnifiedSharedMemoryTests, WhenClSharedMemAllocIntelIsCal
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, unifiedMemorySharedAllocation);
 
-    auto allocationsManager = context.get()->getSVMAllocsManager();
+    auto allocationsManager = context->getSVMAllocsManager();
 
     EXPECT_EQ(allocationsManager->getNumAllocs(), 1u);
 
@@ -1205,7 +1351,7 @@ TEST_F(MultiRootDeviceClUnifiedSharedMemoryTests, WhenClSharedMemAllocIntelIsCal
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, unifiedMemorySharedAllocation);
 
-    auto allocationsManager = context.get()->getSVMAllocsManager();
+    auto allocationsManager = context->getSVMAllocsManager();
 
     EXPECT_EQ(allocationsManager->getNumAllocs(), 1u);
 
@@ -1222,8 +1368,8 @@ TEST_F(MultiRootDeviceClUnifiedSharedMemoryTests, WhenClSharedMemAllocIntelIsCal
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_EQ(mockMemoryManager->waitForEnginesCompletionCalled, 2u);
-    EXPECT_EQ(mockMemoryManager->waitAllocations.get()->getGraphicsAllocation(1u), graphicsAllocation1);
-    EXPECT_EQ(mockMemoryManager->waitAllocations.get()->getGraphicsAllocation(2u), graphicsAllocation2);
+    EXPECT_EQ(mockMemoryManager->waitAllocations->getGraphicsAllocation(1u), graphicsAllocation1);
+    EXPECT_EQ(mockMemoryManager->waitAllocations->getGraphicsAllocation(2u), graphicsAllocation2);
 
     EXPECT_EQ(allocationsManager->getNumAllocs(), 0u);
 

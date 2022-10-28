@@ -1,13 +1,15 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
+
 namespace NEO {
-struct XE_HPC_COREFamily;
-using Family = XE_HPC_COREFamily;
+struct XeHpcCoreFamily;
+using Family = XeHpcCoreFamily;
 } // namespace NEO
 
 #include "shared/source/command_stream/stream_properties.h"
@@ -24,12 +26,8 @@ void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, c
     command->setComputeOverdispatchDisable(streamProperties.frontEndState.disableOverdispatch.value == 1);
     command->setSingleSliceDispatchCcsMode(streamProperties.frontEndState.singleSliceDispatchCcsMode.value == 1);
 
-    if (HwInfoConfig::get(hwInfo.platform.eProductFamily)->getSteppingFromHwRevId(hwInfo) >= REVISION_B) {
-        const auto programComputeDispatchAllWalkerEnableInCfeState = !Family::isXtTemporary(hwInfo);
-        if (programComputeDispatchAllWalkerEnableInCfeState && streamProperties.frontEndState.computeDispatchAllWalkerEnable.value > 0) {
-            command->setComputeDispatchAllWalkerEnable(true);
-            command->setSingleSliceDispatchCcsMode(true);
-        }
+    if (streamProperties.frontEndState.computeDispatchAllWalkerEnable.value > 0) {
+        command->setComputeDispatchAllWalkerEnable(true);
     }
 
     if (DebugManager.flags.CFEComputeDispatchAllWalkerEnable.get() != -1) {
@@ -47,17 +45,6 @@ void PreambleHelper<Family>::appendProgramVFEState(const HardwareInfo &hwInfo, c
     if (DebugManager.flags.CFENumberOfWalkers.get() != -1) {
         command->setNumberOfWalkers(DebugManager.flags.CFENumberOfWalkers.get());
     }
-}
-
-template <>
-bool PreambleHelper<Family>::isSystolicModeConfigurable(const HardwareInfo &hwInfo) {
-    return Family::isAtMostXtA0(hwInfo);
-}
-
-template <>
-bool PreambleHelper<Family>::isSpecialPipelineSelectModeChanged(bool lastSpecialPipelineSelectMode, bool newSpecialPipelineSelectMode,
-                                                                const HardwareInfo &hwInfo) {
-    return (lastSpecialPipelineSelectMode != newSpecialPipelineSelectMode) && Family::isAtMostXtA0(hwInfo);
 }
 
 template struct PreambleHelper<Family>;

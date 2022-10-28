@@ -3682,19 +3682,19 @@ struct XY_BLOCK_COPY_BLT {
         return (TheStructure.Common.DestinationBaseAddress);
     }
 
-    inline void setDestinationXoffset(const uint32_t value) {
+    inline void setDestinationXOffset(const uint32_t value) {
         TheStructure.Common.DestinationXoffset = value;
     }
 
-    inline uint32_t getDestinationXoffset() const {
+    inline uint32_t getDestinationXOffset() const {
         return (TheStructure.Common.DestinationXoffset);
     }
 
-    inline void setDestinationYoffset(const uint32_t value) {
+    inline void setDestinationYOffset(const uint32_t value) {
         TheStructure.Common.DestinationYoffset = value;
     }
 
-    inline uint32_t getDestinationYoffset() const {
+    inline uint32_t getDestinationYOffset() const {
         return (TheStructure.Common.DestinationYoffset);
     }
 
@@ -3778,19 +3778,19 @@ struct XY_BLOCK_COPY_BLT {
         return (TheStructure.Common.SourceBaseAddress);
     }
 
-    inline void setSourceXoffset(const uint32_t value) {
+    inline void setSourceXOffset(const uint32_t value) {
         TheStructure.Common.SourceXoffset = value;
     }
 
-    inline uint32_t getSourceXoffset() const {
+    inline uint32_t getSourceXOffset() const {
         return (TheStructure.Common.SourceXoffset);
     }
 
-    inline void setSourceYoffset(const uint32_t value) {
+    inline void setSourceYOffset(const uint32_t value) {
         TheStructure.Common.SourceYoffset = value;
     }
 
-    inline uint32_t getSourceYoffset() const {
+    inline uint32_t getSourceYOffset() const {
         return (TheStructure.Common.SourceYoffset);
     }
 
@@ -3872,6 +3872,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setDestinationSurfaceHeight(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.DestinationSurfaceHeight = value - 1;
     }
 
@@ -3880,6 +3881,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setDestinationSurfaceWidth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.DestinationSurfaceWidth = value - 1;
     }
 
@@ -3912,6 +3914,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setDestinationSurfaceDepth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x7ff);
         TheStructure.Common.DestinationSurfaceDepth = value - 1;
     }
 
@@ -3968,6 +3971,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setSourceSurfaceHeight(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.SourceSurfaceHeight = value - 1;
     }
 
@@ -3976,6 +3980,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setSourceSurfaceWidth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x3fff);
         TheStructure.Common.SourceSurfaceWidth = value - 1;
     }
 
@@ -4008,6 +4013,7 @@ struct XY_BLOCK_COPY_BLT {
     }
 
     inline void setSourceSurfaceDepth(const uint32_t value) {
+        UNRECOVERABLE_IF(value - 1 > 0x7ff);
         TheStructure.Common.SourceSurfaceDepth = value - 1;
     }
 
@@ -5201,7 +5207,7 @@ typedef struct tagCOMPUTE_WALKER {
             uint32_t ComputeCommandOpcode : BITFIELD_RANGE(24, 26);
             uint32_t Pipeline : BITFIELD_RANGE(27, 28);
             uint32_t CommandType : BITFIELD_RANGE(29, 31);
-            // DWORD 1
+            // DWORD 1 of COMPUTE WALKER = DWORD 0 of COMPUTE_WALKER_BODY
             uint32_t Reserved_32 : BITFIELD_RANGE(0, 7);
             uint32_t Reserved_40 : BITFIELD_RANGE(8, 31);
             // DWORD 2
@@ -5213,7 +5219,9 @@ typedef struct tagCOMPUTE_WALKER {
             uint32_t Reserved_96 : BITFIELD_RANGE(0, 5);
             uint32_t IndirectDataStartAddress : BITFIELD_RANGE(6, 31);
             // DWORD 4
-            uint32_t Reserved_128 : BITFIELD_RANGE(0, 16);
+            uint32_t Reserved_128 : BITFIELD_RANGE(0, 4);
+            uint32_t DispatchWalkOrder : BITFIELD_RANGE(5, 6);
+            uint32_t Reserved_135 : BITFIELD_RANGE(7, 16);
             uint32_t MessageSimd : BITFIELD_RANGE(17, 18);
             uint32_t TileLayout : BITFIELD_RANGE(19, 21);
             uint32_t WalkOrder : BITFIELD_RANGE(22, 24);
@@ -5292,6 +5300,10 @@ typedef struct tagCOMPUTE_WALKER {
         PARTITION_ID_SUPPORTED_MIN = 0x0,
         PARTITION_ID_SUPPORTED_MAX = 0xf,
     } PARTITION_ID;
+    typedef enum tagDISPATCH_WALK_ORDER { // patched
+        LINERAR_WALKER = 0x0,
+        Y_ORDER_WALKER = 0x1,
+    } DISPATCH_WALK_ORDER;
     inline void init() {
         memset(&TheStructure, 0, sizeof(TheStructure));
         TheStructure.Common.DwordLength = DWORD_LENGTH_FIXED_SIZE;
@@ -5398,6 +5410,12 @@ typedef struct tagCOMPUTE_WALKER {
     }
     inline PARTITION_TYPE getPartitionType() const {
         return static_cast<PARTITION_TYPE>(TheStructure.Common.PartitionType);
+    }
+    inline void setDispatchWalkOrder(const DISPATCH_WALK_ORDER value) { // patched
+        TheStructure.Common.DispatchWalkOrder = value;
+    }
+    inline DISPATCH_WALK_ORDER getDispatchWalkOrder() const { // patched
+        return static_cast<DISPATCH_WALK_ORDER>(TheStructure.Common.DispatchWalkOrder);
     }
     typedef enum tagINDIRECTDATASTARTADDRESS {
         INDIRECTDATASTARTADDRESS_BIT_SHIFT = 0x6,
@@ -5755,6 +5773,17 @@ typedef struct tagMI_ARB_CHECK {
     inline uint32_t getPreFetchDisable() const {
         return TheStructure.Common.Pre_FetchDisable;
     }
+
+    // patched for easier templates usage
+    inline void setPreParserDisable(const uint32_t value) {
+        setPreFetchDisable(value);
+    }
+
+    // patched for easier templates usage
+    inline uint32_t getPreParserDisable() const {
+        return getPreFetchDisable();
+    }
+
     inline void setMaskBits(const uint32_t value) {
         DEBUG_BREAK_IF(value > 0xff00);
         TheStructure.Common.MaskBits = value;

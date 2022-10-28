@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,6 +42,7 @@ struct MockHardwareContext : public aub_stream::HardwareContext {
     void readMemory(uint64_t gfxAddress, void *memory, size_t size, uint32_t memoryBank, size_t pageSize) override { readMemoryCalled = true; }
     void dumpBufferBIN(uint64_t gfxAddress, size_t size) override { dumpBufferBINCalled = true; }
     void dumpSurface(const SurfaceInfo &surfaceInfo) override { dumpSurfaceCalled = true; }
+    void pollForFenceCompletion() override {}
 
     std::vector<aub_stream::AllocationParams> storedAllocationParams;
     bool storeAllocationParams = false;
@@ -107,7 +108,7 @@ class MockAubManager : public aub_stream::AubManager {
     }
 
     void addComment(const char *message) override {
-        receivedComment.assign(message);
+        receivedComments.append(message);
         addCommentCalled = true;
     }
 
@@ -138,6 +139,9 @@ class MockAubManager : public aub_stream::AubManager {
         freeMemoryCalled = true;
     }
 
+    bool reservePhysicalMemory(aub_stream::AllocationParams allocationParams, aub_stream::PhysicalAllocationInfo &physicalAllocInfo) override { return false; };
+    bool mapGpuVa(uint64_t gfxAddress, size_t size, aub_stream::PhysicalAllocationInfo physicalAllocInfo) override { return false; };
+
     std::vector<aub_stream::AllocationParams> storedAllocationParams;
     uint32_t openCalledCnt = 0;
     std::string fileName = "";
@@ -146,7 +150,7 @@ class MockAubManager : public aub_stream::AubManager {
     bool getFileNameCalled = false;
     bool isPaused = false;
     bool addCommentCalled = false;
-    std::string receivedComment = "";
+    std::string receivedComments = "";
     bool writeMemory2Called = false;
     bool writePageTableEntriesCalled = false;
     bool writePhysicalMemoryPagesCalled = false;

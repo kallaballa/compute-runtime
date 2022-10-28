@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-# Copyright (C) 2021 Intel Corporation
+# Copyright (C) 2021-2022 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -13,6 +13,8 @@ REPO_DIR="$( cd "$( dirname "${DIR}/../../../../" )" && pwd )"
 
 BUILD_DIR="${REPO_DIR}/../build_l0_gpu_driver"
 NEO_SKIP_UNIT_TESTS=${NEO_SKIP_UNIT_TESTS:-FALSE}
+NEO_DISABLE_BUILTINS_COMPILATION=${NEO_DISABLE_BUILTINS_COMPILATION:-FALSE}
+SPEC_FILE="${SPEC_FILE:-${OS_TYPE}}"
 
 BRANCH_SUFFIX="$( cat ${REPO_DIR}/.branch )"
 
@@ -35,7 +37,7 @@ get_l0_gpu_driver_version	# NEO_L0_VERSION_MAJOR.NEO_L0_VERSION_MINOR.NEO_L0_VER
 if [ -z "${BRANCH_SUFFIX}" ]; then
     VERSION="${NEO_L0_VERSION_MAJOR}.${NEO_L0_VERSION_MINOR}.${NEO_L0_VERSION_PATCH}${API_DEB_MODEL_LINK}"
 else
-    VERSION="${NEO_L0_VERSION_MAJOR}.${NEO_L0_VERSION_MINOR}.${NEO_L0_VERSION_PATCH}.${API_VERSION}-${API_VERSION_SRC}${API_DEB_MODEL_LINK}"
+    VERSION="${NEO_L0_VERSION_MAJOR}.${NEO_L0_VERSION_MINOR}.${NEO_L0_VERSION_PATCH}${API_VERSION}-${NEO_L0_VERSION_HOTFIX}${API_VERSION_SRC}${API_DEB_MODEL_LINK}"
 fi
 
 PKG_VERSION=${VERSION}
@@ -47,11 +49,11 @@ fi
 rm -rf $BUILD_DIR
 mkdir -p $BUILD_DIR/debian
 
-COPYRIGHT="${REPO_DIR}/scripts/packaging/${BRANCH_SUFFIX}/l0_gpu_driver/${OS_TYPE}/copyright"
-CONTROL="${REPO_DIR}/scripts/packaging/${BRANCH_SUFFIX}/l0_gpu_driver/${OS_TYPE}/control"
-SHLIBS="${REPO_DIR}/scripts/packaging/${BRANCH_SUFFIX}/l0_gpu_driver/${OS_TYPE}/shlibs.local"
+COPYRIGHT="${REPO_DIR}/scripts/packaging/${BRANCH_SUFFIX}/l0_gpu_driver/${SPEC_FILE}/copyright"
+CONTROL="${REPO_DIR}/scripts/packaging/${BRANCH_SUFFIX}/l0_gpu_driver/${SPEC_FILE}/control"
+SHLIBS="${REPO_DIR}/scripts/packaging/${BRANCH_SUFFIX}/l0_gpu_driver/${SPEC_FILE}/shlibs.local"
 
-cp -pR ${REPO_DIR}/scripts/packaging/l0_gpu_driver/${OS_TYPE}/debian/* $BUILD_DIR/debian/
+cp -pR ${REPO_DIR}/scripts/packaging/l0_gpu_driver/${SPEC_FILE}/debian/* $BUILD_DIR/debian/
 cp $COPYRIGHT $BUILD_DIR/debian/
 cp $CONTROL $BUILD_DIR/debian/
 if [ -f "${SHLIBS}" ]; then
@@ -66,13 +68,13 @@ if [ ! -z "${LEVEL_ZERO_DEVEL_VERSION}" ]; then
 fi
 
 if [ -z "${BRANCH_SUFFIX}" ]; then
-    GMM_VERSION=$(apt-cache policy intel-gmmlib | grep Installed | cut -f2- -d ':' | xargs)
+    GMM_VERSION=$(apt-cache policy libigdgmm12 | grep Installed | cut -f2- -d ':' | xargs)
     if [ ! -z "${GMM_VERSION}" ]; then
-        perl -pi -e "s/^ intel-gmmlib(?=,|$)/ intel-gmmlib (=$GMM_VERSION)/" "$BUILD_DIR/debian/control"
+        perl -pi -e "s/^ libigdgmm12(?=,|$)/ libigdgmm12 (>=$GMM_VERSION)/" "$BUILD_DIR/debian/control"
     fi
-    GMM_DEVEL_VERSION=$(apt-cache policy intel-gmmlib-devel | grep Installed | cut -f2- -d ':' | xargs)
+    GMM_DEVEL_VERSION=$(apt-cache policy libigdgmm-dev | grep Installed | cut -f2- -d ':' | xargs)
     if [ ! -z "${GMM_DEVEL_VERSION}" ]; then
-        perl -pi -e "s/^ intel-gmmlib-devel(?=,|$)/ intel-gmmlib-devel (=$GMM_DEVEL_VERSION)/" "$BUILD_DIR/debian/control"
+        perl -pi -e "s/^ libigdgmm-dev(?=,|$)/ libigdgmm-dev (>=$GMM_DEVEL_VERSION)/" "$BUILD_DIR/debian/control"
     fi
 
     IGC_VERSION=$(apt-cache policy intel-igc-opencl | grep Installed | cut -f2- -d ':' | xargs)
@@ -92,9 +94,9 @@ perl -pi -e "s/^ver = .*/ver = $NEO_L0_VERSION_PATCH/" $BUILD_DIR/debian/rules
 cat << EOF | tee $BUILD_DIR/CMakeLists.txt
 cmake_minimum_required (VERSION 3.2 FATAL_ERROR)
 
-project(l0_gpu_driver)
+project(neo)
 
-add_subdirectory($REPO_DIR l0_gpu_driver)
+add_subdirectory($REPO_DIR neo)
 EOF
 
 (
@@ -114,6 +116,7 @@ EOF
         NEO_SKIP_UNIT_TESTS="TRUE"
         export NEO_DISABLE_BUILTINS_COMPILATION="TRUE"
     fi
+    export NEO_DISABLE_BUILTINS_COMPILATION
     export NEO_SKIP_UNIT_TESTS
 
     dch -v ${PKG_VERSION} -m "build $PKG_VERSION"

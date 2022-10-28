@@ -34,7 +34,7 @@ WddmMock::WddmMock(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::mak
 };
 
 WddmMock::~WddmMock() {
-    EXPECT_EQ(0, reservedAddresses.size());
+    EXPECT_EQ(0u, reservedAddresses.size());
 }
 
 bool WddmMock::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim, size_t totalSize) {
@@ -59,10 +59,10 @@ bool WddmMock::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool c
     }
     return makeResidentStatus;
 }
-bool WddmMock::evict(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim) {
+bool WddmMock::evict(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim, bool evictNeeded) {
     evictResult.called++;
     if (callBaseEvict) {
-        evictStatus = Wddm::evict(handles, num, sizeToTrim);
+        evictStatus = Wddm::evict(handles, num, sizeToTrim, evictNeeded);
     }
     return evictStatus;
 }
@@ -249,7 +249,10 @@ bool WddmMock::waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monito
     waitFromCpuResult.called++;
     waitFromCpuResult.uint64ParamPassed = lastFenceValue;
     waitFromCpuResult.monitoredFence = &monitoredFence;
-    return waitFromCpuResult.success = Wddm::waitFromCpu(lastFenceValue, monitoredFence);
+    if (callBaseWaitFromCpu) {
+        return waitFromCpuResult.success = Wddm::waitFromCpu(lastFenceValue, monitoredFence);
+    }
+    return waitFromCpuResult.success = true;
 }
 
 void *WddmMock::virtualAlloc(void *inPtr, size_t size, bool topDownHint) {

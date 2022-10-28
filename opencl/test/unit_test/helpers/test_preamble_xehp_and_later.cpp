@@ -9,8 +9,8 @@
 #include "shared/source/gmm_helper/client_context/gmm_client_context.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/state_base_address.h"
+#include "shared/test/common/fixtures/preamble_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/preamble/preamble_fixture.h"
 
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -23,17 +23,12 @@
 using namespace NEO;
 
 using ThreadArbitrationXeHPAndLater = PreambleFixture;
-HWCMDTEST_F(IGFX_XE_HP_CORE, ThreadArbitrationXeHPAndLater, givenPolicyWhenThreadArbitrationProgrammedThenDoNothing) {
-    LinearStream &cs = linearStream;
-
-    PreambleHelper<FamilyType>::programThreadArbitration(&cs, ThreadArbitrationPolicy::RoundRobin);
-
-    EXPECT_EQ(0u, cs.getUsed());
-    EXPECT_EQ(0u, HwHelperHw<FamilyType>::get().getDefaultThreadArbitrationPolicy());
+HWTEST2_F(ThreadArbitrationXeHPAndLater, whenGetDefaultThreadArbitrationPolicyIsCalledThenCorrectPolicyIsReturned, IsXeHpOrXeHpgCore) {
+    EXPECT_EQ(ThreadArbitrationPolicy::AgeBased, HwHelperHw<FamilyType>::get().getDefaultThreadArbitrationPolicy());
 }
 
 using ProgramPipelineXeHPAndLater = PreambleFixture;
-HWCMDTEST_F(IGFX_XE_HP_CORE, ProgramPipelineXeHPAndLater, whenCleanStateInPreambleIsSetAndProgramPipelineSelectIsCalledThenExtraPipelineSelectAndTwoExtraPipeControlsAdded) {
+HWTEST2_F(ProgramPipelineXeHPAndLater, whenCleanStateInPreambleIsSetAndProgramPipelineSelectIsCalledThenExtraPipelineSelectAndTwoExtraPipeControlsAdded, IsWithinXeGfxFamily) {
     typedef typename FamilyType::PIPELINE_SELECT PIPELINE_SELECT;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     DebugManagerStateRestore stateRestore;
@@ -51,7 +46,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, ProgramPipelineXeHPAndLater, whenCleanStateInPreamb
     EXPECT_EQ(2u, numPipelineSelect);
 }
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, ProgramPipelineXeHPAndLater, givenDebugVariableWhenProgramPipelineSelectIsCalledThenItHasProperFieldsSet) {
+HWTEST2_F(ProgramPipelineXeHPAndLater, givenDebugVariableWhenProgramPipelineSelectIsCalledThenItHasProperFieldsSet, IsWithinXeGfxFamily) {
     typedef typename FamilyType::PIPELINE_SELECT PIPELINE_SELECT;
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.OverrideSystolicPipelineSelect.set(1);
@@ -119,7 +114,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, KernelCommandsXeHPAndLater, whenKernelSizeIsRequire
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, KernelCommandsXeHPAndLater, whenPipeControlForWaIsRequiredThenReturnFalse) {
     auto &hwInfo = pDevice->getHardwareInfo();
-    EXPECT_EQ(UnitTestHelper<FamilyType>::isPipeControlWArequired(hwInfo), MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hwInfo));
+    EXPECT_EQ(UnitTestHelper<FamilyType>::isPipeControlWArequired(hwInfo), MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hwInfo));
 }
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, KernelCommandsXeHPAndLater, whenMediaInterfaceDescriptorLoadIsRequiredThenDoNotProgramNonExistingCommand) {
@@ -145,7 +140,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, PreambleCfeStateXeHPAndLater, givenScratchEnabledWh
     uint32_t expectedMaxThreads = HwHelper::getMaxThreadsForVfe(*defaultHwInfo);
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&linearStream, *defaultHwInfo, EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, expectedAddress, expectedMaxThreads, emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, expectedAddress, expectedMaxThreads, emptyProperties, nullptr);
 
     parseCommands<FamilyType>(linearStream);
 
@@ -179,7 +174,7 @@ HWTEST2_F(PreambleCfeStateXeHPAndLater, givenNotSetDebugFlagWhenPreambleCfeState
     uint32_t expectedMaxThreads = HwHelper::getMaxThreadsForVfe(*defaultHwInfo);
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&linearStream, *defaultHwInfo, EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, expectedAddress, expectedMaxThreads, emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, expectedAddress, expectedMaxThreads, emptyProperties, nullptr);
     uint32_t maximumNumberOfThreads = cfeState->getMaximumNumberOfThreads();
 
     if constexpr (TestTraits<gfxCoreFamily>::numberOfWalkersInCfeStateSupported) {
@@ -210,7 +205,7 @@ HWTEST2_F(PreambleCfeStateXeHPAndLater, givenSetDebugFlagWhenPreambleCfeStateIsP
     uint64_t expectedAddress = 1 << CFE_STATE::SCRATCHSPACEBUFFER_BIT_SHIFT;
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&linearStream, *defaultHwInfo, EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, expectedAddress, 16u, emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 0u, expectedAddress, 16u, emptyProperties, nullptr);
 
     parseCommands<FamilyType>(linearStream);
     auto cfeStateIt = find<CFE_STATE *>(cmdList.begin(), cmdList.end());
@@ -448,50 +443,70 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHpCommandStreamReceiverFlushTaskTests, givenMultE
 
 using StateBaseAddressXeHPAndLaterTests = XeHpCommandStreamReceiverFlushTaskTests;
 
-struct CompressionParamsSupportedMatcher {
-    template <PRODUCT_FAMILY productFamily>
-    static constexpr bool isMatched() {
-        if constexpr (HwMapper<productFamily>::GfxProduct::supportsCmdSet(IGFX_XE_HP_CORE)) {
-            return TestTraits<NEO::ToGfxCoreFamily<productFamily>::get()>::surfaceStateCompressionParamsSupported;
-        }
-        return false;
+namespace {
+
+template <typename FamilyType, typename CommandStreamReceiverType>
+void flushTaskAndcheckForSBA(StateBaseAddressXeHPAndLaterTests *sbaTest, CommandStreamReceiverType &csr, bool shouldBePresent) {
+    size_t offset = csr.commandStream.getUsed();
+
+    sbaTest->flushTask(csr);
+
+    HardwareParse hwParserCsr;
+    hwParserCsr.parseCommands<FamilyType>(csr.commandStream, offset);
+    hwParserCsr.findHardwareCommands<FamilyType>();
+    if (shouldBePresent) {
+        EXPECT_NE(nullptr, hwParserCsr.cmdStateBaseAddress);
+    } else {
+        EXPECT_EQ(nullptr, hwParserCsr.cmdStateBaseAddress);
     }
-};
-
-HWTEST2_F(StateBaseAddressXeHPAndLaterTests, givenMemoryCompressionEnabledWhenAppendingSbaThenEnableStatelessCompressionForAllStatelessAccesses, CompressionParamsSupportedMatcher) {
-    auto memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
-    AllocationProperties properties(pDevice->getRootDeviceIndex(), 1, AllocationType::BUFFER, pDevice->getDeviceBitfield());
-    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
-    IndirectHeap indirectHeap(allocation, 1);
-
-    for (auto memoryCompressionState : {MemoryCompressionState::NotApplicable, MemoryCompressionState::Disabled, MemoryCompressionState::Enabled}) {
-        auto sbaCmd = FamilyType::cmdInitStateBaseAddress;
-        StateBaseAddressHelper<FamilyType>::appendStateBaseAddressParameters(&sbaCmd, &indirectHeap, true, 0,
-                                                                             pDevice->getRootDeviceEnvironment().getGmmHelper(), false, memoryCompressionState, true, false, 1u);
-        if (memoryCompressionState == MemoryCompressionState::Enabled) {
-            EXPECT_EQ(FamilyType::STATE_BASE_ADDRESS::ENABLE_MEMORY_COMPRESSION_FOR_ALL_STATELESS_ACCESSES_ENABLED, sbaCmd.getEnableMemoryCompressionForAllStatelessAccesses());
-        } else {
-            EXPECT_EQ(FamilyType::STATE_BASE_ADDRESS::ENABLE_MEMORY_COMPRESSION_FOR_ALL_STATELESS_ACCESSES_DISABLED, sbaCmd.getEnableMemoryCompressionForAllStatelessAccesses());
-        }
-    }
-
-    memoryManager->freeGraphicsMemory(allocation);
 }
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, StateBaseAddressXeHPAndLaterTests, givenNonZeroInternalHeapBaseAddressWhenSettingIsDisabledThenExpectCommandValueZero) {
-    auto memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
-    AllocationProperties properties(pDevice->getRootDeviceIndex(), 1, AllocationType::BUFFER, pDevice->getDeviceBitfield());
-    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
+template <typename FamilyType>
+void testGlobalAtomicsImpactOnSBA(StateBaseAddressXeHPAndLaterTests *sbaTest, bool multiOsCtx, bool multiSubDevices, bool expectSBA) {
 
-    IndirectHeap indirectHeap(allocation, 1);
-    auto sbaCmd = FamilyType::cmdInitStateBaseAddress;
-    uint64_t ihba = 0x80010000ull;
-    StateBaseAddressHelper<FamilyType>::appendStateBaseAddressParameters(&sbaCmd, &indirectHeap, false, ihba,
-                                                                         pDevice->getRootDeviceEnvironment().getGmmHelper(), false,
-                                                                         MemoryCompressionState::NotApplicable, true, false, 1u);
-    EXPECT_EQ(0ull, sbaCmd.getGeneralStateBaseAddress());
-    memoryManager->freeGraphicsMemory(allocation);
+    auto &commandStreamReceiver = sbaTest->pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.multiOsContextCapable = multiOsCtx;
+    sbaTest->flushTaskFlags.areMultipleSubDevicesInContext = multiSubDevices;
+
+    flushTaskAndcheckForSBA<FamilyType>(sbaTest, commandStreamReceiver, true);
+    flushTaskAndcheckForSBA<FamilyType>(sbaTest, commandStreamReceiver, false);
+
+    commandStreamReceiver.lastSentUseGlobalAtomics ^= true;
+    flushTaskAndcheckForSBA<FamilyType>(sbaTest, commandStreamReceiver, expectSBA);
+    flushTaskAndcheckForSBA<FamilyType>(sbaTest, commandStreamReceiver, false);
+
+    commandStreamReceiver.lastSentUseGlobalAtomics ^= true;
+    flushTaskAndcheckForSBA<FamilyType>(sbaTest, commandStreamReceiver, expectSBA);
 }
+
+} /* namespace */
+
+struct XeHpGlobalAtomicsStateBaseAddressTests : public StateBaseAddressXeHPAndLaterTests,
+                                                public ::testing::WithParamInterface<std::tuple<bool, bool>> {};
+
+HWTEST2_P(XeHpGlobalAtomicsStateBaseAddressTests, givenMultiOSContextOrMultiSubDeviceWhenLastSentUseGlobalAtomicsIsFlippedThenStatBaseAddressIsReprorammed, IsXEHP) {
+    auto [multiOsCtx, multiSubDevices] = GetParam();
+    testGlobalAtomicsImpactOnSBA<FamilyType>(this, multiOsCtx, multiSubDevices, multiOsCtx || multiSubDevices);
+}
+
+INSTANTIATE_TEST_CASE_P(XeHpGlobalAtomicsStateBaseAddress,
+                        XeHpGlobalAtomicsStateBaseAddressTests,
+                        ::testing::Combine(
+                            ::testing::Bool(),
+                            ::testing::Bool()));
+
+using NonXeHpGlobalAtomicsStateBaseAddressTests = XeHpGlobalAtomicsStateBaseAddressTests;
+
+HWTEST2_P(NonXeHpGlobalAtomicsStateBaseAddressTests, givenAnyMultiOSContextValueWithAnySubDeviceNumberWhenLastSentUseGlobalAtomicsIsFlippedThenStatBaseAddressProgrammingIsNeverAffected, IsNotXEHP) {
+    auto [multiOsCtx, multiSubDevices] = GetParam();
+    testGlobalAtomicsImpactOnSBA<FamilyType>(this, multiOsCtx, multiSubDevices, false);
+}
+
+INSTANTIATE_TEST_CASE_P(NonXeHpGlobalAtomicsStateBaseAddress,
+                        NonXeHpGlobalAtomicsStateBaseAddressTests,
+                        ::testing::Combine(
+                            ::testing::Bool(),
+                            ::testing::Bool()));
 
 using RenderSurfaceStateXeHPAndLaterTests = XeHpCommandStreamReceiverFlushTaskTests;
 
@@ -508,7 +523,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, RenderSurfaceStateXeHPAndLaterTests, givenSpecificP
     multiGraphicsAllocation.addAllocation(allocation);
 
     std::unique_ptr<BufferHw<FamilyType>> buffer(static_cast<BufferHw<FamilyType> *>(
-        BufferHw<FamilyType>::create(&context, {}, 0, 0, allocationSize, nullptr, nullptr, multiGraphicsAllocation, false, false, false)));
+        BufferHw<FamilyType>::create(&context, {}, 0, 0, allocationSize, nullptr, nullptr, std::move(multiGraphicsAllocation), false, false, false)));
 
     NEO::EncodeSurfaceStateArgs args;
     args.outMemory = &rssCmd;
@@ -527,27 +542,22 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, RenderSurfaceStateXeHPAndLaterTests, givenSpecificP
 
 using PipelineSelectTest = ::testing::Test;
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, PipelineSelectTest, whenCallingIsSpecialPipelineSelectModeChangedThenReturnCorrectValue) {
-    using PIPELINE_SELECT = typename FamilyType::PIPELINE_SELECT;
-    bool oldPipelineSelectSpecialMode = true;
-    bool newPipelineSelectSpecialMode = false;
-
-    auto result = PreambleHelper<FamilyType>::isSpecialPipelineSelectModeChanged(oldPipelineSelectSpecialMode, newPipelineSelectSpecialMode, *defaultHwInfo);
-    EXPECT_TRUE(result);
-}
-
-HWCMDTEST_F(IGFX_XE_HP_CORE, PipelineSelectTest, WhenProgramPipelineSelectThenProperMaskIsSet) {
+HWTEST2_F(PipelineSelectTest, WhenProgramPipelineSelectThenProperMaskIsSet, IsWithinXeGfxFamily) {
     using PIPELINE_SELECT = typename FamilyType::PIPELINE_SELECT;
     PIPELINE_SELECT cmd = FamilyType::cmdInitPipelineSelect;
     LinearStream pipelineSelectStream(&cmd, sizeof(cmd));
-    PreambleHelper<FamilyType>::programPipelineSelect(&pipelineSelectStream, {}, *defaultHwInfo);
+
+    PipelineSelectArgs pipelineArgs = {};
+    pipelineArgs.systolicPipelineSelectSupport = PreambleHelper<FamilyType>::isSystolicModeConfigurable(*defaultHwInfo);
+
+    PreambleHelper<FamilyType>::programPipelineSelect(&pipelineSelectStream, pipelineArgs, *defaultHwInfo);
 
     auto expectedMask = pipelineSelectEnablePipelineSelectMaskBits;
     if constexpr (FamilyType::isUsingMediaSamplerDopClockGate) {
         expectedMask |= pipelineSelectMediaSamplerDopClockGateMaskBits;
     }
 
-    if (PreambleHelper<FamilyType>::isSystolicModeConfigurable(*defaultHwInfo)) {
+    if (pipelineArgs.systolicPipelineSelectSupport) {
         expectedMask |= pipelineSelectSystolicModeEnableMaskBits;
     }
 

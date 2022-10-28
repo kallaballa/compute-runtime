@@ -25,11 +25,11 @@ struct ReadBufferHw
       public ::testing::Test {
 
     void SetUp() override {
-        CommandEnqueueAUBFixture::SetUp();
+        CommandEnqueueAUBFixture::setUp();
     }
 
     void TearDown() override {
-        CommandEnqueueAUBFixture::TearDown();
+        CommandEnqueueAUBFixture::tearDown();
     }
 };
 
@@ -108,7 +108,7 @@ INSTANTIATE_TEST_CASE_P(AUBReadBuffer_simple,
                             3 * sizeof(cl_float)));
 
 HWTEST_F(AUBReadBuffer, GivenReserveCanonicalGpuAddressWhenReadingBufferThenExpectationsAreMet) {
-    if (!GetAubTestsConfig<FamilyType>().testCanonicalAddress) {
+    if (!getAubTestsConfig<FamilyType>().testCanonicalAddress) {
         return;
     }
 
@@ -162,11 +162,11 @@ struct AUBReadBufferUnaligned
       public ::testing::Test {
 
     void SetUp() override {
-        CommandEnqueueAUBFixture::SetUp();
+        CommandEnqueueAUBFixture::setUp();
     }
 
     void TearDown() override {
-        CommandEnqueueAUBFixture::TearDown();
+        CommandEnqueueAUBFixture::tearDown();
     }
 
     template <typename FamilyType>

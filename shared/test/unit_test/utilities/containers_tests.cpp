@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,7 +12,6 @@
 #include "shared/source/utilities/stackvec.h"
 #include "shared/test/unit_test/utilities/containers_tests_helpers.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include <cinttypes>
@@ -791,7 +790,7 @@ void iDListTestDetachSequence() {
 
     ASSERT_EQ(nodes[4], nodes[0]->next);
     ASSERT_NE(nullptr, nodes[4]);
-    ASSERT_EQ(nodes[0], nodes[4]->prev); // NOLINT(clang-analyzer-core.NonNullParamChecker)
+    ASSERT_EQ(nodes[0], nodes[4]->prev);
     ASSERT_EQ(nodes[0], list.peekHead());
     ASSERT_EQ(nodes[9], list.peekTail());
 
@@ -954,14 +953,8 @@ void testIDListUnlockOnException() {
     };
 
     ListMock l;
-    bool caughtEx = false;
-    try {
-        l.throwExFromLock();
-    } catch (const ExType &) {
-        caughtEx = true;
-    }
+    EXPECT_THROW(l.throwExFromLock(), ExType);
 
-    EXPECT_TRUE(caughtEx);
     EXPECT_FALSE(l.getLockedRef().test_and_set(std::memory_order_seq_cst));
 }
 
@@ -1250,6 +1243,75 @@ TEST(StackVec, WhenPushingBackThenContentsAreCorrect) {
     }
 
     ASSERT_FALSE(contains(&v, &*v.begin()));
+}
+
+TEST(StackVec, whenSwapThenContentsAreExchanged) {
+    using Type = uint32_t;
+    StackVec<Type, 5> vector1;
+    StackVec<Type, 5> vector2;
+
+    for (uint32_t i = 0; i < 3; ++i) {
+        vector1.push_back(i);
+    }
+
+    for (uint32_t i = 0; i < 5; ++i) {
+        vector2.push_back(i);
+    }
+
+    vector1.swap(vector2);
+    EXPECT_EQ(5u, vector1.size());
+    EXPECT_EQ(3u, vector2.size());
+    EXPECT_EQ(4u, vector1.at(4u));
+
+    vector1.swap(vector2);
+    EXPECT_EQ(3u, vector1.size());
+    EXPECT_EQ(5u, vector2.size());
+}
+
+TEST(StackVec, whenDynamicStorageSwapThenContentsAreExchanged) {
+    using Type = uint32_t;
+    StackVec<Type, 1> vector1;
+    StackVec<Type, 1> vector2;
+
+    for (uint32_t i = 0; i < 3; ++i) {
+        vector1.push_back(i);
+    }
+
+    for (uint32_t i = 0; i < 5; ++i) {
+        vector2.push_back(i);
+    }
+
+    vector1.swap(vector2);
+    EXPECT_EQ(5u, vector1.size());
+    EXPECT_EQ(3u, vector2.size());
+    EXPECT_EQ(4u, vector1.at(4u));
+
+    vector1.swap(vector2);
+    EXPECT_EQ(3u, vector1.size());
+    EXPECT_EQ(5u, vector2.size());
+}
+
+TEST(StackVec, whenDynamicToNonDynamicStorageSwapThenContentsAreExchanged) {
+    using Type = uint32_t;
+    StackVec<Type, 1> vector1;
+    StackVec<Type, 5> vector2;
+
+    for (uint32_t i = 0; i < 3; ++i) {
+        vector1.push_back(i);
+    }
+
+    for (uint32_t i = 0; i < 5; ++i) {
+        vector2.push_back(i);
+    }
+
+    vector1.swap(vector2);
+    EXPECT_EQ(5u, vector1.size());
+    EXPECT_EQ(3u, vector2.size());
+    EXPECT_EQ(4u, vector1.at(4u));
+
+    vector1.swap(vector2);
+    EXPECT_EQ(3u, vector1.size());
+    EXPECT_EQ(5u, vector2.size());
 }
 
 TEST(StackVecPopBack, GivenNonEmptyStackVecThenRemoveSingleElementFromTheEnd) {
@@ -1640,6 +1702,36 @@ TEST(StackVec, GivenStackVecWithDynamicMemWhenSelfAssignedThenMemoryIsReused) {
             EXPECT_EQ(dataA[i], currentMemory[i]);
         }
     }
+}
+
+TEST(StackVec, GivenVectorWithDuplicatesWhenRemovingDuplicatesThenVectorIsSortedAndDuplicatesRemoved) {
+    StackVec<uint32_t, 8> stackVec = {6, 5, 4, 3, 2, 1, 5, 4, 5, 4, 2, 4, 3, 1, 6, 1};
+    ASSERT_EQ(stackVec.size(), 16u);
+
+    stackVec.remove_duplicates();
+    EXPECT_EQ(stackVec.size(), 6u);
+    const StackVec<uint32_t, 8> expectedStackVec = {1, 2, 3, 4, 5, 6};
+    EXPECT_EQ(stackVec, expectedStackVec);
+}
+
+TEST(StackVec, GivenVectorWithoutDuplicatesWhenRemovingDuplicatesThenVectorIsSorted) {
+    StackVec<uint32_t, 8> stackVec = {16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+    ASSERT_EQ(stackVec.size(), 16u);
+
+    stackVec.remove_duplicates();
+    EXPECT_EQ(stackVec.size(), 16u);
+    const StackVec<uint32_t, 8> expectedStackVec = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    EXPECT_EQ(stackVec, expectedStackVec);
+}
+
+TEST(StackVec, GivenSortedVectorWithoutDuplicatesWhenRemovingDuplicatesThenVectorIsUnchanged) {
+    StackVec<uint32_t, 8> stackVec = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    ASSERT_EQ(stackVec.size(), 16u);
+
+    stackVec.remove_duplicates();
+    EXPECT_EQ(stackVec.size(), 16u);
+    const StackVec<uint32_t, 8> expectedStackVec = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    EXPECT_EQ(stackVec, expectedStackVec);
 }
 
 int sum(ArrayRef<int> a) {

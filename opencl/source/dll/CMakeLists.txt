@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2021 Intel Corporation
+# Copyright (C) 2018-2022 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -16,6 +16,7 @@ set(RUNTIME_SRCS_DLL_BASE
     ${NEO_SHARED_DIRECTORY}/dll/create_deferred_deleter.cpp
     ${NEO_SHARED_DIRECTORY}/dll/create_memory_manager_${DRIVER_MODEL}.cpp
     ${NEO_SHARED_DIRECTORY}/dll/create_tbx_sockets.cpp
+    ${NEO_SHARED_DIRECTORY}/dll/device_dll.cpp
     ${NEO_SHARED_DIRECTORY}/dll/direct_submission_controller_enabled.cpp
     ${NEO_SHARED_DIRECTORY}/dll/source_level_debugger_dll.cpp
     ${NEO_SHARED_DIRECTORY}/dll/get_devices.cpp
@@ -40,9 +41,13 @@ set(RUNTIME_SRCS_DLL_BASE
     ${EXPORTS_FILENAME}
 )
 
-append_sources_from_properties(RUNTIME_SRCS_DLL_BASE NEO_CORE_SRCS_LINK)
+append_sources_from_properties(RUNTIME_SRCS_DLL_BASE
+                               NEO_CORE_SRCS_LINK
+                               NEO_SRCS_ENABLE_CORE
+)
 
 set(RUNTIME_SRCS_DLL_LINUX
+    ${NEO_SHARED_DIRECTORY}/dll/linux/debugger_l0_dll_linux.cpp
     ${NEO_SHARED_DIRECTORY}/dll/linux/drm_neo_create.cpp
     ${NEO_SHARED_DIRECTORY}/dll/linux/options_linux.cpp
     ${NEO_SHARED_DIRECTORY}/dll/linux/os_interface.cpp
@@ -54,6 +59,7 @@ set(RUNTIME_SRCS_DLL_LINUX
 )
 
 set(RUNTIME_SRCS_DLL_WINDOWS
+    ${NEO_SHARED_DIRECTORY}/dll/windows/debugger_l0_windows.cpp
     ${NEO_SHARED_DIRECTORY}/dll/windows/options_windows.cpp
     ${NEO_SHARED_DIRECTORY}/dll/windows/os_interface.cpp
     ${NEO_SHARED_DIRECTORY}/dll/windows/environment_variables.cpp

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,10 +9,7 @@
 
 #include "shared/source/helpers/constants.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
-#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
-
-#include "gtest/gtest.h"
 
 #include <cstdint>
 
@@ -80,9 +77,9 @@ void validateL3Programming(GenCmdList &cmdList, GenCmdList::iterator &itorWalker
         EXPECT_EQ(registerOffset, cmd->getRegisterOffset());
         auto l3Cntlreg = cmd->getDataDword();
         auto numURBWays = (l3Cntlreg >> 1) & 0x7f;
-        auto L3ClientPool = (l3Cntlreg >> 25) & 0x7f;
+        auto l3ClientPool = (l3Cntlreg >> 25) & 0x7f;
         EXPECT_NE(0u, numURBWays);
-        EXPECT_NE(0u, L3ClientPool);
+        EXPECT_NE(0u, l3ClientPool);
     } else {
         ASSERT_EQ(itorWalker, itorCmd);
     }

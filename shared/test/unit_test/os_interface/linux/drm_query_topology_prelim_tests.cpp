@@ -10,15 +10,16 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/default_hw_info.h"
-#include "shared/test/common/libult/linux/drm_prelim_helper.h"
+#include "shared/test/common/libult/linux/drm_mock_prelim_context.h"
 #include "shared/test/common/libult/linux/drm_query_mock.h"
+#include "shared/test/common/mocks/linux/mock_drm_allocation.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/test_macros/test.h"
 
 #include "gtest/gtest.h"
 
 TEST(DrmQueryTopologyTest, givenDrmWhenQueryTopologyCalledThenPassNoFlags) {
-    auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
-    executionEnvironment->prepareRootDeviceEnvironments(1);
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
     DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
 
     Drm::QueryTopologyData topologyData = {};
@@ -35,8 +36,8 @@ struct QueryTopologyTests : ::testing::Test {
         using DrmQueryMock::DrmQueryMock;
 
         bool handleQueryItem(void *arg) override {
-            const auto queryItem = reinterpret_cast<drm_i915_query_item *>(arg);
-            if (queryItem->query_id != getQueryComputeSlicesIoctl()) {
+            const auto queryItem = reinterpret_cast<QueryItem *>(arg);
+            if (queryItem->queryId != DrmPrelimHelper::getQueryComputeSlicesIoctl()) {
                 return DrmQueryMock::handleQueryItem(queryItem);
             }
 
@@ -50,9 +51,9 @@ struct QueryTopologyTests : ::testing::Test {
             auto dataSize = static_cast<size_t>(std::ceil(realEuCount / 8.0));
 
             if (queryItem->length == 0) {
-                queryItem->length = static_cast<int32_t>(sizeof(drm_i915_query_topology_info) + dataSize);
+                queryItem->length = static_cast<int32_t>(sizeof(QueryTopologyInfo) + dataSize);
             } else {
-                auto topologyArg = reinterpret_cast<drm_i915_query_topology_info *>(queryItem->data_ptr);
+                auto topologyArg = reinterpret_cast<QueryTopologyInfo *>(queryItem->dataPtr);
 
                 uint16_t finalSVal = queryComputeSlicesSCount;
                 uint16_t finalSSVal = queryComputeSlicesSSCount;
@@ -64,9 +65,9 @@ struct QueryTopologyTests : ::testing::Test {
                     finalEUVal /= 2;
                 }
 
-                topologyArg->max_slices = finalSVal;
-                topologyArg->max_subslices = (finalSSVal / finalSVal);
-                topologyArg->max_eus_per_subslice = (finalEUVal / finalSSVal);
+                topologyArg->maxSlices = finalSVal;
+                topologyArg->maxSubslices = (finalSSVal / finalSVal);
+                topologyArg->maxEusPerSubslice = (finalEUVal / finalSSVal);
 
                 memset(topologyArg->data, 0xFF, dataSize);
             }
@@ -85,11 +86,8 @@ struct QueryTopologyTests : ::testing::Test {
     };
 
     void SetUp() override {
-        executionEnvironment = std::make_unique<ExecutionEnvironment>();
-        executionEnvironment->prepareRootDeviceEnvironments(1);
-
+        executionEnvironment = std::make_unique<MockExecutionEnvironment>();
         rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
-        rootDeviceEnvironment->setHwInfo(NEO::defaultHwInfo.get());
     }
 
     void createDrm(uint32_t tileCount) {
@@ -313,4 +311,87 @@ TEST_F(QueryTopologyTests, givenDrmWhenGettingTopologyMapThenCorrectMapIsReturne
     for (uint32_t i = 0; i < topologyMap.size(); i++) {
         EXPECT_EQ(drmMock->queryComputeSlicesSCount, topologyMap.at(i).sliceIndices.size());
     }
+}
+
+TEST(DrmQueryTest, WhenCallingQueryPageFaultSupportThenReturnFalseByDefault) {
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+
+    drm.queryPageFaultSupport();
+
+    EXPECT_FALSE(drm.hasPageFaultSupport());
+}
+
+TEST(DrmQueryTest, givenPageFaultSupportEnabledWhenCallingQueryPageFaultSupportThenReturnCorrectValue) {
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+
+    for (bool hasPageFaultSupport : {false, true}) {
+        drm.context.hasPageFaultQueryValue = hasPageFaultSupport;
+        drm.queryPageFaultSupport();
+
+        EXPECT_EQ(hasPageFaultSupport, drm.hasPageFaultSupport());
+    }
+}
+
+TEST(DrmQueryTest, WhenQueryPageFaultSupportFailsThenReturnFalse) {
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+
+    drm.context.hasPageFaultQueryReturn = -1;
+    drm.queryPageFaultSupport();
+
+    EXPECT_FALSE(drm.hasPageFaultSupport());
+}
+
+TEST(DrmQueryTest, givenUseKmdMigrationWhenShouldAllocationFaultIsCalledOnFaultableHardwareThenReturnCorrectValue) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseKmdMigration.set(true);
+
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+    drm.pageFaultSupported = true;
+
+    AllocationType allocationTypesThatShouldFault[] = {
+        AllocationType::UNIFIED_SHARED_MEMORY};
+
+    for (auto allocationType : allocationTypesThatShouldFault) {
+        MockDrmAllocation allocation(allocationType, MemoryPool::MemoryNull);
+        EXPECT_TRUE(allocation.shouldAllocationPageFault(&drm));
+    }
+
+    MockDrmAllocation allocation(AllocationType::BUFFER, MemoryPool::MemoryNull);
+    EXPECT_FALSE(allocation.shouldAllocationPageFault(&drm));
+}
+
+TEST(DrmQueryTest, givenRecoverablePageFaultsEnabledWhenCallingHasPageFaultSupportThenReturnCorrectValue) {
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+
+    for (bool hasPageFaultSupport : {false, true}) {
+        drm.pageFaultSupported = hasPageFaultSupport;
+
+        EXPECT_EQ(hasPageFaultSupport, drm.hasPageFaultSupport());
+    }
+}
+
+TEST(DrmQueryTest, givenDrmAllocationWhenShouldAllocationFaultIsCalledOnNonFaultableHardwareThenReturnFalse) {
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+    drm.pageFaultSupported = false;
+
+    MockDrmAllocation allocation(AllocationType::BUFFER, MemoryPool::MemoryNull);
+    EXPECT_FALSE(allocation.shouldAllocationPageFault(&drm));
+}
+
+TEST(DrmQueryTest, givenEnableImplicitMigrationOnFaultableHardwareWhenShouldAllocationFaultIsCalledThenReturnTrue) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableImplicitMigrationOnFaultableHardware.set(true);
+
+    auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
+    DrmQueryMock drm{*executionEnvironment->rootDeviceEnvironments[0]};
+    drm.pageFaultSupported = true;
+
+    MockDrmAllocation allocation(AllocationType::BUFFER, MemoryPool::MemoryNull);
+    EXPECT_TRUE(allocation.shouldAllocationPageFault(&drm));
 }

@@ -8,12 +8,16 @@
 #include "shared/source/memory_manager/multi_graphics_allocation.h"
 
 #include "shared/source/gmm_helper/gmm.h"
+#include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/migration_sync_data.h"
 
 namespace NEO {
 
 MultiGraphicsAllocation::MultiGraphicsAllocation(uint32_t maxRootDeviceIndex) {
     graphicsAllocations.resize(maxRootDeviceIndex + 1);
+    for (auto &allocation : graphicsAllocations) {
+        allocation = nullptr;
+    }
 }
 
 MultiGraphicsAllocation::MultiGraphicsAllocation(const MultiGraphicsAllocation &multiGraphicsAllocation) {
@@ -56,6 +60,9 @@ void MultiGraphicsAllocation::removeAllocation(uint32_t rootDeviceIndex) {
 }
 
 GraphicsAllocation *MultiGraphicsAllocation::getGraphicsAllocation(uint32_t rootDeviceIndex) const {
+    if (rootDeviceIndex >= graphicsAllocations.size()) {
+        return nullptr;
+    }
     return graphicsAllocations[rootDeviceIndex];
 }
 

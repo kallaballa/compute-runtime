@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen8/hw_cmds.h"
 #include "shared/source/helpers/populate_factory.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 
@@ -14,7 +15,7 @@
 
 namespace NEO {
 
-typedef BDWFamily Family;
+typedef Gen8Family Family;
 static auto gfxCore = IGFX_GEN8_CORE;
 
 template class CommandQueueHw<Family>;

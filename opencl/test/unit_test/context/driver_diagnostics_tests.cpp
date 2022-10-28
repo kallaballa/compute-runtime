@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -188,13 +188,13 @@ TEST_F(PerformanceHintTest, GivenContextWhenSVMAllocIsCreatingThenContextProvide
 
         size_t size = 4096;
 
-        auto SVMPtr = clSVMAlloc(context, flg, size, 128);
-        EXPECT_NE(nullptr, SVMPtr);
+        auto svmPtr = clSVMAlloc(context, flg, size, 128);
+        EXPECT_NE(nullptr, svmPtr);
 
-        snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[CL_SVM_ALLOC_MEETS_ALIGNMENT_RESTRICTIONS], SVMPtr, size);
+        snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[CL_SVM_ALLOC_MEETS_ALIGNMENT_RESTRICTIONS], svmPtr, size);
         EXPECT_TRUE(containsHint(expectedHint, userData));
 
-        clSVMFree(context, SVMPtr);
+        clSVMFree(context, svmPtr);
     }
 }
 TEST_F(PerformanceHintTest, GivenNullContextAndEmptyDispatchinfoAndEnableComputeWorkSizeNDIsDefaultWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
@@ -438,7 +438,7 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     MockBuffer buffer;
     cl_mem clMem = &buffer;
 
-    MockBuffer::setAllocationType(buffer.getGraphicsAllocation(0), pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(buffer.getGraphicsAllocation(0), pDevice->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.kernelInfo.addArgBuffer(0, 0, 0, 0);
     mockKernel.kernelInfo.addExtendedMetadata(0, "arg0");
@@ -448,8 +448,7 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     mockKernel.mockKernel->setArgBuffer(0, sizeof(cl_mem *), &clMem);
 
     testing::internal::CaptureStdout();
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ARGUMENT_AUX_TRANSLATION],
              mockKernel.mockKernel->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName.c_str(), 0, mockKernel.mockKernel->getKernelInfo().getExtendedMetadata(0).argName.c_str());
@@ -460,27 +459,31 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
 }
 
 TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallFillWithKernelObjsForAuxTranslationOnGfxAllocationThenContextProvidesProperHint) {
+    auto device = castToObject<ClDevice>(devices[0]);
+    const ClDeviceInfo &devInfo = device->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.PrintDriverDiagnostics.set(1);
 
-    auto pDevice = castToObject<ClDevice>(devices[0]);
-    MockKernelWithInternals mockKernel(*pDevice, context);
+    MockKernelWithInternals mockKernel(*device, context);
     char data[128];
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(&gfxAllocation, device->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.kernelInfo.addExtendedMetadata(0, "arg0");
     mockKernel.kernelInfo.addArgBuffer(0, 0, 0, 0);
 
     mockKernel.mockKernel->initialize();
     mockKernel.mockKernel->auxTranslationRequired = true;
-    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
 
     testing::internal::CaptureStdout();
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ARGUMENT_AUX_TRANSLATION],
              mockKernel.mockKernel->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName.c_str(), 0, mockKernel.mockKernel->getKernelInfo().getExtendedMetadata(0).argName.c_str());
@@ -503,14 +506,13 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.mockKernel->initialize();
     mockKernel.mockKernel->setUnifiedMemoryExecInfo(&gfxAllocation);
 
     testing::internal::CaptureStdout();
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ALLOCATION_AUX_TRANSLATION],
              mockKernel.mockKernel->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName.c_str(), ptr, 128);
@@ -537,7 +539,7 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.mockKernel->initialize();
 
@@ -548,8 +550,7 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     context->getSVMAllocsManager()->insertSVMAlloc(allocData);
 
     testing::internal::CaptureStdout();
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ALLOCATION_AUX_TRANSLATION],
              mockKernel.mockKernel->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName.c_str(), ptr, 128);
@@ -562,16 +563,21 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
 }
 
 TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenKernelObjectWithGraphicsAllocationAccessedStatefullyOnlyThenDontReportAnyHint) {
+    auto device = castToObject<ClDevice>(devices[0]);
+    const ClDeviceInfo &devInfo = device->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.PrintDriverDiagnostics.set(1);
 
-    auto pDevice = castToObject<ClDevice>(devices[0]);
-    MockKernelWithInternals mockKernel(*pDevice, context);
+    MockKernelWithInternals mockKernel(*device, context);
     char data[128];
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(&gfxAllocation, device->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.kernelInfo.addExtendedMetadata(0, "arg0");
     mockKernel.kernelInfo.addArgBuffer(0, 0, 0, 0);
@@ -579,12 +585,11 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenKerne
 
     mockKernel.mockKernel->initialize();
     mockKernel.mockKernel->auxTranslationRequired = true;
-    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
 
     testing::internal::CaptureStdout();
 
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_EQ(0u, output.size());
@@ -593,25 +598,28 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenKerne
 }
 
 TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeDisabledWhenCallFillWithKernelObjsForAuxTranslationOnGfxAllocationThenDontReportAnyHint) {
-    auto pDevice = castToObject<ClDevice>(devices[0]);
-    MockKernelWithInternals mockKernel(*pDevice, context);
+    auto device = castToObject<ClDevice>(devices[0]);
+    const ClDeviceInfo &devInfo = device->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+    MockKernelWithInternals mockKernel(*device, context);
     char data[128];
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(&gfxAllocation, device->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.kernelInfo.addExtendedMetadata(0, "arg0");
     mockKernel.kernelInfo.addArgBuffer(0, 0, 0, 0);
 
     mockKernel.mockKernel->initialize();
     mockKernel.mockKernel->auxTranslationRequired = true;
-    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
 
     testing::internal::CaptureStdout();
 
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_EQ(0u, output.size());
@@ -620,19 +628,22 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeDisabledWhenCall
 }
 
 TEST_F(PerformanceHintTest, whenCallingFillWithKernelObjsForAuxTranslationOnNullGfxAllocationThenDontReportAnyHint) {
-    auto pDevice = castToObject<ClDevice>(devices[0]);
-    MockKernelWithInternals mockKernel(*pDevice, context);
+    auto device = castToObject<ClDevice>(devices[0]);
+    const ClDeviceInfo &devInfo = device->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+    MockKernelWithInternals mockKernel(*device, context);
 
     mockKernel.kernelInfo.addExtendedMetadata(0, "arg0");
     mockKernel.kernelInfo.addArgBuffer(0, 0, 0, 0);
 
     mockKernel.mockKernel->initialize();
-    mockKernel.mockKernel->setArgSvmAlloc(0, nullptr, nullptr);
+    mockKernel.mockKernel->setArgSvmAlloc(0, nullptr, nullptr, 0u);
 
     testing::internal::CaptureStdout();
 
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_EQ(0u, output.size());
@@ -648,14 +659,13 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeDisabledWhenCall
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmClientContext(), true);
+    MockBuffer::setAllocationType(&gfxAllocation, pDevice->getRootDeviceEnvironment().getGmmHelper(), true);
 
     mockKernel.mockKernel->initialize();
     mockKernel.mockKernel->setUnifiedMemoryExecInfo(&gfxAllocation);
 
     testing::internal::CaptureStdout();
-    KernelObjsForAuxTranslation kernelObjects;
-    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects);
+    auto kernelObjects = mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation();
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_EQ(0u, output.size());
@@ -745,7 +755,7 @@ HWTEST_F(PerformanceHintTest, givenCompressedImageWhenItsCreatedThenProperPerfor
     auto mockBuffer = std::unique_ptr<MockBuffer>(new MockBuffer());
     StorageInfo info;
     size_t t = 4;
-    auto gmm = new Gmm(device->getGmmClientContext(), static_cast<const void *>(nullptr), t, 0, false, true, true, info);
+    auto gmm = new Gmm(device->getGmmHelper(), static_cast<const void *>(nullptr), t, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, true, info, true);
     gmm->isCompressionEnabled = true;
 
     auto graphicsAllocation = mockBuffer->getGraphicsAllocation(device->getRootDeviceIndex());
@@ -815,7 +825,7 @@ TEST_F(PerformanceHintTest, givenUncompressedImageWhenItsCreatedThenProperPerfor
     auto mockBuffer = std::unique_ptr<MockBuffer>(new MockBuffer());
     StorageInfo info;
     size_t t = 4;
-    auto gmm = new Gmm(device->getGmmClientContext(), (const void *)nullptr, t, 0, false, true, true, info);
+    auto gmm = new Gmm(device->getGmmHelper(), (const void *)nullptr, t, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, true, info, true);
     gmm->isCompressionEnabled = false;
 
     mockBuffer->getGraphicsAllocation(device->getRootDeviceIndex())->setDefaultGmm(gmm);

@@ -27,7 +27,8 @@ class MetricSource {
   public:
     enum class SourceType {
         Undefined,
-        Oa
+        Oa,
+        IpSampling
     };
     virtual void enable() = 0;
     virtual bool isAvailable() = 0;
@@ -41,7 +42,7 @@ class MetricDeviceContext {
   public:
     MetricDeviceContext(Device &device);
     ze_result_t metricGroupGet(uint32_t *pCount, zet_metric_group_handle_t *phMetricGroups);
-    ze_result_t activateMetricGroupsDeferred(uint32_t count, zet_metric_group_handle_t *phMetricGroups);
+    void activateMetricGroupsDeferred(uint32_t count, zet_metric_group_handle_t *phMetricGroups);
     ze_result_t activateMetricGroups();
     ze_result_t appendMetricMemoryBarrier(CommandList &commandList);
     bool isMetricGroupActivated(const zet_metric_group_handle_t hMetricGroup) const;
@@ -59,7 +60,8 @@ class MetricDeviceContext {
   private:
     bool enable();
     ze_result_t activateAllDomains();
-    ze_result_t deActivateAllDomains();
+    void deActivateAllDomains();
+    void deActivateDomain(uint32_t domain);
     struct Device &device;
     std::map<uint32_t, std::pair<zet_metric_group_handle_t, bool>> domains;
     bool multiDeviceCapable = false;
@@ -72,7 +74,6 @@ struct Metric : _zet_metric_handle_t {
 
     virtual ze_result_t getProperties(zet_metric_properties_t *pProperties) = 0;
 
-    static Metric *create(zet_metric_properties_t &properties);
     static Metric *fromHandle(zet_metric_handle_t handle) { return static_cast<Metric *>(handle); }
     inline zet_metric_handle_t toHandle() { return this; }
 };
@@ -127,6 +128,7 @@ struct MetricStreamer : _zet_metric_streamer_handle_t {
     static MetricStreamer *fromHandle(zet_metric_streamer_handle_t handle) {
         return static_cast<MetricStreamer *>(handle);
     }
+    virtual ze_result_t appendStreamerMarker(CommandList &commandList, uint32_t value) = 0;
     virtual Event::State getNotificationState() = 0;
     inline zet_metric_streamer_handle_t toHandle() { return this; }
 };
@@ -135,7 +137,7 @@ struct MetricQueryPool : _zet_metric_query_pool_handle_t {
     virtual ~MetricQueryPool() = default;
 
     virtual ze_result_t destroy() = 0;
-    virtual ze_result_t createMetricQuery(uint32_t index,
+    virtual ze_result_t metricQueryCreate(uint32_t index,
                                           zet_metric_query_handle_t *phMetricQuery) = 0;
 
     static MetricQueryPool *fromHandle(zet_metric_query_pool_handle_t handle);
@@ -149,15 +151,12 @@ struct MetricQuery : _zet_metric_query_handle_t {
     virtual ze_result_t appendBegin(CommandList &commandList) = 0;
     virtual ze_result_t appendEnd(CommandList &commandList, ze_event_handle_t hSignalEvent,
                                   uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) = 0;
-    static ze_result_t appendStreamerMarker(CommandList &commandList,
-                                            zet_metric_streamer_handle_t hMetricStreamer, uint32_t value);
     virtual ze_result_t getData(size_t *pRawDataSize, uint8_t *pRawData) = 0;
 
     virtual ze_result_t reset() = 0;
     virtual ze_result_t destroy() = 0;
 
     static MetricQuery *fromHandle(zet_metric_query_handle_t handle);
-
     zet_metric_query_handle_t toHandle();
 };
 

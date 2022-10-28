@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <bitset>
 #include <iterator>
+#include <limits>
 
 namespace NEO {
 
@@ -55,7 +56,7 @@ void LocalMemoryUsageBankSelector::reserveOnBank(uint32_t bankIndex, uint64_t al
 }
 
 void LocalMemoryUsageBankSelector::updateUsageInfo(uint32_t memoryBanks, uint64_t allocationSize, bool reserve) {
-    auto banks = std::bitset<32>(memoryBanks);
+    auto banks = std::bitset<4>(memoryBanks);
     for (uint32_t bankIndex = 0; bankIndex < banks.size() && bankIndex < banksCount; bankIndex++) {
         if (banks.test(bankIndex)) {
             if (reserve) {

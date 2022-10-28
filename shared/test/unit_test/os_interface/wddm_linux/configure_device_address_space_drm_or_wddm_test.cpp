@@ -20,7 +20,7 @@
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_gmm.h"
 #include "shared/test/common/mocks/mock_gmm_client_context.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "gmm_memory.h"
 
@@ -254,8 +254,10 @@ HWTEST2_F(GmmTestsDG2, givenGmmForImageWithForceLocalMemThenNonLocalIsSetToFalse
 
     NEO::StorageInfo storageInfo = {};
     storageInfo.localOnlyRequired = true;
+    storageInfo.memoryBanks = 2;
+    storageInfo.systemMemoryPlacement = false;
 
-    std::unique_ptr<NEO::Gmm> gmm(new NEO::Gmm(mockExecEnv.rootDeviceEnvironments[0]->getGmmClientContext(), imgInfo, storageInfo, false));
+    std::unique_ptr<NEO::Gmm> gmm(new NEO::Gmm(mockExecEnv.rootDeviceEnvironments[0]->getGmmHelper(), imgInfo, storageInfo, false));
 
     EXPECT_EQ(gmm->resourceParams.Flags.Info.NonLocalOnly, 0u);
     EXPECT_EQ(gmm->resourceParams.Flags.Info.LocalOnly, 1u);
@@ -641,14 +643,19 @@ TEST_F(WddmLinuxTest, givenRequestFor32bitAllocationWithoutPreexistingHostPtrWhe
 TEST_F(WddmLinuxTest, whenCheckedIfResourcesCleanupCanBeSkippedAndDeviceIsAliveThenReturnsFalse) {
     osEnvironment->gdi->getDeviceState = getDeviceStateMock;
     gdiMockConfig.getDeviceStateClb.returnValue = STATUS_SUCCESS;
-    EXPECT_FALSE(this->wddm->skipResourceCleanup());
+    EXPECT_TRUE(this->wddm->isDriverAvaliable());
     EXPECT_EQ(1, gdiMockConfig.getDeviceStateClb.callCount);
 }
 
 TEST_F(WddmLinuxTest, whenCheckedIfResourcesCleanupCanBeSkippedAndDeviceIsLostThenReturnsTrue) {
     osEnvironment->gdi->getDeviceState = getDeviceStateMock;
     gdiMockConfig.getDeviceStateClb.returnValue = -1;
-    EXPECT_TRUE(this->wddm->skipResourceCleanup());
+    EXPECT_FALSE(this->wddm->isDriverAvaliable());
+    EXPECT_EQ(0, this->wddm->getGdi()->destroyAllocation2(nullptr));
+    EXPECT_EQ(0, this->wddm->getGdi()->waitForSynchronizationObjectFromCpu(nullptr));
+    EXPECT_EQ(0, this->wddm->getGdi()->destroyPagingQueue(nullptr));
+    EXPECT_EQ(0, this->wddm->getGdi()->destroyDevice(nullptr));
+    EXPECT_EQ(0, this->wddm->getGdi()->closeAdapter(nullptr));
     EXPECT_EQ(1, gdiMockConfig.getDeviceStateClb.callCount);
 }
 
@@ -673,7 +680,7 @@ class MockDeviceTimeWddm : public NEO::DeviceTimeWddm {
 
 TEST(OSTimeWinLinuxTests, givenOSInterfaceWhenGetCpuGpuTimeThenGetCpuTimeFromOsTimeWasCalled) {
 
-    NEO::TimeStampData CPUGPUTime01 = {0};
+    NEO::TimeStampData cpuGpuTime01 = {0};
 
     std::unique_ptr<NEO::HwDeviceIdWddm> hwDeviceIdIn;
     auto osEnvironment = std::make_unique<NEO::OsEnvironmentWin>();
@@ -692,6 +699,6 @@ TEST(OSTimeWinLinuxTests, givenOSInterfaceWhenGetCpuGpuTimeThenGetCpuTimeFromOsT
     osInterface->setDriverModel(std::move(wddm));
     std::unique_ptr<NEO::DeviceTime> deviceTime = std::unique_ptr<NEO::DeviceTime>(mockDeviceTimeWddm.release());
     auto osTime = std::unique_ptr<MockOsTimeLinux>(new MockOsTimeLinux(osInterface.get(), std::move(deviceTime)));
-    osTime->getCpuGpuTime(&CPUGPUTime01);
+    osTime->getCpuGpuTime(&cpuGpuTime01);
     EXPECT_TRUE(osTime->osTimeGetCpuTimeWasCalled);
 }

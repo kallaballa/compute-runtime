@@ -8,28 +8,19 @@
 #include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_container/implicit_scaling.h"
 #include "shared/source/device/device.h"
-#include "shared/source/execution_environment/execution_environment.h"
-#include "shared/source/execution_environment/root_device_environment.h"
-#include "shared/source/gmm_helper/gmm.h"
-#include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/gmm_helper/resource_info.h"
-#include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/bit_helpers.h"
 #include "shared/source/helpers/populate_factory.h"
 
-#include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/buffer.h"
-
-#include "hw_cmds.h"
 
 namespace NEO {
 
 union SURFACE_STATE_BUFFER_LENGTH {
     uint32_t Length;
     struct SurfaceState {
-        uint32_t Width : BITFIELD_RANGE(0, 6);
-        uint32_t Height : BITFIELD_RANGE(7, 20);
-        uint32_t Depth : BITFIELD_RANGE(21, 31);
+        uint32_t Width : 7;
+        uint32_t Height : 14;
+        uint32_t Depth : 11;
     } SurfaceState;
 };
 
@@ -39,6 +30,7 @@ void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, boo
     auto rootDeviceIndex = device.getRootDeviceIndex();
     auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     const auto isReadOnly = isValueSet(getFlags(), CL_MEM_READ_ONLY) || isReadOnlyArgument;
+    auto isDebuggerActive = device.isDebuggerActive() || device.getDebugger() != nullptr;
 
     NEO::EncodeSurfaceStateArgs args;
     args.outMemory = memory;
@@ -54,6 +46,7 @@ void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, boo
     args.useGlobalAtomics = useGlobalAtomics;
     args.areMultipleSubDevicesInContext = areMultipleSubDevicesInContext;
     args.implicitScaling = ImplicitScalingHelper::isImplicitScalingEnabled(device.getDeviceBitfield(), true);
+    args.isDebuggerActive = isDebuggerActive;
     appendSurfaceStateArgs(args);
     EncodeSurfaceState<GfxFamily>::encodeBuffer(args);
 }

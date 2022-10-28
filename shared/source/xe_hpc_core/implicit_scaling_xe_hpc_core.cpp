@@ -9,10 +9,11 @@
 #include "shared/source/command_container/implicit_scaling_xehp_and_later.inl"
 #include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/os_interface/hw_info_config.h"
+#include "shared/source/xe_hpc_core/hw_cmds_xe_hpc_core_base.h"
 
 namespace NEO {
 
-using Family = XE_HPC_COREFamily;
+using Family = XeHpcCoreFamily;
 
 template <>
 bool ImplicitScalingDispatch<Family>::pipeControlStallRequired = false;
@@ -22,7 +23,7 @@ bool ImplicitScalingDispatch<Family>::platformSupportsImplicitScaling(const Hard
     if (ApiSpecificConfig::getApiType() == ApiSpecificConfig::ApiType::OCL) {
         return true;
     } else {
-        return HwInfoConfig::get(hwInfo.platform.eProductFamily)->getSteppingFromHwRevId(hwInfo) >= REVISION_B;
+        return HwInfoConfig::get(hwInfo.platform.eProductFamily)->isImplicitScalingSupported(hwInfo);
     }
 }
 

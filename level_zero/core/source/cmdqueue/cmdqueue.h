@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,12 @@
 
 #pragma once
 
-#include "level_zero/core/source/device/device.h"
+#include "shared/source/command_stream/preemption_mode.h"
+
 #include <level_zero/ze_api.h>
 
 #include <atomic>
+#include <mutex>
 
 struct _ze_command_queue_handle_t {};
 
@@ -18,7 +20,10 @@ namespace NEO {
 class CommandStreamReceiver;
 }
 
+struct UnifiedMemoryControls;
+
 namespace L0 {
+struct Device;
 
 struct CommandQueue : _ze_command_queue_handle_t {
     template <typename Type>
@@ -47,22 +52,24 @@ struct CommandQueue : _ze_command_queue_handle_t {
         return static_cast<CommandQueue *>(handle);
     }
 
-    ze_command_queue_handle_t toHandle() { return this; }
+    virtual void handleIndirectAllocationResidency(UnifiedMemoryControls unifiedMemoryControls, std::unique_lock<std::mutex> &lockForIndirect) = 0;
 
-    void setCommandQueuePreemptionMode(NEO::PreemptionMode newPreemptionMode) {
-        commandQueuePreemptionMode = newPreemptionMode;
-    }
+    ze_command_queue_handle_t toHandle() { return this; }
 
     bool peekIsCopyOnlyCommandQueue() const { return this->isCopyOnlyCommandQueue; }
 
   protected:
-    NEO::PreemptionMode commandQueuePreemptionMode = NEO::PreemptionMode::Initial;
+    bool frontEndTrackingEnabled() const;
+
     uint32_t partitionCount = 1;
     uint32_t activeSubDevices = 1;
     bool preemptionCmdSyncProgramming = true;
     bool commandQueueDebugCmdsProgrammed = false;
     bool isCopyOnlyCommandQueue = false;
     bool internalUsage = false;
+    bool frontEndStateTracking = false;
+    bool pipelineSelectStateTracking = false;
+    bool stateComputeModeTracking = false;
 };
 
 using CommandQueueAllocatorFn = CommandQueue *(*)(Device *device, NEO::CommandStreamReceiver *csr,

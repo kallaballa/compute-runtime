@@ -23,7 +23,6 @@
 #include "opencl/test/unit_test/program/program_with_source.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "program_tests.h"
 
@@ -155,27 +154,27 @@ class ProgramNonUniformTest : public ContextFixture,
                               public CommandQueueHwFixture,
                               public testing::Test {
 
-    using ContextFixture::SetUp;
-    using PlatformFixture::SetUp;
+    using ContextFixture::setUp;
+    using PlatformFixture::setUp;
 
   protected:
     ProgramNonUniformTest() {
     }
 
     void SetUp() override {
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
         device = pPlatform->getClDevice(0);
         rootDeviceIndex = pPlatform->getClDevice(0)->getRootDeviceIndex();
-        ContextFixture::SetUp(1, &device);
-        ProgramFixture::SetUp();
-        CommandQueueHwFixture::SetUp(pPlatform->getClDevice(0), 0);
+        ContextFixture::setUp(1, &device);
+        ProgramFixture::setUp();
+        CommandQueueHwFixture::setUp(pPlatform->getClDevice(0), 0);
     }
 
     void TearDown() override {
-        CommandQueueHwFixture::TearDown();
-        ProgramFixture::TearDown();
-        ContextFixture::TearDown();
-        PlatformFixture::TearDown();
+        CommandQueueHwFixture::tearDown();
+        ProgramFixture::tearDown();
+        ContextFixture::tearDown();
+        PlatformFixture::tearDown();
     }
     cl_device_id device;
     uint32_t rootDeviceIndex;
@@ -185,7 +184,7 @@ class ProgramNonUniformTest : public ContextFixture,
 TEST_F(ProgramNonUniformTest, GivenCl21WhenExecutingKernelWithNonUniformThenEnqueueSucceeds) {
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
-    CreateProgramFromBinary(pContext, pContext->getDevices(), "kernel_data_param");
+    createProgramFromBinary(pContext, pContext->getDevices(), "kernel_data_param");
     auto mockProgram = pProgram;
     ASSERT_NE(nullptr, mockProgram);
 
@@ -227,7 +226,7 @@ TEST_F(ProgramNonUniformTest, GivenCl21WhenExecutingKernelWithNonUniformThenEnqu
 TEST_F(ProgramNonUniformTest, GivenCl20WhenExecutingKernelWithNonUniformThenEnqueueSucceeds) {
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
-    CreateProgramFromBinary(pContext, pContext->getDevices(), "kernel_data_param");
+    createProgramFromBinary(pContext, pContext->getDevices(), "kernel_data_param");
     auto mockProgram = pProgram;
     ASSERT_NE(nullptr, mockProgram);
 
@@ -267,7 +266,7 @@ TEST_F(ProgramNonUniformTest, GivenCl20WhenExecutingKernelWithNonUniformThenEnqu
 }
 
 TEST_F(ProgramNonUniformTest, GivenCl12WhenExecutingKernelWithNonUniformThenInvalidWorkGroupSizeIsReturned) {
-    CreateProgramFromBinary(pContext, pContext->getDevices(), "kernel_data_param");
+    createProgramFromBinary(pContext, pContext->getDevices(), "kernel_data_param");
     auto mockProgram = pProgram;
     ASSERT_NE(nullptr, mockProgram);
 

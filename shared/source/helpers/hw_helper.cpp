@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #include "shared/source/helpers/hw_helper.h"
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/helpers/hw_info.h"
 
 #include <algorithm>
 
@@ -63,6 +64,20 @@ uint32_t HwHelper::getSubDevicesCount(const HardwareInfo *pHwInfo) {
     } else {
         return 1u;
     }
+}
+
+uint32_t HwHelper::getHighestEnabledSlice(const HardwareInfo &hwInfo) {
+    uint32_t highestEnabledSlice = 0;
+    if (!hwInfo.gtSystemInfo.IsDynamicallyPopulated) {
+        return hwInfo.gtSystemInfo.MaxSlicesSupported;
+    }
+    for (int highestSlice = GT_MAX_SLICE - 1; highestSlice >= 0; highestSlice--) {
+        if (hwInfo.gtSystemInfo.SliceInfo[highestSlice].Enabled) {
+            highestEnabledSlice = highestSlice + 1;
+            break;
+        }
+    }
+    return highestEnabledSlice;
 }
 
 } // namespace NEO

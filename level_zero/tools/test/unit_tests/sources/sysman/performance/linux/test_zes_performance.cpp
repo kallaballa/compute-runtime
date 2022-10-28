@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,7 +26,7 @@ class ZesPerformanceFixture : public SysmanMultiDeviceFixture {
             GTEST_SKIP();
         }
         SysmanMultiDeviceFixture::SetUp();
-        pSysmanDeviceImp->pRasHandleContext->handleList.clear();
+        pSysmanDeviceImp->pPerformanceHandleContext->handleList.clear();
         uint32_t subDeviceCount = 0;
         Device::fromHandle(device->toHandle())->getSubDevices(&subDeviceCount, nullptr);
         if (subDeviceCount == 0) {
@@ -35,7 +35,7 @@ class ZesPerformanceFixture : public SysmanMultiDeviceFixture {
             deviceHandles.resize(subDeviceCount, nullptr);
             Device::fromHandle(device->toHandle())->getSubDevices(&subDeviceCount, deviceHandles.data());
         }
-        pSysmanDeviceImp->pPerformanceHandleContext->init(deviceHandles, device);
+        getPerfHandles(0);
     }
     void TearDown() override {
         if (!sysmanUltsEnable) {
@@ -43,8 +43,7 @@ class ZesPerformanceFixture : public SysmanMultiDeviceFixture {
         }
         SysmanMultiDeviceFixture::TearDown();
     }
-
-    std::vector<zes_perf_handle_t> get_perf_handles(uint32_t count) {
+    std::vector<zes_perf_handle_t> getPerfHandles(uint32_t count) {
         std::vector<zes_perf_handle_t> handles(count, nullptr);
         EXPECT_EQ(zesDeviceEnumPerformanceFactorDomains(device->toHandle(), &count, handles.data()), ZE_RESULT_SUCCESS);
         return handles;

@@ -89,7 +89,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHPAndLaterImageTests, givenCompressionWhenAppendi
 
     imageDesc.mem_object = clCreateBuffer(&context, CL_MEM_READ_WRITE, 128 * 256 * 4, nullptr, &retVal);
 
-    auto gmm = new Gmm(context.getDevice(0)->getGmmHelper()->getClientContext(), nullptr, 1, 0, false);
+    auto gmm = new Gmm(context.getDevice(0)->getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     gmm->isCompressionEnabled = true;
 
     auto buffer = castToObject<Buffer>(imageDesc.mem_object);
@@ -130,7 +130,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, XeHPAndLaterImageTests, givenImageFromBufferWhenSet
 
     imageDesc.mem_object = clCreateBuffer(&context, CL_MEM_READ_WRITE, 128 * 256 * 4, nullptr, &retVal);
 
-    auto gmm = new Gmm(context.getDevice(0)->getGmmHelper()->getClientContext(), nullptr, 1, 0, false);
+    auto gmm = new Gmm(context.getDevice(0)->getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     gmm->isCompressionEnabled = true;
 
     auto buffer = castToObject<Buffer>(imageDesc.mem_object);
@@ -173,7 +173,7 @@ HWTEST2_F(XeHPAndLaterImageTests, givenMcsAllocationWhenSetArgIsCalledWithUnifie
 
     auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
     auto imageHw = static_cast<ImageHw<FamilyType> *>(image.get());
-    mcsAlloc->setDefaultGmm(new Gmm(context.getDevice(0)->getRootDeviceEnvironment().getGmmClientContext(), nullptr, 1, 0, false));
+    mcsAlloc->setDefaultGmm(new Gmm(context.getDevice(0)->getRootDeviceEnvironment().getGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true));
     surfaceState.setSurfaceBaseAddress(0xABCDEF1000);
     imageHw->setMcsSurfaceInfo(msi);
     imageHw->setMcsAllocation(mcsAlloc);
@@ -233,8 +233,11 @@ HWTEST2_F(ImageClearColorFixture, givenImageForXeHPAndLaterWhenCanonicalAddresFo
     auto gmm = imageHw->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getDefaultGmm();
     gmm->gmmResourceInfo->getResourceFlags()->Gpu.IndirectClearColor = 1;
     EXPECT_NO_THROW(EncodeSurfaceState<FamilyType>::setClearColorParams(&surfaceState, gmm));
+
     uint64_t nonCanonicalAddress = ((static_cast<uint64_t>(surfaceState.getClearColorAddressHigh()) << 32) | surfaceState.getClearColorAddress());
-    EXPECT_EQ(GmmHelper::decanonize(canonicalAddress), nonCanonicalAddress);
+    auto gmmHelper = context.getDevice(0)->getGmmHelper();
+
+    EXPECT_EQ(gmmHelper->decanonize(canonicalAddress), nonCanonicalAddress);
 }
 
 HWTEST2_F(XeHPAndLaterImageTests, givenMediaCompressionWhenAppendingNewAllocationThenNotZeroIsSetAsCompressionType, CompressionParamsSupportedMatcher) {
@@ -249,7 +252,8 @@ HWTEST2_F(XeHPAndLaterImageTests, givenMediaCompressionWhenAppendingNewAllocatio
     imageHw->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getDefaultGmm()->gmmResourceInfo->getResourceFlags()->Info.MediaCompressed = true;
     surfaceState.setAuxiliarySurfaceMode(RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
 
-    EncodeSurfaceState<FamilyType>::setImageAuxParamsForCCS(&surfaceState, imageHw->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getDefaultGmm());
+    EncodeSurfaceState<FamilyType>::setImageAuxParamsForCCS(&surfaceState,
+                                                            imageHw->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getDefaultGmm());
 
     imageHw->setImageArg(&surfaceState, false, 0, context.getDevice(0)->getRootDeviceIndex(), false);
 
@@ -279,7 +283,7 @@ HWTEST2_F(XeHPAndLaterImageTests, givenCompressionWhenAppendingNewAllocationThen
     gmm->gmmResourceInfo->getResourceFlags()->Info.RenderCompressed = true;
     gmm->isCompressionEnabled = true;
 
-    auto mcsGmm = new MockGmm(context.getDevice(0)->getGmmClientContext());
+    auto mcsGmm = new MockGmm(context.getDevice(0)->getGmmHelper());
     mcsGmm->isCompressionEnabled = true;
     mcsGmm->gmmResourceInfo->getResourceFlags()->Info.RenderCompressed = true;
     mcsGmm->gmmResourceInfo->getResourceFlags()->Gpu.UnifiedAuxSurface = true;
@@ -343,12 +347,53 @@ HWTEST2_F(XeHPAndLaterImageHelperTests, givenMediaCompressedImageWhenAppendingSu
     const auto expectedGetMediaSurfaceStateCompressionFormatCalled = gmmClientContext->getMediaSurfaceStateCompressionFormatCalled + 1;
 
     EncodeSurfaceState<FamilyType>::appendImageCompressionParams(&rss, image->getMultiGraphicsAllocation().getDefaultGraphicsAllocation(),
-                                                                 context->getDevice(0)->getGmmHelper(), false);
+                                                                 context->getDevice(0)->getGmmHelper(), false, GMM_NO_PLANE);
 
     EXPECT_EQ(platform(), nullptr);
     EXPECT_EQ(mockCompressionFormat, rss.getCompressionFormat());
     EXPECT_EQ(expectedGetSurfaceStateCompressionFormatCalled, gmmClientContext->getSurfaceStateCompressionFormatCalled);
     EXPECT_EQ(expectedGetMediaSurfaceStateCompressionFormatCalled, gmmClientContext->getMediaSurfaceStateCompressionFormatCalled);
+}
+
+HWTEST2_F(XeHPAndLaterImageHelperTests, givenMediaCompressedPlanarImageWhenAppendingSurfaceStateParamsForCompressionThenCorrectCompressionFormatIsSet, CompressionParamsSupportedMatcher) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    RENDER_SURFACE_STATE rss{};
+    platformsImpl->clear();
+    rss.setMemoryCompressionEnable(true);
+    mockGmmResourceInfo->getResourceFlags()->Info.MediaCompressed = true;
+
+    struct {
+        uint8_t returnedCompressionFormat;
+        uint8_t expectedCompressionFormat;
+        GMM_YUV_PLANE_ENUM plane;
+    } testInputs[] = {
+        // regular image
+        {0x0, 0x0, GMM_NO_PLANE},
+        {0xF, 0xF, GMM_NO_PLANE},
+        {0x10, 0x10, GMM_NO_PLANE},
+        {0x1F, 0x1F, GMM_NO_PLANE},
+        // luma plane
+        {0x0, 0x0, GMM_PLANE_Y},
+        {0xF, 0xF, GMM_PLANE_Y},
+        {0x10, 0x0, GMM_PLANE_Y},
+        {0x1F, 0xF, GMM_PLANE_Y},
+        // chroma plane
+        {0x0, 0x10, GMM_PLANE_U},
+        {0x0, 0x10, GMM_PLANE_V},
+        {0xF, 0x1F, GMM_PLANE_U},
+        {0xF, 0x1F, GMM_PLANE_V},
+        {0x10, 0x10, GMM_PLANE_U},
+        {0x10, 0x10, GMM_PLANE_V},
+        {0x1F, 0x1F, GMM_PLANE_U},
+        {0x1F, 0x1F, GMM_PLANE_V},
+    };
+
+    for (auto &testInput : testInputs) {
+        gmmClientContext->compressionFormatToReturn = testInput.returnedCompressionFormat;
+        EncodeSurfaceState<FamilyType>::appendImageCompressionParams(&rss, image->getMultiGraphicsAllocation().getDefaultGraphicsAllocation(),
+                                                                     context->getDevice(0)->getGmmHelper(), false, testInput.plane);
+        EXPECT_EQ(testInput.expectedCompressionFormat, rss.getCompressionFormat());
+    }
 }
 
 HWTEST2_F(XeHPAndLaterImageHelperTests, givenNotMediaCompressedImageWhenAppendingSurfaceStateParamsForCompressionThenCallAppriopriateFunction, CompressionParamsSupportedMatcher) {
@@ -362,7 +407,7 @@ HWTEST2_F(XeHPAndLaterImageHelperTests, givenNotMediaCompressedImageWhenAppendin
     const auto expectedGetMediaSurfaceStateCompressionFormatCalled = gmmClientContext->getMediaSurfaceStateCompressionFormatCalled;
 
     EncodeSurfaceState<FamilyType>::appendImageCompressionParams(&rss, image->getMultiGraphicsAllocation().getDefaultGraphicsAllocation(),
-                                                                 context->getDevice(0)->getGmmHelper(), false);
+                                                                 context->getDevice(0)->getGmmHelper(), false, GMM_NO_PLANE);
     EXPECT_EQ(platform(), nullptr);
     EXPECT_EQ(mockCompressionFormat, rss.getCompressionFormat());
     EXPECT_EQ(expectedGetSurfaceStateCompressionFormatCalled, gmmClientContext->getSurfaceStateCompressionFormatCalled);
@@ -382,7 +427,7 @@ HWTEST2_F(XeHPAndLaterImageHelperTests, givenAuxModeMcsLceWhenAppendingSurfaceSt
     const auto expectedGetMediaSurfaceStateCompressionFormatCalled = gmmClientContext->getMediaSurfaceStateCompressionFormatCalled + 1;
 
     EncodeSurfaceState<FamilyType>::appendImageCompressionParams(&rss, image->getMultiGraphicsAllocation().getDefaultGraphicsAllocation(),
-                                                                 context->getDevice(0)->getGmmHelper(), false);
+                                                                 context->getDevice(0)->getGmmHelper(), false, GMM_NO_PLANE);
 
     EXPECT_EQ(platform(), nullptr);
     EXPECT_EQ(mockCompressionFormat, rss.getCompressionFormat());

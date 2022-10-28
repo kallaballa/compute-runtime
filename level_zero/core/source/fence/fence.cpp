@@ -8,21 +8,19 @@
 #include "level_zero/core/source/fence/fence.h"
 
 #include "shared/source/command_stream/command_stream_receiver.h"
-#include "shared/source/helpers/constants.h"
-#include "shared/source/helpers/string.h"
-#include "shared/source/memory_manager/memory_manager.h"
-#include "shared/source/utilities/wait_util.h"
+
+#include "level_zero/core/source/cmdqueue/cmdqueue_imp.h"
 
 namespace L0 {
 
 Fence *Fence::create(CommandQueueImp *cmdQueue, const ze_fence_desc_t *desc) {
-    auto fence = new FenceImp(cmdQueue);
+    auto fence = new Fence(cmdQueue);
     UNRECOVERABLE_IF(fence == nullptr);
-    fence->reset();
+    fence->reset(!!(desc->flags & ZE_FENCE_FLAG_SIGNALED));
     return fence;
 }
 
-ze_result_t FenceImp::queryStatus() {
+ze_result_t Fence::queryStatus() {
     auto csr = cmdQueue->getCsr();
     csr->downloadAllocations();
 
@@ -31,23 +29,28 @@ ze_result_t FenceImp::queryStatus() {
     return csr->testTaskCountReady(hostAddr, taskCount) ? ZE_RESULT_SUCCESS : ZE_RESULT_NOT_READY;
 }
 
-ze_result_t FenceImp::assignTaskCountFromCsr() {
+ze_result_t Fence::assignTaskCountFromCsr() {
     auto csr = cmdQueue->getCsr();
     taskCount = csr->peekTaskCount() + 1;
     return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t FenceImp::reset() {
-    taskCount = std::numeric_limits<uint32_t>::max();
+ze_result_t Fence::reset(bool signaled) {
+    if (signaled) {
+        taskCount = 0;
+    } else {
+        taskCount = std::numeric_limits<uint32_t>::max();
+    }
     return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t FenceImp::hostSynchronize(uint64_t timeout) {
-    std::chrono::high_resolution_clock::time_point time1, time2;
+ze_result_t Fence::hostSynchronize(uint64_t timeout) {
+    std::chrono::high_resolution_clock::time_point waitStartTime, lastHangCheckTime, currentTime;
     uint64_t timeDiff = 0;
     ze_result_t ret = ZE_RESULT_NOT_READY;
+    const auto csr = cmdQueue->getCsr();
 
-    if (cmdQueue->getCsr()->getType() == NEO::CommandStreamReceiverType::CSR_AUB) {
+    if (csr->getType() == NEO::CommandStreamReceiverType::CSR_AUB) {
         return ZE_RESULT_SUCCESS;
     }
 
@@ -59,21 +62,24 @@ ze_result_t FenceImp::hostSynchronize(uint64_t timeout) {
         return queryStatus();
     }
 
-    time1 = std::chrono::high_resolution_clock::now();
+    waitStartTime = std::chrono::high_resolution_clock::now();
+    lastHangCheckTime = waitStartTime;
     while (timeDiff < timeout) {
         ret = queryStatus();
         if (ret == ZE_RESULT_SUCCESS) {
             return ZE_RESULT_SUCCESS;
         }
 
-        NEO::WaitUtils::waitFunction(nullptr, 0u);
+        currentTime = std::chrono::high_resolution_clock::now();
+        if (csr->checkGpuHangDetected(currentTime, lastHangCheckTime)) {
+            return ZE_RESULT_ERROR_DEVICE_LOST;
+        }
 
         if (timeout == std::numeric_limits<uint64_t>::max()) {
             continue;
         }
 
-        time2 = std::chrono::high_resolution_clock::now();
-        timeDiff = std::chrono::duration_cast<std::chrono::nanoseconds>(time2 - time1).count();
+        timeDiff = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - waitStartTime).count();
     }
 
     return ret;

@@ -8,7 +8,9 @@
 #include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/scratch_space_controller.h"
 #include "shared/source/command_stream/scratch_space_controller_base.h"
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/helpers/constants.h"
+#include "shared/source/helpers/logical_state_helper.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/engine_descriptor_helper.h"
@@ -17,10 +19,11 @@
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_os_context.h"
+#include "shared/test/common/mocks/mock_source_level_debugger.h"
 #include "shared/test/common/mocks/mock_timestamp_container.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/helpers/cl_blit_properties.h"
@@ -60,9 +63,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenNotSentStateSipWh
 
         csr.flushTask(commandStream,
                       0,
-                      heap,
-                      heap,
-                      heap,
+                      &heap,
+                      &heap,
+                      &heap,
                       0,
                       dispatchFlags,
                       mockDevice->getDevice());
@@ -130,13 +133,17 @@ HWTEST_F(UltCommandStreamReceiverTest, givenSentStateSipFlagSetAndSourceLevelDeb
     commandStreamReceiver.isStateSipSent = true;
     auto sizeWithoutSourceKernelDebugging = commandStreamReceiver.getRequiredCmdStreamSize(dispatchFlags, *pDevice);
 
-    pDevice->setDebuggerActive(true);
+    auto debugger = new MockSourceLevelDebugger();
+    debugger->setActive(true);
+    debugger->sbaTrackingSize = 24;
+
+    pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->debugger.reset(debugger);
+
     commandStreamReceiver.isStateSipSent = true;
     auto sizeWithSourceKernelDebugging = commandStreamReceiver.getRequiredCmdStreamSize(dispatchFlags, *pDevice);
 
     auto sizeForStateSip = PreemptionHelper::getRequiredStateSipCmdSize<FamilyType>(*pDevice, commandStreamReceiver.isRcs());
-    EXPECT_EQ(sizeForStateSip, sizeWithSourceKernelDebugging - sizeWithoutSourceKernelDebugging - PreambleHelper<FamilyType>::getKernelDebuggingCommandsSize(true));
-    pDevice->setDebuggerActive(false);
+    EXPECT_EQ(sizeForStateSip, sizeWithSourceKernelDebugging - sizeWithoutSourceKernelDebugging - PreambleHelper<FamilyType>::getKernelDebuggingCommandsSize(true) - debugger->sbaTrackingSize);
 }
 
 HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPolicyChangedWhenEstimatingFlushTaskSizeThenResultDependsOnPolicyProgrammingCmdSize) {
@@ -147,13 +154,13 @@ HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPoli
     auto policyNotChangedFlush = commandStreamReceiver.getRequiredCmdStreamSize(flushTaskFlags, *pDevice);
 
     commandStreamReceiver.streamProperties.stateComputeMode.threadArbitrationPolicy.isDirty = true;
+    commandStreamReceiver.streamProperties.stateComputeMode.isCoherencyRequired.isDirty = true;
     auto policyChangedPreamble = commandStreamReceiver.getRequiredCmdSizeForPreamble(*pDevice);
     auto policyChangedFlush = commandStreamReceiver.getRequiredCmdStreamSize(flushTaskFlags, *pDevice);
 
     auto actualDifferenceForPreamble = policyChangedPreamble - policyNotChangedPreamble;
     auto actualDifferenceForFlush = policyChangedFlush - policyNotChangedFlush;
-    auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize() +
-                              commandStreamReceiver.getCmdSizeForComputeMode();
+    auto expectedDifference = EncodeComputeMode<FamilyType>::getCmdSizeForComputeMode(*defaultHwInfo, false, commandStreamReceiver.isRcs());
     EXPECT_EQ(0u, actualDifferenceForPreamble);
     EXPECT_EQ(expectedDifference, actualDifferenceForFlush);
 }
@@ -470,7 +477,7 @@ HWTEST_F(UltCommandStreamReceiverTest, givenSinglePartitionWhenCallingWaitKmdNot
     commandStreamReceiver.callBaseWaitForCompletionWithTimeout = false;
     commandStreamReceiver.returnWaitForCompletionWithTimeout = NEO::WaitStatus::NotReady;
 
-    commandStreamReceiver.waitForTaskCountWithKmdNotifyFallback(0, 0, false, false);
+    commandStreamReceiver.waitForTaskCountWithKmdNotifyFallback(0, 0, false, QueueThrottle::MEDIUM);
     EXPECT_EQ(2u, commandStreamReceiver.waitForCompletionWithTimeoutTaskCountCalled);
 }
 
@@ -479,8 +486,13 @@ HWTEST_F(UltCommandStreamReceiverTest, givenMultiplePartitionsWhenCallingWaitKmd
     commandStreamReceiver.callBaseWaitForCompletionWithTimeout = false;
     commandStreamReceiver.returnWaitForCompletionWithTimeout = NEO::WaitStatus::NotReady;
 
-    commandStreamReceiver.waitForTaskCountWithKmdNotifyFallback(0, 0, false, false);
+    commandStreamReceiver.waitForTaskCountWithKmdNotifyFallback(0, 0, false, QueueThrottle::MEDIUM);
     EXPECT_EQ(2u, commandStreamReceiver.waitForCompletionWithTimeoutTaskCountCalled);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, whenCreatingThenDontCreateLogicalStateHelper) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    EXPECT_EQ(nullptr, commandStreamReceiver.logicalStateHelper.get());
 }
 
 typedef UltCommandStreamReceiverTest CommandStreamReceiverFlushTests;
@@ -535,7 +547,10 @@ HWTEST_F(CommandStreamReceiverHwTest, WhenScratchSpaceIsRequiredThenCorrectAddre
 
     uint64_t expectedScratchAddress = 0xAAABBBCCCDDD000ull;
     auto scratchAllocation = scratchController->getScratchSpaceAllocation();
-    scratchAllocation->setCpuPtrAndGpuAddress(scratchAllocation->getUnderlyingBuffer(), expectedScratchAddress);
+    auto gmmHelper = pDevice->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(expectedScratchAddress);
+    scratchAllocation->setCpuPtrAndGpuAddress(scratchAllocation->getUnderlyingBuffer(), canonizedGpuAddress);
+
     EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateGshAddressForScratchSpace((scratchAllocation->getGpuAddress() - MemoryConstants::pageSize), scratchController->calculateNewGSH()));
 }
 
@@ -630,14 +645,17 @@ HWTEST2_F(CommandStreamReceiverHwTest, whenProgramVFEStateIsCalledThenCorrectCom
         pHwInfo->platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(revision, *pHwInfo);
 
         {
+            mockCsr->getStreamProperties().frontEndState = {};
             auto flags = DispatchFlagsHelper::createDefaultDispatchFlags();
+            flags.additionalKernelExecInfo = AdditionalKernelExecInfo::DisableOverdispatch;
+
             LinearStream commandStream{&memory, sizeof(memory)};
             mockCsr->mediaVfeStateDirty = true;
             mockCsr->programVFEState(commandStream, flags, 10);
-            auto pCommand = reinterpret_cast<CFE_STATE *>(&memory);
+            auto cfeState = reinterpret_cast<CFE_STATE *>(&memory);
 
             auto expectedDisableOverdispatch = hwInfoConfig.isDisableOverdispatchAvailable(*pHwInfo);
-            EXPECT_EQ(expectedDisableOverdispatch, pCommand->getComputeOverdispatchDisable());
+            EXPECT_EQ(expectedDisableOverdispatch, cfeState->getComputeOverdispatchDisable());
         }
         {
             auto flags = DispatchFlagsHelper::createDefaultDispatchFlags();
@@ -645,8 +663,9 @@ HWTEST2_F(CommandStreamReceiverHwTest, whenProgramVFEStateIsCalledThenCorrectCom
             LinearStream commandStream{&memory, sizeof(memory)};
             mockCsr->mediaVfeStateDirty = true;
             mockCsr->programVFEState(commandStream, flags, 10);
-            auto pCommand = reinterpret_cast<CFE_STATE *>(&memory);
-            EXPECT_FALSE(pCommand->getComputeOverdispatchDisable());
+            auto cfeState = reinterpret_cast<CFE_STATE *>(&memory);
+
+            EXPECT_FALSE(cfeState->getComputeOverdispatchDisable());
         }
     }
 }
@@ -724,7 +743,7 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenEstimatingCommandsSizeThenCal
         expectedBlitInstructionsSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     }
 
-    auto expectedAlignedSize = baseSize + MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo());
+    auto expectedAlignedSize = baseSize + (2 * MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo()));
 
     BlitPropertiesContainer blitPropertiesContainer;
     for (uint32_t i = 0; i < numberOfBlitOperations; i++) {
@@ -762,7 +781,7 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenDirectsubmissionEnabledEstima
         expectedBlitInstructionsSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     }
 
-    auto expectedAlignedSize = baseSize + MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo());
+    auto expectedAlignedSize = baseSize + (2 * MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo()));
 
     BlitPropertiesContainer blitPropertiesContainer;
     for (uint32_t i = 0; i < numberOfBlitOperations; i++) {
@@ -799,7 +818,7 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenEstimatingCommandsSizeForWrit
         expectedBlitInstructionsSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     }
 
-    auto expectedAlignedSize = baseSize + MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo());
+    auto expectedAlignedSize = baseSize + (2 * MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo()));
 
     BlitPropertiesContainer blitPropertiesContainer;
     for (uint32_t i = 0; i < numberOfBlitOperations; i++) {
@@ -836,7 +855,7 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenDirectSubmissionEnabledEstima
         expectedBlitInstructionsSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     }
 
-    auto expectedAlignedSize = baseSize + MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo());
+    auto expectedAlignedSize = baseSize + (2 * MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo()));
 
     BlitPropertiesContainer blitPropertiesContainer;
     for (uint32_t i = 0; i < numberOfBlitOperations; i++) {
@@ -868,10 +887,10 @@ HWTEST_F(BcsTests, givenTimestampPacketWriteRequestWhenEstimatingSizeForCommands
     auto expectedSizeWithTimestampPacketWrite = expectedBaseSize + EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     auto expectedSizeWithoutTimestampPacketWrite = expectedBaseSize;
 
-    auto estimatedSizeWithTimestampPacketWrite = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(
-        {1, 1, 1}, csrDependencies, true, false, pClDevice->getRootDeviceEnvironment());
-    auto estimatedSizeWithoutTimestampPacketWrite = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(
-        {1, 1, 1}, csrDependencies, false, false, pClDevice->getRootDeviceEnvironment());
+    auto estimatedSizeWithTimestampPacketWrite = BlitCommandsHelper<FamilyType>::estimateBlitCommandSize(
+        {1, 1, 1}, csrDependencies, true, false, false, pClDevice->getRootDeviceEnvironment());
+    auto estimatedSizeWithoutTimestampPacketWrite = BlitCommandsHelper<FamilyType>::estimateBlitCommandSize(
+        {1, 1, 1}, csrDependencies, false, false, false, pClDevice->getRootDeviceEnvironment());
 
     EXPECT_EQ(expectedSizeWithTimestampPacketWrite, estimatedSizeWithTimestampPacketWrite);
     EXPECT_EQ(expectedSizeWithoutTimestampPacketWrite, estimatedSizeWithoutTimestampPacketWrite);
@@ -891,10 +910,10 @@ HWTEST_F(BcsTests, givenTimestampPacketWriteRequestWhenEstimatingSizeForCommands
 
     auto expectedSizeWithTimestampPacketWriteAndProfiling = expectedBaseSize + BlitCommandsHelper<FamilyType>::getProfilingMmioCmdsSize();
 
-    auto estimatedSizeWithTimestampPacketWrite = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(
-        {1, 1, 1}, csrDependencies, true, false, pClDevice->getRootDeviceEnvironment());
-    auto estimatedSizeWithTimestampPacketWriteAndProfiling = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(
-        {1, 1, 1}, csrDependencies, true, true, pClDevice->getRootDeviceEnvironment());
+    auto estimatedSizeWithTimestampPacketWrite = BlitCommandsHelper<FamilyType>::estimateBlitCommandSize(
+        {1, 1, 1}, csrDependencies, true, false, false, pClDevice->getRootDeviceEnvironment());
+    auto estimatedSizeWithTimestampPacketWriteAndProfiling = BlitCommandsHelper<FamilyType>::estimateBlitCommandSize(
+        {1, 1, 1}, csrDependencies, true, true, false, pClDevice->getRootDeviceEnvironment());
 
     EXPECT_EQ(expectedSizeWithTimestampPacketWriteAndProfiling, estimatedSizeWithTimestampPacketWriteAndProfiling);
     EXPECT_EQ(expectedBaseSize, estimatedSizeWithTimestampPacketWrite);
@@ -923,10 +942,46 @@ HWTEST_F(BcsTests, givenBltSizeAndCsrDependenciesWhenEstimatingCommandSizeThenAd
         expectedSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     }
 
-    auto estimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(
-        {1, 1, 1}, csrDependencies, false, false, pClDevice->getRootDeviceEnvironment());
+    auto estimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandSize(
+        {1, 1, 1}, csrDependencies, false, false, false, pClDevice->getRootDeviceEnvironment());
 
     EXPECT_EQ(expectedSize, estimatedSize);
+}
+
+HWTEST_F(BcsTests, givenImageAndBufferWhenEstimateBlitCommandSizeThenReturnCorrectCommandSize) {
+
+    for (auto isImage : {false, true}) {
+        auto expectedSize = sizeof(typename FamilyType::MI_ARB_CHECK);
+        expectedSize += isImage ? sizeof(typename FamilyType::XY_BLOCK_COPY_BLT) : sizeof(typename FamilyType::XY_COPY_BLT);
+
+        if (BlitCommandsHelper<FamilyType>::miArbCheckWaRequired()) {
+            expectedSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
+        }
+        if (BlitCommandsHelper<FamilyType>::preBlitCommandWARequired()) {
+            expectedSize += EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
+        }
+
+        auto estimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandSize(
+            {1, 1, 1}, csrDependencies, false, false, isImage, pClDevice->getRootDeviceEnvironment());
+
+        EXPECT_EQ(expectedSize, estimatedSize);
+    }
+}
+
+HWTEST_F(BcsTests, givenImageAndBufferBlitDirectionsWhenIsImageOperationIsCalledThenReturnCorrectValue) {
+
+    BlitProperties blitProperties{};
+    std::pair<bool, BlitterConstants::BlitDirection> params[] = {{false, BlitterConstants::BlitDirection::HostPtrToBuffer},
+                                                                 {false, BlitterConstants::BlitDirection::BufferToHostPtr},
+                                                                 {false, BlitterConstants::BlitDirection::BufferToBuffer},
+                                                                 {true, BlitterConstants::BlitDirection::HostPtrToImage},
+                                                                 {true, BlitterConstants::BlitDirection::ImageToHostPtr},
+                                                                 {true, BlitterConstants::BlitDirection::ImageToImage}};
+
+    for (auto [isImageDirection, blitDirection] : params) {
+        blitProperties.blitDirection = blitDirection;
+        EXPECT_EQ(isImageDirection, blitProperties.isImageOperation());
+    }
 }
 
 HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredCommands) {
@@ -1451,7 +1506,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenBarrierNodeSetWhe
     DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
     dispatchFlags.barrierTimestampPacketNodes = &timestampPacketDependencies.barrierNodes;
 
-    size_t expectedCmdSize = MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(hwInfo);
+    size_t expectedCmdSize = MemorySynchronizationCommands<FamilyType>::getSizeForBarrierWithPostSyncOperation(hwInfo, false);
     size_t estimatedCmdSize = commandStreamReceiver->getCmdSizeForStallingCommands(dispatchFlags);
     EXPECT_EQ(expectedCmdSize, estimatedCmdSize);
 
@@ -1462,7 +1517,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenBarrierNodeSetWhe
     findHardwareCommands<FamilyType>();
     auto cmdItor = cmdList.begin();
 
-    if (MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hwInfo)) {
+    if (MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hwInfo)) {
         PIPE_CONTROL *pipeControl = genCmdCast<PIPE_CONTROL *>(*cmdItor);
         ASSERT_NE(nullptr, pipeControl);
         cmdItor++;
@@ -1476,4 +1531,213 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenBarrierNodeSetWhe
     EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
     EXPECT_EQ(0u, pipeControl->getImmediateData());
     EXPECT_EQ(gpuAddress, UnitTestHelper<FamilyType>::getPipeControlPostSyncAddress(*pipeControl));
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenFrontEndStateNotInitedWhenTransitionFrontEndPropertiesThenExpectCorrectValuesStored) {
+    auto dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.feSupportFlags.computeDispatchAllWalker = false;
+    commandStreamReceiver.feSupportFlags.disableEuFusion = false;
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.feSupportFlags.disableOverdispatch = true;
+    dispatchFlags.additionalKernelExecInfo = AdditionalKernelExecInfo::NotApplicable;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    dispatchFlags.additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    dispatchFlags.additionalKernelExecInfo = AdditionalKernelExecInfo::DisableOverdispatch;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.feSupportFlags.disableOverdispatch = false;
+    commandStreamReceiver.lastAdditionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    commandStreamReceiver.feSupportFlags.computeDispatchAllWalker = true;
+    dispatchFlags.kernelExecutionType = KernelExecutionType::NotApplicable;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    dispatchFlags.kernelExecutionType = KernelExecutionType::Default;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    dispatchFlags.kernelExecutionType = KernelExecutionType::Concurrent;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.feSupportFlags.computeDispatchAllWalker = false;
+    commandStreamReceiver.lastKernelExecutionType = KernelExecutionType::Default;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    commandStreamReceiver.feSupportFlags.disableEuFusion = true;
+    dispatchFlags.disableEUFusion = false;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.streamProperties.frontEndState.disableEUFusion.value = 0;
+    dispatchFlags.disableEUFusion = true;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    dispatchFlags.disableEUFusion = false;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    commandStreamReceiver.feSupportFlags.disableEuFusion = false;
+    commandStreamReceiver.streamProperties.frontEndState.disableEUFusion.value = -1;
+    dispatchFlags.disableEUFusion = false;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenFrontEndStateInitedWhenTransitionFrontEndPropertiesThenExpectCorrectValuesStored) {
+    auto dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.feSupportFlags.computeDispatchAllWalker = false;
+    commandStreamReceiver.feSupportFlags.disableEuFusion = false;
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.feSupportFlags.disableOverdispatch = true;
+
+    commandStreamReceiver.streamProperties.frontEndState.disableOverdispatch.value = 0;
+    dispatchFlags.additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    dispatchFlags.additionalKernelExecInfo = AdditionalKernelExecInfo::DisableOverdispatch;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.streamProperties.frontEndState.disableOverdispatch.value = 1;
+    dispatchFlags.additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.feSupportFlags.disableOverdispatch = false;
+    commandStreamReceiver.feSupportFlags.computeDispatchAllWalker = true;
+
+    commandStreamReceiver.streamProperties.frontEndState.computeDispatchAllWalkerEnable.value = 0;
+    dispatchFlags.kernelExecutionType = KernelExecutionType::Default;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.getMediaVFEStateDirty());
+
+    dispatchFlags.kernelExecutionType = KernelExecutionType::Concurrent;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+
+    commandStreamReceiver.streamProperties.frontEndState.computeDispatchAllWalkerEnable.value = 1;
+    dispatchFlags.kernelExecutionType = KernelExecutionType::Default;
+    commandStreamReceiver.handleFrontEndStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.getMediaVFEStateDirty());
+    commandStreamReceiver.setMediaVFEStateDirty(false);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenPipelineSelectStateNotInitedWhenTransitionPipelineSelectPropertiesThenExpectCorrectValuesStored) {
+    auto dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    commandStreamReceiver.pipelineSupportFlags.systolicMode = false;
+    commandStreamReceiver.pipelineSupportFlags.mediaSamplerDopClockGate = true;
+
+    dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = false;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    commandStreamReceiver.pipelineSupportFlags.mediaSamplerDopClockGate = false;
+    commandStreamReceiver.lastMediaSamplerConfig = -1;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    commandStreamReceiver.pipelineSupportFlags.mediaSamplerDopClockGate = true;
+    commandStreamReceiver.lastMediaSamplerConfig = 0;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = true;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    commandStreamReceiver.pipelineSupportFlags.mediaSamplerDopClockGate = false;
+    commandStreamReceiver.pipelineSupportFlags.systolicMode = true;
+
+    commandStreamReceiver.lastSystolicPipelineSelectMode = false;
+    dispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode = true;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.systolicPipelineSelectMode);
+
+    commandStreamReceiver.pipelineSupportFlags.systolicMode = false;
+    commandStreamReceiver.lastSystolicPipelineSelectMode = false;
+    dispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode = true;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.csrSizeRequestFlags.systolicPipelineSelectMode);
+
+    commandStreamReceiver.pipelineSupportFlags.systolicMode = true;
+    commandStreamReceiver.lastSystolicPipelineSelectMode = false;
+    dispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode = false;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.csrSizeRequestFlags.systolicPipelineSelectMode);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest,
+         givenPipelineSelectStateInitedWhenTransitionPipelineSelectPropertiesThenExpectCorrectValuesStored) {
+    auto dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    commandStreamReceiver.pipelineSupportFlags.systolicMode = false;
+    commandStreamReceiver.pipelineSupportFlags.mediaSamplerDopClockGate = true;
+
+    commandStreamReceiver.streamProperties.pipelineSelect.mediaSamplerDopClockGate.value = 1;
+    commandStreamReceiver.lastMediaSamplerConfig = -1;
+    dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = false;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    commandStreamReceiver.streamProperties.pipelineSelect.mediaSamplerDopClockGate.value = 0;
+    dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = true;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    commandStreamReceiver.streamProperties.pipelineSelect.mediaSamplerDopClockGate.value = 0;
+    commandStreamReceiver.lastMediaSamplerConfig = 1;
+    dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = false;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.csrSizeRequestFlags.mediaSamplerConfigChanged);
+
+    commandStreamReceiver.pipelineSupportFlags.mediaSamplerDopClockGate = false;
+    commandStreamReceiver.pipelineSupportFlags.systolicMode = true;
+
+    commandStreamReceiver.streamProperties.pipelineSelect.systolicMode.value = 1;
+    commandStreamReceiver.lastSystolicPipelineSelectMode = false;
+    dispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode = false;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.systolicPipelineSelectMode);
+
+    commandStreamReceiver.streamProperties.pipelineSelect.systolicMode.value = 0;
+    dispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode = true;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_TRUE(commandStreamReceiver.csrSizeRequestFlags.systolicPipelineSelectMode);
+
+    commandStreamReceiver.streamProperties.pipelineSelect.systolicMode.value = 0;
+    commandStreamReceiver.lastSystolicPipelineSelectMode = true;
+    dispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode = false;
+    commandStreamReceiver.handlePipelineSelectStateTransition(dispatchFlags);
+    EXPECT_FALSE(commandStreamReceiver.csrSizeRequestFlags.systolicPipelineSelectMode);
 }

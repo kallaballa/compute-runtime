@@ -12,6 +12,7 @@
 #include "shared/source/program/kernel_info.h"
 #include "shared/source/utilities/debug_settings_reader.h"
 #include "shared/source/utilities/logger.h"
+#include "shared/test/common/base_ult_config_listener.h"
 #include "shared/test/common/helpers/custom_event_listener.h"
 #include "shared/test/common/helpers/default_hw_info.inl"
 #include "shared/test/common/helpers/memory_leak_listener.h"
@@ -21,13 +22,13 @@
 #include "shared/test/common/libult/signal_utils.h"
 #include "shared/test/common/mocks/mock_gmm_client_context.h"
 #include "shared/test/common/mocks/mock_sip.h"
-#include "shared/test/unit_test/base_ult_config_listener.h"
-#include "shared/test/unit_test/test_stats.h"
+#include "shared/test/common/test_stats.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist.h"
 #include "level_zero/core/source/compiler_interface/l0_reg_path.h"
 
 #include "gmock/gmock.h"
+#include "hw_cmds_default.h"
 #include "igfxfmid.h"
 
 #include <fstream>
@@ -137,7 +138,7 @@ void applyWorkarounds() {
 
     //Create FileLogger to prevent false memory leaks
     {
-        NEO::FileLoggerInstance();
+        NEO::fileLoggerInstance();
     }
 }
 
@@ -164,6 +165,8 @@ int main(int argc, char **argv) {
     bool enableAlarm = true;
     bool setupFeatureTableAndWorkaroundTable = testMode == TestMode::AubTests ? true : false;
     bool showTestStats = false;
+    bool dumpTestStats = false;
+    std::string dumpTestStatsFileName = "";
 
     auto sysmanUltsEnableEnv = getenv("NEO_L0_SYSMAN_ULTS_ENABLE");
     if (sysmanUltsEnableEnv != nullptr) {
@@ -171,14 +174,6 @@ int main(int argc, char **argv) {
     }
 
     applyWorkarounds();
-
-    {
-        std::string envVar = std::string("NEO_") + executionName + "_DISABLE_TEST_ALARM";
-        char *envValue = getenv(envVar.c_str());
-        if (envValue != nullptr) {
-            enableAlarm = false;
-        }
-    }
 
     testing::InitGoogleMock(&argc, argv);
 
@@ -266,12 +261,11 @@ int main(int argc, char **argv) {
             }
         } else if (!strcmp("--show_test_stats", argv[i])) {
             showTestStats = true;
+        } else if (!strcmp("--dump_test_stats", argv[i])) {
+            dumpTestStats = true;
+            ++i;
+            dumpTestStatsFileName = std::string(argv[i]);
         }
-    }
-
-    if (showTestStats) {
-        std::cout << getTestStats() << std::endl;
-        return 0;
     }
 
     productFamily = hwInfoForTests.platform.eProductFamily;
@@ -302,7 +296,6 @@ int main(int argc, char **argv) {
     gtSystemInfo.MaxEuPerSubSlice       = std::max(gtSystemInfo.MaxEuPerSubSlice, euPerSubSlice);
     gtSystemInfo.MaxSlicesSupported     = std::max(gtSystemInfo.MaxSlicesSupported, gtSystemInfo.SliceCount);
     gtSystemInfo.MaxSubSlicesSupported  = std::max(gtSystemInfo.MaxSubSlicesSupported, gtSystemInfo.SubSliceCount);
-    gtSystemInfo.IsDynamicallyPopulated = false;
     // clang-format on
 
     // Platforms with uninitialized factory are not supported
@@ -329,19 +322,25 @@ int main(int argc, char **argv) {
     binaryNameSuffix.append(hwInfoForTests.capabilityTable.platformType);
 
     std::string testBinaryFiles = getRunPath(argv[0]);
-    std::string testBinaryFilesNoRev = testBinaryFiles;
-    testBinaryFilesNoRev.append("/level_zero/");
+    std::string testBinaryFilesApiSpecific = testBinaryFiles;
+    testBinaryFilesApiSpecific.append("/level_zero/");
     testBinaryFiles.append("/" + binaryNameSuffix + "/");
-    testBinaryFilesNoRev.append(binaryNameSuffix + "/");
+    testBinaryFilesApiSpecific.append(binaryNameSuffix + "/");
 
     testBinaryFiles.append(std::to_string(revId));
     testBinaryFiles.append("/");
     testBinaryFiles.append(testFiles);
-    testBinaryFilesNoRev.append(testFiles);
+    testBinaryFilesApiSpecific.append(std::to_string(revId));
+    testBinaryFilesApiSpecific.append("/");
+    testBinaryFilesApiSpecific.append(testFilesApiSpecific);
     testFiles = testBinaryFiles;
-    testFilesNoRev = testBinaryFilesNoRev;
+    testFilesApiSpecific = testBinaryFilesApiSpecific;
 
-    std::string executionDirectory(hardwarePrefix[productFamily]);
+    std::string executionDirectory("");
+    if (testMode != TestMode::AubTests) {
+        executionDirectory += "level_zero/";
+    }
+    executionDirectory += hardwarePrefix[productFamily];
     executionDirectory += NEO::executionDirectorySuffix; //_aub for aub_tests, empty otherwise
     executionDirectory += "/";
     executionDirectory += std::to_string(revId);
@@ -388,6 +387,17 @@ int main(int argc, char **argv) {
         return sigOut;
 
     auto retVal = RUN_ALL_TESTS();
+
+    if (showTestStats) {
+        std::cout << getTestStats() << std::endl;
+    }
+
+    if (dumpTestStats) {
+        std::ofstream dumpTestStatsFile;
+        dumpTestStatsFile.open(dumpTestStatsFileName);
+        dumpTestStatsFile << getTestStatsJson();
+        dumpTestStatsFile.close();
+    }
 
     return retVal;
 }

@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/page_fault_manager/cpu_page_fault_manager.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist.h"
@@ -55,10 +56,17 @@ void handleGpuDomainTransferForHwWithHints(NEO::PageFaultManager *pageFaultHandl
             }
         }
         if (migration) {
-            if (NEO::DebugManager.flags.PrintUmdSharedMigration.get()) {
-                printf("UMD transferring shared allocation %llx from GPU to CPU\n", reinterpret_cast<unsigned long long int>(allocPtr));
-            }
+            std::chrono::steady_clock::time_point start;
+            std::chrono::steady_clock::time_point end;
+
+            start = std::chrono::steady_clock::now();
             pageFaultHandler->transferToCpu(allocPtr, pageFaultData.size, pageFaultData.cmdQ);
+            end = std::chrono::steady_clock::now();
+            long long elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+
+            if (NEO::DebugManager.flags.PrintUmdSharedMigration.get()) {
+                printf("UMD transferred shared allocation %llx (%zu B) from GPU to CPU (%f us)\n", reinterpret_cast<unsigned long long int>(allocPtr), pageFaultData.size, elapsedTime / 1e3);
+            }
         }
     }
     if (migration) {

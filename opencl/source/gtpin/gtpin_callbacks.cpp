@@ -18,7 +18,6 @@
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/kernel/multi_device_kernel.h"
 #include "opencl/source/mem_obj/buffer.h"
-#include "opencl/source/program/program.h"
 
 #include "CL/cl.h"
 #include "ocl_igc_shared/gtpin/gtpin_ocl_interface.h"
@@ -187,19 +186,17 @@ void gtpinNotifyFlushTask(uint32_t flushedTaskCount) {
 }
 
 void gtpinNotifyTaskCompletion(uint32_t completedTaskCount) {
-    if (isGTPinInitialized) {
-        std::unique_lock<GTPinLockType> lock{kernelExecQueueLock};
-        size_t numElems = kernelExecQueue.size();
-        for (size_t n = 0; n < numElems;) {
-            if (kernelExecQueue[n].isTaskCountValid && (kernelExecQueue[n].taskCount <= completedTaskCount)) {
-                // Notify GT-Pin that execution of "command buffer" was completed
-                (*GTPinCallbacks.onCommandBufferComplete)(kernelExecQueue[n].commandBuffer);
-                // Remove kernel's record from Kernel Execution Queue
-                kernelExecQueue.erase(kernelExecQueue.begin() + n);
-                numElems--;
-            } else {
-                n++;
-            }
+    std::unique_lock<GTPinLockType> lock{kernelExecQueueLock};
+    size_t numElems = kernelExecQueue.size();
+    for (size_t n = 0; n < numElems;) {
+        if (kernelExecQueue[n].isTaskCountValid && (kernelExecQueue[n].taskCount <= completedTaskCount)) {
+            // Notify GT-Pin that execution of "command buffer" was completed
+            (*GTPinCallbacks.onCommandBufferComplete)(kernelExecQueue[n].commandBuffer);
+            // Remove kernel's record from Kernel Execution Queue
+            kernelExecQueue.erase(kernelExecQueue.begin() + n);
+            numElems--;
+        } else {
+            n++;
         }
     }
 }

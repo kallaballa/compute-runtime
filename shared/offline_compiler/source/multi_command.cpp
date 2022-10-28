@@ -143,7 +143,7 @@ void MultiCommand::runBuilds(const std::string &argZero) {
         }
 
         if (!quiet) {
-            argHelper->printf("Command numer %zu: \n", i + 1);
+            argHelper->printf("Command number %zu: \n", i + 1);
         }
 
         addAdditionalOptionsToSingleCommandLine(args, i);
@@ -159,7 +159,7 @@ Usage: ocloc multi <file_name>
   <file_name>   Input file containing a list of arguments for subsequent
                 ocloc invocations.
                 Expected format of each line inside such file is:
-                '-file <filename> -device <device_type> [compile_options].
+                '-file <filename> -device <device_type> [compile_options]'.
                 See 'ocloc compile --help' for available compile_options.
                 Results of subsequent compilations will be dumped into 
                 a directory with name indentical file_name's base name.

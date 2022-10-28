@@ -9,6 +9,7 @@
 
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/compiler_interface/intermediate_representations.h"
 #include "shared/source/compiler_interface/oclc_extensions.h"
 #include "shared/source/device_binary_format/device_binary_formats.h"
@@ -16,6 +17,7 @@
 #include "shared/source/device_binary_format/elf/ocl_elf.h"
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
 #include "shared/source/helpers/api_specific_config.h"
+#include "shared/source/helpers/compiler_hw_info_config.h"
 #include "shared/source/helpers/compiler_options_parser.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -30,8 +32,6 @@
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/platform/platform.h"
-
-#include "compiler_options.h"
 
 #include <sstream>
 
@@ -72,8 +72,12 @@ std::string Program::getInternalOptions() const {
         CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::arch32bit);
     }
 
-    if ((isBuiltIn && is32bit) || pClDevice->areSharedSystemAllocationsAllowed() ||
-        DebugManager.flags.DisableStatelessToStatefulOptimization.get()) {
+    auto &hwInfo = pClDevice->getHardwareInfo();
+    const auto &compilerHwInfoConfig = *CompilerHwInfoConfig::get(hwInfo.platform.eProductFamily);
+    auto forceToStatelessRequired = compilerHwInfoConfig.isForceToStatelessRequired();
+    auto disableStatelessToStatefulOptimization = DebugManager.flags.DisableStatelessToStatefulOptimization.get();
+
+    if ((isBuiltIn && is32bit) || forceToStatelessRequired || disableStatelessToStatefulOptimization) {
         CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::greaterThan4gbBuffersRequired);
     }
 
@@ -81,16 +85,15 @@ std::string Program::getInternalOptions() const {
         CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::bindlessMode);
     }
 
-    auto enableStatelessToStatefullWithOffset = HwHelper::get(pClDevice->getHardwareInfo().platform.eRenderCoreFamily).isStatelesToStatefullWithOffsetSupported();
+    auto enableStatelessToStatefulWithOffset = HwHelper::get(pClDevice->getHardwareInfo().platform.eRenderCoreFamily).isStatelessToStatefulWithOffsetSupported();
     if (DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.get() != -1) {
-        enableStatelessToStatefullWithOffset = DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.get() != 0;
+        enableStatelessToStatefulWithOffset = DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.get() != 0;
     }
 
-    if (enableStatelessToStatefullWithOffset) {
+    if (enableStatelessToStatefulWithOffset) {
         CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::hasBufferOffsetArg);
     }
 
-    auto &hwInfo = pClDevice->getHardwareInfo();
     const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
     if (hwInfoConfig.isForceEmuInt32DivRemSPWARequired(hwInfo)) {
         CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::forceEmuInt32DivRemSP);
@@ -101,7 +104,8 @@ std::string Program::getInternalOptions() const {
     }
 
     CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::preserveVec3Type);
-
+    auto isDebuggerActive = pClDevice->getDevice().isDebuggerActive() || pClDevice->getDevice().getDebugger() != nullptr;
+    CompilerOptions::concatenateAppend(internalOptions, compilerHwInfoConfig.getCachingPolicyOptions(isDebuggerActive));
     return internalOptions;
 }
 
@@ -162,10 +166,7 @@ cl_int Program::createProgramFromBinary(
         auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
         auto productAbbreviation = hardwarePrefix[hwInfo->platform.eProductFamily];
 
-        TargetDevice targetDevice = {};
-        targetDevice.coreFamily = hwInfo->platform.eRenderCoreFamily;
-        targetDevice.stepping = hwInfo->platform.usRevId;
-        targetDevice.maxPointerSizeInBytes = sizeof(uintptr_t);
+        TargetDevice targetDevice = targetDeviceFromHwInfo(*hwInfo);
         std::string decodeErrors;
         std::string decodeWarnings;
         auto singleDeviceBinary = unpackSingleDeviceBinary(archive, ConstStringRef(productAbbreviation, strlen(productAbbreviation)), targetDevice,
@@ -174,7 +175,8 @@ cl_int Program::createProgramFromBinary(
             PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
         }
 
-        if (singleDeviceBinary.intermediateRepresentation.empty() && singleDeviceBinary.deviceBinary.empty()) {
+        bool singleDeviceBinaryEmpty = singleDeviceBinary.intermediateRepresentation.empty() && singleDeviceBinary.deviceBinary.empty();
+        if (singleDeviceBinaryEmpty || (singleDeviceBinary.deviceBinary.empty() && DebugManager.flags.DisableKernelRecompilation.get())) {
             retVal = CL_INVALID_BINARY;
             PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
         } else {
@@ -183,20 +185,26 @@ cl_int Program::createProgramFromBinary(
             this->irBinarySize = singleDeviceBinary.intermediateRepresentation.size();
             this->isSpirV = NEO::isSpirVBitcode(ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->irBinary.get()), this->irBinarySize));
             this->options = singleDeviceBinary.buildOptions.str();
-
-            if (false == singleDeviceBinary.debugData.empty()) {
-                this->buildInfos[rootDeviceIndex].debugData = makeCopy(reinterpret_cast<const char *>(singleDeviceBinary.debugData.begin()), singleDeviceBinary.debugData.size());
-                this->buildInfos[rootDeviceIndex].debugDataSize = singleDeviceBinary.debugData.size();
+            if (singleDeviceBinary.format == NEO::DeviceBinaryFormat::Zebin) {
+                this->options += " " + NEO::CompilerOptions::allowZebin.str();
             }
-            bool forceRebuildBuiltInFromIr = isBuiltIn && DebugManager.flags.RebuildPrecompiledKernels.get();
-            if ((false == singleDeviceBinary.deviceBinary.empty()) && (false == forceRebuildBuiltInFromIr)) {
+
+            this->buildInfos[rootDeviceIndex].debugData = makeCopy(reinterpret_cast<const char *>(singleDeviceBinary.debugData.begin()), singleDeviceBinary.debugData.size());
+            this->buildInfos[rootDeviceIndex].debugDataSize = singleDeviceBinary.debugData.size();
+
+            bool rebuild = isRebuiltToPatchtokensRequired(&clDevice.getDevice(), archive, this->options, this->isBuiltIn);
+            rebuild |= isBuiltIn && DebugManager.flags.RebuildPrecompiledKernels.get();
+            if (rebuild && 0u == this->irBinarySize) {
+                return CL_INVALID_BINARY;
+            }
+            if ((false == singleDeviceBinary.deviceBinary.empty()) && (false == rebuild)) {
                 this->buildInfos[rootDeviceIndex].unpackedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(singleDeviceBinary.deviceBinary.begin()), singleDeviceBinary.deviceBinary.size());
                 this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = singleDeviceBinary.deviceBinary.size();
                 this->buildInfos[rootDeviceIndex].packedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(archive.begin()), archive.size());
                 this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = archive.size();
             } else {
                 this->isCreatedFromBinary = false;
-                this->shouldWarnAboutRebuild = true;
+                this->requiresRebuild = true;
             }
 
             switch (singleDeviceBinary.format) {
@@ -302,7 +310,7 @@ void Program::cleanCurrentKernelInfo(uint32_t rootDeviceIndex) {
     auto &buildInfo = buildInfos[rootDeviceIndex];
     for (auto &kernelInfo : buildInfo.kernelInfoArray) {
         if (kernelInfo->kernelAllocation) {
-            //register cache flush in all csrs where kernel allocation was used
+            // register cache flush in all csrs where kernel allocation was used
             for (auto &engine : this->executionEnvironment.memoryManager->getRegisteredEngines()) {
                 auto contextId = engine.osContext->getContextId();
                 if (kernelInfo->kernelAllocation->isUsedByOsContext(contextId)) {
@@ -310,7 +318,21 @@ void Program::cleanCurrentKernelInfo(uint32_t rootDeviceIndex) {
                 }
             }
 
-            this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(kernelInfo->kernelAllocation);
+            if (executionEnvironment.memoryManager->isKernelBinaryReuseEnabled()) {
+                auto lock = executionEnvironment.memoryManager->lockKernelAllocationMap();
+                auto kernelName = kernelInfo->kernelDescriptor.kernelMetadata.kernelName;
+                auto &storedBinaries = executionEnvironment.memoryManager->getKernelAllocationMap();
+                auto kernelAllocations = storedBinaries.find(kernelName);
+                if (kernelAllocations != storedBinaries.end()) {
+                    kernelAllocations->second.reuseCounter--;
+                    if (kernelAllocations->second.reuseCounter == 0) {
+                        this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(kernelAllocations->second.kernelAllocation);
+                        storedBinaries.erase(kernelAllocations);
+                    }
+                }
+            } else {
+                this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(kernelInfo->kernelAllocation);
+            }
         }
         delete kernelInfo;
     }
@@ -318,10 +340,10 @@ void Program::cleanCurrentKernelInfo(uint32_t rootDeviceIndex) {
 }
 
 void Program::updateNonUniformFlag() {
-    //Look for -cl-std=CL substring and extract value behind which can be 1.2 2.0 2.1 and convert to value
+    // Look for -cl-std=CL substring and extract value behind which can be 1.2 2.0 2.1 and convert to value
     auto pos = options.find(clStdOptionName);
     if (pos == std::string::npos) {
-        programOptionVersion = 12u; //Default is 1.2
+        programOptionVersion = 12u; // Default is 1.2
     } else {
         std::stringstream ss{options.c_str() + pos + clStdOptionName.size()};
         uint32_t majorV = 0u, minorV = 0u;
@@ -370,14 +392,11 @@ cl_int Program::packDeviceBinary(ClDevice &clDevice) {
     }
 
     auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-    auto gfxCore = hwInfo->platform.eRenderCoreFamily;
-    auto stepping = hwInfo->platform.usRevId;
 
     if (nullptr != this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.get()) {
-        SingleDeviceBinary singleDeviceBinary;
+        SingleDeviceBinary singleDeviceBinary = {};
+        singleDeviceBinary.targetDevice = NEO::targetDeviceFromHwInfo(*hwInfo);
         singleDeviceBinary.buildOptions = this->options;
-        singleDeviceBinary.targetDevice.coreFamily = gfxCore;
-        singleDeviceBinary.targetDevice.stepping = stepping;
         singleDeviceBinary.deviceBinary = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.get()), this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize);
         singleDeviceBinary.intermediateRepresentation = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->irBinary.get()), this->irBinarySize);
         singleDeviceBinary.debugData = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->buildInfos[rootDeviceIndex].debugData.get()), this->buildInfos[rootDeviceIndex].debugDataSize);
@@ -473,11 +492,34 @@ cl_int Program::processInputDevices(ClDeviceVector *&deviceVectorPtr, cl_uint nu
 }
 
 void Program::prependFilePathToOptions(const std::string &filename) {
-    ConstStringRef cmcOption = "-cmc";
-    if (!filename.empty() && options.compare(0, cmcOption.size(), cmcOption.data())) {
+    auto isCMCOptionUsed = CompilerOptions::contains(options, CompilerOptions::useCMCompiler);
+    if (!filename.empty() && false == isCMCOptionUsed) {
         // Add "-s" flag first so it will be ignored by clang in case the options already have this flag set.
-        options = std::string("-s ") + filename + " " + options;
+        options = CompilerOptions::generateSourcePath.str() + " " + CompilerOptions::wrapInQuotes(filename) + " " + options;
     }
+}
+
+const std::vector<ConstStringRef> Program::internalOptionsToExtract = {CompilerOptions::gtpinRera,
+                                                                       CompilerOptions::defaultGrf,
+                                                                       CompilerOptions::largeGrf,
+                                                                       CompilerOptions::greaterThan4gbBuffersRequired,
+                                                                       CompilerOptions::numThreadsPerEu};
+
+bool Program::isFlagOption(ConstStringRef option) {
+    if (option == CompilerOptions::numThreadsPerEu) {
+        return false;
+    }
+    return true;
+}
+
+bool Program::isOptionValueValid(ConstStringRef option, ConstStringRef value) {
+    if (option == CompilerOptions::numThreadsPerEu) {
+        const auto &threadCounts = clDevices[0]->getSharedDeviceInfo().threadsPerEUConfigs;
+        if (std::find(threadCounts.begin(), threadCounts.end(), atoi(value.data())) != threadCounts.end()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 const ClDeviceVector &Program::getDevicesInProgram() const {

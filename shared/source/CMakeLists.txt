@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2019-2021 Intel Corporation
+# Copyright (C) 2019-2022 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -31,6 +31,7 @@ function(generate_shared_lib LIB_NAME MOCKABLE)
   target_compile_definitions(${LIB_NAME} PUBLIC ${NEO_CORE_COMPILE_DEFS} ${NEO__IGC_COMPILE_DEFINITIONS})
 
   target_include_directories(${LIB_NAME} PUBLIC
+                             ${AOT_CONFIG_HEADERS_DIR}
                              ${KMDAF_HEADERS_DIR}
                              ${ENGINE_NODE_DIR}
                              ${NEO__GMM_INCLUDE_DIR}
@@ -54,9 +55,9 @@ function(generate_shared_lib LIB_NAME MOCKABLE)
     )
   else()
     target_include_directories(${LIB_NAME} PUBLIC
-                               ${I915_INCLUDES_DIR}
                                ${CMAKE_CURRENT_SOURCE_DIR}/os_interface/linux
     )
+
   endif()
 
   create_project_source_tree(${LIB_NAME})
@@ -151,9 +152,10 @@ if(WIN32)
                                  NEO_CORE_OS_INTERFACE_WDDM
                                  NEO_CORE_PAGE_FAULT_MANAGER_WINDOWS
                                  NEO_CORE_SKU_INFO_WINDOWS
+                                 NEO_CORE_SRCS_DEBUGGER_WINDOWS
                                  NEO_CORE_SRCS_HELPERS_WINDOWS
                                  NEO_CORE_UTILITIES_WINDOWS
-                                 NEO_CORE_EXECUTION_ENVIRONMENT_WINDOWS
+                                 NEO_CORE_EXECUTION_ENVIRONMENT_WDDM
                                  NEO_CORE_AIL_WINDOWS
   )
 else()
@@ -161,8 +163,9 @@ else()
                                  NEO_CORE_DIRECT_SUBMISSION_LINUX
                                  NEO_CORE_OS_INTERFACE_LINUX
                                  NEO_CORE_PAGE_FAULT_MANAGER_LINUX
+                                 NEO_CORE_SRCS_DEBUGGER_LINUX
                                  NEO_CORE_UTILITIES_LINUX
-                                 NEO_CORE_EXECUTION_ENVIRONMENT_LINUX
+                                 NEO_CORE_EXECUTION_ENVIRONMENT_DRM
                                  NEO_CORE_AIL_LINUX
   )
   if(NOT DISABLE_WDDM_LINUX)
@@ -171,6 +174,7 @@ else()
                                    NEO_CORE_SRCS_HELPERS_WINDOWS
                                    NEO_CORE_GMM_HELPER_WINDOWS
                                    NEO_CORE_OS_INTERFACE_WDDM
+                                   NEO_CORE_EXECUTION_ENVIRONMENT_WDDM
                                    NEO_CORE_SKU_INFO_WINDOWS
     )
   endif()
@@ -193,7 +197,10 @@ else()
   endif()
 endif()
 
-set_property(GLOBAL PROPERTY NEO_CORE_SRCS_LINK ${CORE_SRCS_LINK})
+set_property(GLOBAL APPEND PROPERTY NEO_CORE_SRCS_LINK ${CORE_SRCS_LINK})
+
+get_property(NEO_SRCS_ENABLE_CORE GLOBAL PROPERTY NEO_SRCS_ENABLE_CORE)
+target_sources(ocloc_lib PRIVATE ${NEO_SRCS_ENABLE_CORE})
 if(UNIX)
   set_property(GLOBAL APPEND PROPERTY NEO_CORE_SRCS_LINK ${CORE_SRCS_LINK_LINUX})
 endif()

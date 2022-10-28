@@ -100,23 +100,14 @@ void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(LinearStream *cmdStream,
                                                         const RootDeviceEnvironment &rootDeviceEnvironment) {
     using COMPUTE_WALKER = typename GfxFamily::COMPUTE_WALKER;
 
+    const auto &hwInfo = *rootDeviceEnvironment.getHardwareInfo();
     auto &postSyncData = walkerCmd->getPostSync();
     postSyncData.setDataportPipelineFlush(true);
 
-    auto gmmHelper = rootDeviceEnvironment.getGmmHelper();
-
-    const auto &hwInfo = *rootDeviceEnvironment.getHardwareInfo();
-    if (MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo)) {
-        postSyncData.setMocs(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED));
-    } else {
-        postSyncData.setMocs(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER));
-    }
+    EncodeDispatchKernel<GfxFamily>::setupPostSyncMocs(*walkerCmd, rootDeviceEnvironment,
+                                                       MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo));
 
     EncodeDispatchKernel<GfxFamily>::adjustTimestampPacket(*walkerCmd, hwInfo);
-
-    if (DebugManager.flags.OverridePostSyncMocs.get() != -1) {
-        postSyncData.setMocs(DebugManager.flags.OverridePostSyncMocs.get());
-    }
 
     if (DebugManager.flags.UseImmDataWriteModeOnPostSyncOperation.get()) {
         postSyncData.setOperation(GfxFamily::POSTSYNC_DATA::OPERATION::OPERATION_WRITE_IMMEDIATE_DATA);
@@ -140,12 +131,12 @@ void GpgpuWalkerHelper<GfxFamily>::adjustMiStoreRegMemMode(MI_STORE_REG_MEM<GfxF
 
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel, const DispatchInfo &dispatchInfo) {
-    size_t numPipeControls = MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(commandQueue.getDevice().getHardwareInfo()) ? 2 : 1;
+    size_t numBarriers = MemorySynchronizationCommands<GfxFamily>::isBarrierWaRequired(commandQueue.getDevice().getHardwareInfo()) ? 2 : 1;
 
     size_t size = sizeof(typename GfxFamily::COMPUTE_WALKER) +
-                  (sizeof(typename GfxFamily::PIPE_CONTROL) * numPipeControls) +
+                  (MemorySynchronizationCommands<GfxFamily>::getSizeForSingleBarrier(false) * numBarriers) +
                   HardwareCommandsHelper<GfxFamily>::getSizeRequiredCS() +
-                  EncodeMemoryPrefetch<GfxFamily>::getSizeForMemoryPrefetch(pKernel->getKernelInfo().heapInfo.KernelHeapSize);
+                  EncodeMemoryPrefetch<GfxFamily>::getSizeForMemoryPrefetch(pKernel->getKernelInfo().heapInfo.KernelHeapSize, commandQueue.getDevice().getHardwareInfo());
     auto devices = commandQueue.getGpgpuCommandStreamReceiver().getOsContext().getDeviceBitfield();
     auto partitionWalker = ImplicitScalingHelper::isImplicitScalingEnabled(devices,
                                                                            !pKernel->isSingleSubdevicePreferred());
@@ -180,7 +171,7 @@ size_t EnqueueOperation<GfxFamily>::getSizeForCacheFlushAfterWalkerCommands(cons
     size_t size = 0;
 
     if (kernel.requiresCacheFlushCommand(commandQueue)) {
-        size += sizeof(typename GfxFamily::PIPE_CONTROL);
+        size += MemorySynchronizationCommands<GfxFamily>::getSizeForSingleBarrier(false);
 
         if constexpr (GfxFamily::isUsingL3Control) {
             StackVec<GraphicsAllocation *, 32> allocationsForCacheFlush;

@@ -1,15 +1,16 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/default_hw_info.h"
-#include "shared/test/common/test_macros/matchers.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "level_zero/core/source/hw_helpers/l0_hw_helper.h"
 
@@ -19,6 +20,7 @@ namespace ult {
 using L0HwHelperTest = ::testing::Test;
 
 using PlatformsWithWa = IsWithinGfxCore<IGFX_GEN12LP_CORE, IGFX_XE_HP_CORE>;
+using NonMultiTilePlatforms = IsWithinGfxCore<IGFX_GEN9_CORE, IGFX_GEN12LP_CORE>;
 
 HWTEST2_F(L0HwHelperTest, givenResumeWANotNeededThenFalseIsReturned, IsAtMostGen11) {
     auto &l0HwHelper = L0::L0HwHelper::get(NEO::defaultHwInfo->platform.eRenderCoreFamily);
@@ -120,8 +122,8 @@ HWTEST_F(L0HwHelperTest, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenC
     const auto threadsSizePerSubSlice = maxEUsInAtt * bytesPerEu;
     const auto threadsSizePerSlice = threadsSizePerSubSlice * subslicesPerSlice;
 
-    std::vector<ze_device_thread_t> threads;
-    threads.push_back({0, 0, 0, 6});
+    std::vector<EuThread::ThreadId> threads;
+    threads.push_back({0, 0, 0, 0, 6});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threads, hwInfo, bitmask, size);
 
@@ -133,7 +135,7 @@ HWTEST_F(L0HwHelperTest, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenC
     EXPECT_EQ(uint8_t(1u << 6), returnedBitmask[0]);
 
     threads.clear();
-    threads.push_back({0, 0, 1, 3});
+    threads.push_back({0, 0, 0, 1, 3});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threads, hwInfo, bitmask, size);
     returnedBitmask = bitmask.get();
@@ -141,7 +143,7 @@ HWTEST_F(L0HwHelperTest, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenC
     EXPECT_EQ(uint8_t(1u << 3), returnedBitmask[0]);
 
     threads.clear();
-    threads.push_back({0, subslice, 3, 6});
+    threads.push_back({0, 0, subslice, 3, 6});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threads, hwInfo, bitmask, size);
 
@@ -156,7 +158,7 @@ HWTEST_F(L0HwHelperTest, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenC
     EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
 
     threads.clear();
-    threads.push_back({hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, 3, 6});
+    threads.push_back({0, hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, 3, 6});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threads, hwInfo, bitmask, size);
     data = expectedBitmask.get();
@@ -171,7 +173,7 @@ HWTEST_F(L0HwHelperTest, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenC
     EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
 
     threads.clear();
-    threads.push_back({hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, maxEUsInAtt - 1, 0});
+    threads.push_back({0, hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, maxEUsInAtt - 1, 0});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threads, hwInfo, bitmask, size);
     data = expectedBitmask.get();
@@ -198,9 +200,9 @@ HWTEST_F(L0HwHelperTest, givenSingleThreadsWhenGettingBitmaskThenCorrectBitsAreS
     std::unique_ptr<uint8_t[]> bitmask;
     size_t size = 0;
 
-    std::vector<ze_device_thread_t> threads;
-    threads.push_back({0, 0, 0, 3});
-    threads.push_back({0, 0, 1, 0});
+    std::vector<EuThread::ThreadId> threads;
+    threads.push_back({0, 0, 0, 0, 3});
+    threads.push_back({0, 0, 0, 1, 0});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threads, hwInfo, bitmask, size);
 
@@ -208,7 +210,7 @@ HWTEST_F(L0HwHelperTest, givenSingleThreadsWhenGettingBitmaskThenCorrectBitsAreS
     EXPECT_EQ(1u << 3, data[0]);
     EXPECT_EQ(1u, data[1]);
 
-    EXPECT_THAT(&data[2], MemoryZeroed(size - 2));
+    EXPECT_TRUE(memoryZeroed(&data[2], size - 2));
 }
 
 HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForSingleThreadWhenGettingThreadsThenSingleCorrectThreadReturned) {
@@ -222,18 +224,30 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForSingleThreadWhenGetting
     uint32_t subsliceID = subslicesPerSlice > 2 ? subslicesPerSlice - 2 : 0;
 
     uint32_t threadID = 3;
-    std::vector<ze_device_thread_t> threadsWithAtt;
-    threadsWithAtt.push_back({0, subsliceID, 0, threadID});
+    std::vector<EuThread::ThreadId> threadsWithAtt;
+    threadsWithAtt.push_back({0, 0, subsliceID, 0, threadID});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
 
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
 
     ASSERT_EQ(1u, threads.size());
     EXPECT_EQ(0u, threads[0].slice);
     EXPECT_EQ(subsliceID, threads[0].subslice);
     EXPECT_EQ(0u, threads[0].eu);
     EXPECT_EQ(threadID, threads[0].thread);
+
+    EXPECT_EQ(0u, threads[0].tileIndex);
+
+    threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 1, bitmask.get(), size);
+
+    ASSERT_EQ(1u, threads.size());
+    EXPECT_EQ(0u, threads[0].slice);
+    EXPECT_EQ(subsliceID, threads[0].subslice);
+    EXPECT_EQ(0u, threads[0].eu);
+    EXPECT_EQ(threadID, threads[0].thread);
+
+    EXPECT_EQ(1u, threads[0].tileIndex);
 }
 
 HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForAllSubslicesWhenGettingThreadsThenCorrectThreadsAreReturned) {
@@ -246,14 +260,14 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForAllSubslicesWhenGetting
     uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
     uint32_t threadID = 0;
 
-    std::vector<ze_device_thread_t> threadsWithAtt;
+    std::vector<EuThread::ThreadId> threadsWithAtt;
     for (uint32_t subsliceID = 0; subsliceID < subslicesPerSlice; subsliceID++) {
-        threadsWithAtt.push_back({0, subsliceID, 0, threadID});
+        threadsWithAtt.push_back({0, 0, subsliceID, 0, threadID});
     }
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
 
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
 
     ASSERT_EQ(subslicesPerSlice, threads.size());
 
@@ -262,6 +276,8 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForAllSubslicesWhenGetting
         EXPECT_EQ(i, threads[i].subslice);
         EXPECT_EQ(0u, threads[i].eu);
         EXPECT_EQ(threadID, threads[i].thread);
+
+        EXPECT_EQ(0u, threads[i].tileIndex);
     }
 }
 
@@ -275,13 +291,13 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForAllEUsWhenGettingThread
     const auto numEUsPerSS = hwInfo.gtSystemInfo.MaxEuPerSubSlice;
     uint32_t threadID = 3;
 
-    std::vector<ze_device_thread_t> threadsWithAtt;
+    std::vector<EuThread::ThreadId> threadsWithAtt;
     for (uint32_t euId = 0; euId < numEUsPerSS; euId++) {
-        threadsWithAtt.push_back({0, 0, euId, threadID});
+        threadsWithAtt.push_back({0, 0, 0, euId, threadID});
     }
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
 
     ASSERT_EQ(numEUsPerSS, threads.size());
 
@@ -290,6 +306,8 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForAllEUsWhenGettingThread
         EXPECT_EQ(0u, threads[i].subslice);
         EXPECT_EQ(i, threads[i].eu);
         EXPECT_EQ(threadID, threads[i].thread);
+
+        EXPECT_EQ(0u, threads[i].tileIndex);
     }
 }
 
@@ -298,7 +316,7 @@ HWTEST_F(L0HwHelperTest, givenEu0To1Threads0To3BitmaskWhenGettingThreadsThenCorr
     auto &l0HwHelper = L0::L0HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
     uint8_t data[2] = {0x0f, 0x0f};
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, data, sizeof(data));
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, data, sizeof(data));
 
     ASSERT_EQ(8u, threads.size());
 
@@ -317,6 +335,8 @@ HWTEST_F(L0HwHelperTest, givenEu0To1Threads0To3BitmaskWhenGettingThreadsThenCorr
         EXPECT_EQ(expectedThreads[i].subslice, threads[i].subslice);
         EXPECT_EQ(expectedThreads[i].eu, threads[i].eu);
         EXPECT_EQ(expectedThreads[i].thread, threads[i].thread);
+
+        EXPECT_EQ(0u, threads[i].tileIndex);
     }
 }
 
@@ -331,16 +351,16 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForHalfOfThreadsWhenGettin
     uint32_t threadID = 3;
     auto numOfActiveSubslices = ((subslicesPerSlice + 1) / 2);
 
-    std::vector<ze_device_thread_t> threadsWithAtt;
+    std::vector<EuThread::ThreadId> threadsWithAtt;
     for (uint32_t subsliceID = 0; subsliceID < numOfActiveSubslices; subsliceID++) {
-        threadsWithAtt.push_back({0, subsliceID, 0, threadID});
+        threadsWithAtt.push_back({0, 0, subsliceID, 0, threadID});
     }
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
 
     auto bitmaskSizePerSingleSubslice = size / hwInfo.gtSystemInfo.MaxSlicesSupported / subslicesPerSlice;
 
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), bitmaskSizePerSingleSubslice * numOfActiveSubslices);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), bitmaskSizePerSingleSubslice * numOfActiveSubslices);
 
     ASSERT_EQ(numOfActiveSubslices, threads.size());
 
@@ -349,11 +369,48 @@ HWTEST_F(L0HwHelperTest, givenBitmaskWithAttentionBitsForHalfOfThreadsWhenGettin
         EXPECT_EQ(i, threads[i].subslice);
         EXPECT_EQ(0u, threads[i].eu);
         EXPECT_EQ(threadID, threads[i].thread);
+
+        EXPECT_EQ(0u, threads[i].tileIndex);
     }
 }
 
-using PlatformsWithFusedEus = IsWithinGfxCore<IGFX_GEN12LP_CORE, IGFX_XE_HP_CORE>;
+using PlatformsWithFusedEus = IsWithinGfxCore<IGFX_GEN12LP_CORE, IGFX_XE_HPG_CORE>;
 using L0HwHelperFusedEuTest = ::testing::Test;
+
+HWTEST2_F(L0HwHelperFusedEuTest, givenDynamicallyPopulatesSliceInfoGreaterThanMaxSlicesSupportedThenBitmasksAreCorrect, PlatformsWithFusedEus) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    auto &l0HwHelper = L0::L0HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    if (hwInfo.gtSystemInfo.MaxEuPerSubSlice <= 8) {
+        GTEST_SKIP();
+    }
+
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    hwInfo.gtSystemInfo.IsDynamicallyPopulated = true;
+    hwInfo.gtSystemInfo.MaxSlicesSupported = 2;
+    for (int i = 0; i < GT_MAX_SLICE; i++) {
+        hwInfo.gtSystemInfo.SliceInfo[i].Enabled = false;
+    }
+    hwInfo.gtSystemInfo.SliceInfo[2].Enabled = true;
+    hwInfo.gtSystemInfo.SliceInfo[3].Enabled = true;
+
+    std::vector<EuThread::ThreadId> threadsWithAtt;
+    threadsWithAtt.push_back({0, 2, 0, 0, 0});
+    threadsWithAtt.push_back({0, 3, 0, 0, 0});
+    l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
+    const uint32_t numSubslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
+    const uint32_t numEuPerSubslice = std::min(hwInfo.gtSystemInfo.MaxEuPerSubSlice, 8u);
+    const uint32_t numThreadsPerEu = (hwInfo.gtSystemInfo.ThreadCount / hwInfo.gtSystemInfo.EUCount);
+    const uint32_t bytesPerEu = alignUp(numThreadsPerEu, 8) / 8;
+    auto expectedSize = 4 * numSubslicesPerSlice * numEuPerSubslice * bytesPerEu;
+    EXPECT_EQ(size, expectedSize);
+
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
+    ASSERT_EQ(threads.size(), 4u);
+    EXPECT_EQ(threads[0], threadsWithAtt[0]);
+    EXPECT_EQ(threads[2], threadsWithAtt[1]);
+}
 
 HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForSingleThreadWhenGettingThreadsThenThreadForTwoEUsReturned, PlatformsWithFusedEus) {
     auto hwInfo = *NEO::defaultHwInfo.get();
@@ -370,12 +427,12 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForSingleThreadWhe
     uint32_t subsliceID = subslicesPerSlice > 2 ? subslicesPerSlice - 2 : 0;
 
     uint32_t threadID = 3;
-    std::vector<ze_device_thread_t> threadsWithAtt;
-    threadsWithAtt.push_back({0, subsliceID, 0, threadID});
+    std::vector<EuThread::ThreadId> threadsWithAtt;
+    threadsWithAtt.push_back({0, 0, subsliceID, 0, threadID});
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
 
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
 
     ASSERT_EQ(2u, threads.size());
 
@@ -383,11 +440,13 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForSingleThreadWhe
     EXPECT_EQ(subsliceID, threads[0].subslice);
     EXPECT_EQ(0u, threads[0].eu);
     EXPECT_EQ(threadID, threads[0].thread);
+    EXPECT_EQ(0u, threads[0].tileIndex);
 
     EXPECT_EQ(0u, threads[1].slice);
     EXPECT_EQ(subsliceID, threads[1].subslice);
     EXPECT_EQ(4u, threads[1].eu);
     EXPECT_EQ(threadID, threads[1].thread);
+    EXPECT_EQ(0u, threads[1].tileIndex);
 }
 
 HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForAllSubslicesWhenGettingThreadsThenCorrectThreadsForTwoEUsAreReturned, PlatformsWithFusedEus) {
@@ -404,14 +463,14 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForAllSubslicesWhe
     uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
     uint32_t threadID = 0;
 
-    std::vector<ze_device_thread_t> threadsWithAtt;
+    std::vector<EuThread::ThreadId> threadsWithAtt;
     for (uint32_t subsliceID = 0; subsliceID < subslicesPerSlice; subsliceID++) {
-        threadsWithAtt.push_back({0, subsliceID, 0, threadID});
+        threadsWithAtt.push_back({0, 0, subsliceID, 0, threadID});
     }
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
 
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
 
     ASSERT_EQ(2 * subslicesPerSlice, threads.size());
 
@@ -443,13 +502,13 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForAllEUsWhenGetti
     const auto maxEUsInAtt = 8u;
     uint32_t threadID = 3;
 
-    std::vector<ze_device_thread_t> threadsWithAtt;
+    std::vector<EuThread::ThreadId> threadsWithAtt;
     for (uint32_t euId = 0; euId < maxEUsInAtt; euId++) {
-        threadsWithAtt.push_back({0, 0, euId, threadID});
+        threadsWithAtt.push_back({0, 0, 0, euId, threadID});
     }
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), size);
 
     ASSERT_EQ(maxEUsInAtt, threads.size());
 
@@ -472,7 +531,7 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenEu0To1Threads0To3BitmaskWhenGettingThreads
     auto &l0HwHelper = L0::L0HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
     uint8_t data[2] = {0x0f, 0x0f};
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, data, sizeof(data));
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, data, sizeof(data));
 
     ASSERT_EQ(16u, threads.size());
 
@@ -496,7 +555,7 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenEu8To9Threads0To3BitmaskWhenGettingThreads
     auto &l0HwHelper = L0::L0HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
     uint8_t data[] = {0x00, 0x00, 0x00, 0x00, 0x0f, 0x0f};
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, data, sizeof(data));
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, data, sizeof(data));
 
     ASSERT_EQ(16u, threads.size());
 
@@ -527,16 +586,16 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForHalfOfThreadsWh
     uint32_t threadID = 3;
     auto numOfActiveSubslices = ((subslicesPerSlice + 1) / 2);
 
-    std::vector<ze_device_thread_t> threadsWithAtt;
+    std::vector<EuThread::ThreadId> threadsWithAtt;
     for (uint32_t subsliceID = 0; subsliceID < numOfActiveSubslices; subsliceID++) {
-        threadsWithAtt.push_back({0, subsliceID, 0, threadID});
+        threadsWithAtt.push_back({0, 0, subsliceID, 0, threadID});
     }
 
     l0HwHelper.getAttentionBitmaskForSingleThreads(threadsWithAtt, hwInfo, bitmask, size);
 
     auto bitmaskSizePerSingleSubslice = size / hwInfo.gtSystemInfo.MaxSlicesSupported / subslicesPerSlice;
 
-    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), bitmaskSizePerSingleSubslice * numOfActiveSubslices);
+    auto threads = l0HwHelper.getThreadsFromAttentionBitmask(hwInfo, 0, bitmask.get(), bitmaskSizePerSingleSubslice * numOfActiveSubslices);
 
     ASSERT_EQ(2 * numOfActiveSubslices, threads.size());
 
@@ -558,6 +617,16 @@ HWTEST2_F(L0HwHelperFusedEuTest, givenBitmaskWithAttentionBitsForHalfOfThreadsWh
             subsliceIndex++;
         }
     }
+}
+
+HWTEST2_F(L0HwHelperTest, GivenNonMultiTilePlatformsWhenCheckingL0HelperForMultiTileCapablePlatformThenReturnFalse, NonMultiTilePlatforms) {
+    EXPECT_FALSE(L0::L0HwHelperHw<FamilyType>::get().multiTileCapablePlatform());
+}
+
+HWTEST2_F(L0HwHelperTest, whenAlwaysAllocateEventInLocalMemCalledThenReturnFalse, IsNotXeHpcCore) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    auto &l0HwHelper = L0::L0HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    EXPECT_FALSE(l0HwHelper.alwaysAllocateEventInLocalMem());
 }
 
 } // namespace ult

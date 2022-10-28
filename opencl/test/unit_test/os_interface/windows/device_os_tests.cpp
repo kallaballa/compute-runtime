@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,13 +7,15 @@
 
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/get_info.h"
+#include "shared/source/os_interface/device_factory.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 using namespace ::testing;
@@ -21,19 +23,23 @@ using namespace ::testing;
 namespace NEO {
 
 TEST(DeviceOsTest, GivenDefaultClDeviceWhenCheckingForOsSpecificExtensionsThenCorrectExtensionsAreSet) {
+    VariableBackup<UltHwConfig> backup(&ultHwConfig);
+    DebugManagerStateRestore stateRestore;
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
+
     auto hwInfo = defaultHwInfo.get();
     auto pDevice = MockDevice::createWithNewExecutionEnvironment<Device>(hwInfo);
+    DeviceFactory::prepareDeviceEnvironments(*pDevice->getExecutionEnvironment());
     auto pClDevice = new ClDevice{*pDevice, platform()};
-
     std::string extensionString(pClDevice->getDeviceInfo().deviceExtensions);
 
-    EXPECT_THAT(extensionString, Not(HasSubstr(std::string("cl_intel_va_api_media_sharing "))));
-    EXPECT_THAT(extensionString, HasSubstr(std::string("cl_intel_dx9_media_sharing ")));
-    EXPECT_THAT(extensionString, HasSubstr(std::string("cl_khr_dx9_media_sharing ")));
-    EXPECT_THAT(extensionString, HasSubstr(std::string("cl_khr_d3d10_sharing ")));
-    EXPECT_THAT(extensionString, HasSubstr(std::string("cl_khr_d3d11_sharing ")));
-    EXPECT_THAT(extensionString, HasSubstr(std::string("cl_intel_d3d11_nv12_media_sharing ")));
-    EXPECT_THAT(extensionString, HasSubstr(std::string("cl_intel_simultaneous_sharing ")));
+    EXPECT_FALSE(hasSubstr(extensionString, std::string("cl_intel_va_api_media_sharing ")));
+    EXPECT_TRUE(hasSubstr(extensionString, std::string("cl_intel_dx9_media_sharing ")));
+    EXPECT_TRUE(hasSubstr(extensionString, std::string("cl_khr_dx9_media_sharing ")));
+    EXPECT_TRUE(hasSubstr(extensionString, std::string("cl_khr_d3d10_sharing ")));
+    EXPECT_TRUE(hasSubstr(extensionString, std::string("cl_khr_d3d11_sharing ")));
+    EXPECT_TRUE(hasSubstr(extensionString, std::string("cl_intel_d3d11_nv12_media_sharing ")));
+    EXPECT_TRUE(hasSubstr(extensionString, std::string("cl_intel_simultaneous_sharing ")));
 
     delete pClDevice;
 }
@@ -60,7 +66,7 @@ TEST(DeviceOsTest, GivenFailedDeviceWhenCreatingWithNewExecutionEnvironmentThenN
     auto hwInfo = defaultHwInfo.get();
     auto pDevice = MockDevice::createWithNewExecutionEnvironment<FailDevice>(hwInfo);
 
-    EXPECT_THAT(pDevice, nullptr);
+    EXPECT_EQ(nullptr, pDevice);
 }
 
 TEST(DeviceOsTest, GivenMidThreadPreemptionAndFailedDeviceWhenCreatingDeviceThenNullIsReturned) {
@@ -68,6 +74,6 @@ TEST(DeviceOsTest, GivenMidThreadPreemptionAndFailedDeviceWhenCreatingDeviceThen
     DebugManager.flags.ForcePreemptionMode.set(static_cast<int32_t>(PreemptionMode::MidThread));
     auto pDevice = MockDevice::createWithNewExecutionEnvironment<FailDeviceAfterOne>(defaultHwInfo.get());
 
-    EXPECT_THAT(pDevice, nullptr);
+    EXPECT_EQ(nullptr, pDevice);
 }
 } // namespace NEO

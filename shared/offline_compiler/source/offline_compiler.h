@@ -8,14 +8,14 @@
 #pragma once
 
 #include "shared/offline_compiler/source/ocloc_arg_helper.h"
+#include "shared/offline_compiler/source/ocloc_fcl_facade.h"
+#include "shared/offline_compiler/source/ocloc_igc_facade.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/os_library.h"
 #include "shared/source/utilities/arrayref.h"
 #include "shared/source/utilities/const_stringref.h"
 
-#include "cif/common/cif_main.h"
-#include "ocl_igc_interface/fcl_ocl_device_ctx.h"
-#include "ocl_igc_interface/igc_ocl_device_ctx.h"
+#include "ocl_igc_interface/code_type.h"
 
 #include <cstdint>
 #include <memory>
@@ -25,21 +25,23 @@ namespace NEO {
 
 struct HardwareInfo;
 class OsLibrary;
+class CompilerCache;
 
 std::string convertToPascalCase(const std::string &inString);
 
 std::string generateFilePath(const std::string &directory, const std::string &fileNameBase, const char *extension);
-std::string getDevicesTypes();
+std::string getSupportedDevices(OclocArgHelper *helper);
 
 class OfflineCompiler {
   public:
     static int query(size_t numArgs, const std::vector<std::string> &allArgs, OclocArgHelper *helper);
+    static int queryAcronymIds(size_t numArgs, const std::vector<std::string> &allArgs, OclocArgHelper *helper);
 
     static OfflineCompiler *create(size_t numArgs, const std::vector<std::string> &allArgs, bool dumpFiles, int &retVal, OclocArgHelper *helper);
-    int build();
+
+    MOCKABLE_VIRTUAL int build();
     std::string &getBuildLog();
     void printUsage();
-    std::string getDevicesConfigs();
 
     static constexpr ConstStringRef queryHelp =
         "Depending on <query_option> will generate file\n"
@@ -52,6 +54,13 @@ class OfflineCompiler {
         "Examples:\n"
         "  Extract driver version\n"
         "    ocloc query OCL_DRIVER_VERSION\n";
+
+    static constexpr ConstStringRef idsHelp = R"===(
+Depending on <acronym> will return all
+matched versions (<major>.<minor>.<revision>)
+that correspond to the given name.
+All supported acronyms: %s.
+)===";
 
     OfflineCompiler &operator=(const OfflineCompiler &) = delete;
     OfflineCompiler(const OfflineCompiler &) = delete;
@@ -91,16 +100,19 @@ class OfflineCompiler {
 
     void setFamilyType();
     int initHardwareInfo(std::string deviceName);
+    int initHardwareInfoForProductConfig(std::string deviceName);
+    int initHardwareInfoForDeprecatedAcronyms(std::string deviceName, int deviceId);
+
     std::string getStringWithinDelimiters(const std::string &src);
     int initialize(size_t numArgs, const std::vector<std::string> &allArgs, bool dumpFiles);
     int parseCommandLine(size_t numArgs, const std::vector<std::string> &allArgs);
-    void setStatelessToStatefullBufferOffsetFlag();
+    void setStatelessToStatefulBufferOffsetFlag();
     void appendExtraInternalOptions(std::string &internalOptions);
     void parseDebugSettings();
     void storeBinary(char *&pDst, size_t &dstSize, const void *pSrc, const size_t srcSize);
     MOCKABLE_VIRTUAL int buildSourceCode();
     MOCKABLE_VIRTUAL std::string validateInputType(const std::string &input, bool isLlvm, bool isSpirv);
-    int buildIrBinary();
+    MOCKABLE_VIRTUAL int buildIrBinary();
     void updateBuildLog(const char *pErrorString, const size_t errorStringSize);
     MOCKABLE_VIRTUAL bool generateElfBinary();
     std::string generateFilePathForIr(const std::string &fileNameBase) {
@@ -113,11 +125,14 @@ class OfflineCompiler {
         std::replace(suffix.begin(), suffix.end(), ' ', '_');
         return suffix;
     }
+
     MOCKABLE_VIRTUAL void writeOutAllFiles();
+    MOCKABLE_VIRTUAL void createDir(const std::string &path);
     void unifyExcludeIrFlags();
+    void enforceFormat(std::string &format);
     HardwareInfo hwInfo;
 
-    PRODUCT_CONFIG deviceConfig = UNKNOWN_ISA;
+    AOT::PRODUCT_CONFIG deviceConfig = {};
     std::string deviceName;
     std::string familyNameWithType;
     std::string inputFile;
@@ -129,11 +144,16 @@ class OfflineCompiler {
     std::string buildLog;
     std::string optionsReadFromFile = "";
     std::string internalOptionsReadFromFile = "";
+    std::string formatToEnforce = "";
+    std::string irHash, genHash, dbgHash, elfHash;
+    std::string cacheDir;
 
+    bool allowCaching = false;
     bool dumpFiles = true;
     bool useLlvmText = false;
     bool useLlvmBc = false;
     bool useCppFile = false;
+    bool useGenFile = false;
     bool useOptionsSuffix = false;
     bool quiet = false;
     bool onlySpirV = false;
@@ -146,6 +166,7 @@ class OfflineCompiler {
     bool excludeIr = false;
 
     std::vector<uint8_t> elfBinary;
+    size_t elfBinarySize = 0;
     char *genBinary = nullptr;
     size_t genBinarySize = 0;
     char *irBinary = nullptr;
@@ -154,16 +175,15 @@ class OfflineCompiler {
     size_t debugDataBinarySize = 0;
     struct buildInfo;
     std::unique_ptr<buildInfo> pBuildInfo;
-    std::unique_ptr<OsLibrary> igcLib = nullptr;
-    CIF::RAII::UPtr_t<CIF::CIFMain> igcMain = nullptr;
-    CIF::RAII::UPtr_t<IGC::IgcOclDeviceCtxTagOCL> igcDeviceCtx = nullptr;
     int revisionId = -1;
+    uint64_t hwInfoConfig = 0u;
 
-    std::unique_ptr<OsLibrary> fclLib = nullptr;
-    CIF::RAII::UPtr_t<CIF::CIFMain> fclMain = nullptr;
-    CIF::RAII::UPtr_t<IGC::FclOclDeviceCtxTagOCL> fclDeviceCtx = nullptr;
+    std::unique_ptr<OclocIgcFacade> igcFacade{nullptr};
+    std::unique_ptr<OclocFclFacade> fclFacade{nullptr};
+    std::unique_ptr<CompilerCache> cache;
     IGC::CodeType::CodeType_t preferredIntermediateRepresentation;
 
     OclocArgHelper *argHelper = nullptr;
 };
+
 } // namespace NEO

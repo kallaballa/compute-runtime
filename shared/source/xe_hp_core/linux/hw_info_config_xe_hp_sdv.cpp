@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,11 +17,14 @@
 #include "shared/source/os_interface/linux/pmt_util.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
 #include "shared/source/utilities/directory.h"
+#include "shared/source/xe_hp_core/hw_cmds_xe_hp_sdv.h"
+
+#include "platforms.h"
 
 namespace NEO {
 constexpr static auto gfxProduct = IGFX_XE_HP_SDV;
 const std::map<std::string, std::pair<uint32_t, uint32_t>> guidUuidOffsetMap = {
-    //add new values for guid in the form of {"guid", {offset, size}} for each platform
+    // add new values for guid in the form of {"guid", {offset, size}} for each platform
     {"0xfdc76195", {64u, 8u}}};
 
 #include "shared/source/os_interface/linux/hw_info_config_uuid_xehp_and_later.inl"
@@ -72,8 +75,13 @@ void HwInfoConfigHw<gfxProduct>::getKernelExtendedProperties(uint32_t *fp16, uin
 }
 
 template <>
-uint32_t HwInfoConfigHw<gfxProduct>::getDeviceMemoryMaxClkRate(const HardwareInfo *hwInfo) {
+uint32_t HwInfoConfigHw<gfxProduct>::getDeviceMemoryMaxClkRate(const HardwareInfo &hwInfo, const OSInterface *osIface, uint32_t subDeviceIndex) {
     return 2800u;
+}
+
+template <>
+bool HwInfoConfigHw<gfxProduct>::isFlushTaskAllowed() const {
+    return false;
 }
 
 template class HwInfoConfigHw<gfxProduct>;

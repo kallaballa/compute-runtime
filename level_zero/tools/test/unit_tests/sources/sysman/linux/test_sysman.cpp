@@ -1,12 +1,16 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/test/common/mocks/mock_driver_info.h"
 #include "shared/test/common/test_macros/test.h"
 
+#include "level_zero/tools/source/sysman/diagnostics/linux/os_diagnostics_imp.h"
+#include "level_zero/tools/source/sysman/firmware/linux/os_firmware_imp.h"
+#include "level_zero/tools/source/sysman/ras/ras_imp.h"
 #include "level_zero/tools/test/unit_tests/sources/sysman/linux/mock_sysman_fixture.h"
 
 namespace L0 {
@@ -54,6 +58,7 @@ TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleInSysmanImpCreationWhenAllSysm
     delete (sysmanImp->pFirmwareHandleContext);
     delete (sysmanImp->pDiagnosticsHandleContext);
     delete (sysmanImp->pPerformanceHandleContext);
+    delete (sysmanImp->pEcc);
 
     sysmanImp->pPowerHandleContext = nullptr;
     sysmanImp->pFrequencyHandleContext = nullptr;
@@ -71,6 +76,7 @@ TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleInSysmanImpCreationWhenAllSysm
     sysmanImp->pFirmwareHandleContext = nullptr;
     sysmanImp->pDiagnosticsHandleContext = nullptr;
     sysmanImp->pPerformanceHandleContext = nullptr;
+    sysmanImp->pEcc = nullptr;
 
     auto pLinuxSysmanImpTemp = static_cast<PublicLinuxSysmanImp *>(sysmanImp->pOsSysman);
     pLinuxSysmanImpTemp->pSysfsAccess = pSysfsAccess;
@@ -125,6 +131,16 @@ TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleAndIfSysmanDeviceInitFailsThen
     EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDevicePciGetStats(hSysman, &pciStats));
     zes_event_type_flags_t events = ZES_EVENT_TYPE_FLAG_DEVICE_DETACH;
     EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDeviceEventRegister(hSysman, events));
+    zes_pwr_handle_t phPower = {};
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDeviceGetCardPowerDomain(hSysman, &phPower));
+    ze_bool_t eccAvailable = false;
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDeviceEccAvailable(device, &eccAvailable));
+    ze_bool_t eccConfigurable = false;
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDeviceEccConfigurable(device, &eccConfigurable));
+    zes_device_ecc_desc_t newState = {};
+    zes_device_ecc_properties_t props = {};
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDeviceSetEccState(device, &newState, &props));
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, zesDeviceGetEccState(device, &props));
     static_cast<DeviceImp *>(device)->setSysmanHandle(pSysmanDeviceOriginal);
 }
 
@@ -228,18 +244,18 @@ TEST_F(SysmanDeviceFixture, GivenPublicFsAccessClassWhenCallingCanWriteWithInval
 }
 
 TEST_F(SysmanDeviceFixture, GivenValidPathnameWhenCallingFsAccessExistsThenSuccessIsReturned) {
-    auto FsAccess = pLinuxSysmanImp->getFsAccess();
+    auto fsAccess = pLinuxSysmanImp->getFsAccess();
 
     char cwd[PATH_MAX];
     std::string path = getcwd(cwd, PATH_MAX);
-    EXPECT_TRUE(FsAccess.fileExists(path));
+    EXPECT_TRUE(fsAccess.fileExists(path));
 }
 
 TEST_F(SysmanDeviceFixture, GivenInvalidPathnameWhenCallingFsAccessExistsThenErrorIsReturned) {
-    auto FsAccess = pLinuxSysmanImp->getFsAccess();
+    auto fsAccess = pLinuxSysmanImp->getFsAccess();
 
     std::string path = "noSuchFileOrDirectory";
-    EXPECT_FALSE(FsAccess.fileExists(path));
+    EXPECT_FALSE(fsAccess.fileExists(path));
 }
 
 TEST_F(SysmanDeviceFixture, GivenCreateSysfsAccessHandleWhenCallinggetSysfsAccessThenCreatedSysfsAccessHandleHandleWillBeRetrieved) {
@@ -263,15 +279,15 @@ TEST_F(SysmanDeviceFixture, GivenCreateProcfsAccessHandleWhenCallinggetProcfsAcc
 }
 
 TEST_F(SysmanDeviceFixture, GivenValidPidWhenCallingProcfsAccessIsAliveThenSuccessIsReturned) {
-    auto ProcfsAccess = pLinuxSysmanImp->getProcfsAccess();
+    auto procfsAccess = pLinuxSysmanImp->getProcfsAccess();
 
-    EXPECT_TRUE(ProcfsAccess.isAlive(getpid()));
+    EXPECT_TRUE(procfsAccess.isAlive(getpid()));
 }
 
 TEST_F(SysmanDeviceFixture, GivenInvalidPidWhenCallingProcfsAccessIsAliveThenErrorIsReturned) {
-    auto ProcfsAccess = pLinuxSysmanImp->getProcfsAccess();
+    auto procfsAccess = pLinuxSysmanImp->getProcfsAccess();
 
-    EXPECT_FALSE(ProcfsAccess.isAlive(reinterpret_cast<::pid_t>(-1)));
+    EXPECT_FALSE(procfsAccess.isAlive(reinterpret_cast<::pid_t>(-1)));
 }
 
 TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleThenSameHandleIsRetrievedFromOsSpecificCode) {
@@ -288,15 +304,15 @@ TEST_F(SysmanDeviceFixture, GivenPmuInterfaceHandleWhenCallinggetPmuInterfaceThe
     EXPECT_EQ(pLinuxSysmanImp->getPmuInterface(), pLinuxSysmanImp->pPmuInterface);
 }
 
-TEST_F(SysmanDeviceFixture, GivenValidPciPathWhileGettingRootPciPortThenReturnedPathIs2LevelUpThenTheCurrentPath) {
+TEST_F(SysmanDeviceFixture, GivenValidPciPathWhileGettingCardBusPortThenReturnedPathIs1LevelUpThenTheCurrentPath) {
     const std::string mockBdf = "0000:00:02.0";
     const std::string mockRealPath = "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/0000:02:01.0/" + mockBdf;
-    const std::string mockRealPath2LevelsUp = "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0";
+    const std::string mockRealPath1LevelUp = "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0";
 
-    std::string pciRootPort1 = pLinuxSysmanImp->getPciRootPortDirectoryPath(mockRealPath);
-    EXPECT_EQ(pciRootPort1, mockRealPath2LevelsUp);
+    std::string pciRootPort1 = pLinuxSysmanImp->getPciCardBusDirectoryPath(mockRealPath);
+    EXPECT_EQ(pciRootPort1, mockRealPath1LevelUp);
 
-    std::string pciRootPort2 = pLinuxSysmanImp->getPciRootPortDirectoryPath("device");
+    std::string pciRootPort2 = pLinuxSysmanImp->getPciCardBusDirectoryPath("device");
     EXPECT_EQ(pciRootPort2, "device");
 }
 
@@ -305,9 +321,60 @@ TEST_F(SysmanDeviceFixture, GivenNullDrmHandleWhenGettingDrmHandleThenValidDrmHa
     EXPECT_NO_THROW(pLinuxSysmanImp->getDrm());
 }
 
-TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleWhenProductFamilyFromDeviceThenValidCorrectProductFamilyIsReturned) {
-    auto productFamily = pLinuxSysmanImp->getDeviceHandle()->getNEODevice()->getHardwareInfo().platform.eProductFamily;
-    EXPECT_EQ(productFamily, pLinuxSysmanImp->getProductFamily());
+TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleWhenGettingFwUtilInterfaceAndGetPciBdfFailsThenFailureIsReturned) {
+    auto deviceImp = static_cast<L0::DeviceImp *>(pLinuxSysmanImp->getDeviceHandle());
+
+    deviceImp->driverInfo.reset(nullptr);
+    FirmwareUtil *pFwUtilInterfaceOld = pLinuxSysmanImp->pFwUtilInterface;
+    pLinuxSysmanImp->pFwUtilInterface = nullptr;
+
+    EXPECT_EQ(pLinuxSysmanImp->getFwUtilInterface(), nullptr);
+    pLinuxSysmanImp->pFwUtilInterface = pFwUtilInterfaceOld;
+}
+
+TEST_F(SysmanDeviceFixture, GivenValidEnumeratedHandlesWhenReleaseIsCalledThenHandleCountZeroIsReturned) {
+    uint32_t count = 0;
+
+    const std::vector<std::string> mockSupportedDiagTypes = {"MOCKSUITE1", "MOCKSUITE2"};
+    std::vector<std::string> mockSupportedFirmwareTypes = {"GSC", "OptionROM", "PSC"};
+
+    FirmwareImp *ptestFirmwareImp = new FirmwareImp(pSysmanDeviceImp->pFirmwareHandleContext->pOsSysman, mockSupportedFirmwareTypes[0]);
+    pSysmanDeviceImp->pFirmwareHandleContext->handleList.push_back(ptestFirmwareImp);
+    count = 0;
+    ze_result_t result = zesDeviceEnumFirmwares(device->toHandle(), &count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, 1u);
+
+    count = 0;
+    DiagnosticsImp *ptestDiagnosticsImp = new DiagnosticsImp(pSysmanDeviceImp->pDiagnosticsHandleContext->pOsSysman, mockSupportedDiagTypes[0]);
+    pSysmanDeviceImp->pDiagnosticsHandleContext->handleList.push_back(ptestDiagnosticsImp);
+    result = zesDeviceEnumDiagnosticTestSuites(device->toHandle(), &count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, 1u);
+
+    count = 0;
+    RasImp *pRas = new RasImp(pSysmanDeviceImp->pRasHandleContext->pOsSysman, ZES_RAS_ERROR_TYPE_CORRECTABLE, device->toHandle());
+    pSysmanDeviceImp->pRasHandleContext->handleList.push_back(pRas);
+    result = zesDeviceEnumRasErrorSets(device->toHandle(), &count, NULL);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, 3u);
+
+    pLinuxSysmanImp->releaseSysmanDeviceResources();
+
+    count = 0;
+    result = zesDeviceEnumFirmwares(device->toHandle(), &count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, 0u);
+
+    count = 0;
+    result = zesDeviceEnumDiagnosticTestSuites(device->toHandle(), &count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, 0u);
+
+    count = 0;
+    result = zesDeviceEnumRasErrorSets(device->toHandle(), &count, NULL);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(count, 0u);
 }
 
 TEST_F(SysmanMultiDeviceFixture, GivenValidDeviceHandleHavingSubdevicesWhenValidatingSysmanHandlesForSubdevicesThenSysmanHandleForSubdeviceWillBeSameAsSysmanHandleForDevice) {
@@ -363,8 +430,13 @@ class UnknownDriverModel : public DriverModel {
     void setGmmInputArgs(void *args) override {}
     uint32_t getDeviceHandle() const override { return 0u; }
     PhysicalDevicePciBusInfo getPciBusInfo() const override {
-        PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue);
+        PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue);
         return pciBusInfo;
+    }
+    PhysicalDevicePciSpeedInfo getPciSpeedInfo() const override { return {}; }
+
+    bool isGpuHangDetected(OsContext &osContext) override {
+        return false;
     }
 };
 

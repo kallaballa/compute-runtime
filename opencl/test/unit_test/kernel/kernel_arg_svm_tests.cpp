@@ -1,14 +1,15 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/buffer.h"
+#include "opencl/source/mem_obj/mem_obj_helper.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/context_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
@@ -23,19 +24,19 @@
 
 using namespace NEO;
 
-class KernelArgSvmFixture_ : public ContextFixture, public ClDeviceFixture {
+class KernelArgSvmFixture : public ContextFixture, public ClDeviceFixture {
 
-    using ContextFixture::SetUp;
+    using ContextFixture::setUp;
 
   public:
-    KernelArgSvmFixture_() {
+    KernelArgSvmFixture() {
     }
 
   protected:
-    void SetUp() {
-        ClDeviceFixture::SetUp();
+    void setUp() {
+        ClDeviceFixture::setUp();
         cl_device_id device = pClDevice;
-        ContextFixture::SetUp(1, &device);
+        ContextFixture::setUp(1, &device);
 
         // define kernel info
         pKernelInfo = std::make_unique<MockKernelInfo>();
@@ -53,12 +54,12 @@ class KernelArgSvmFixture_ : public ContextFixture, public ClDeviceFixture {
         pKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
     }
 
-    void TearDown() override {
+    void tearDown() {
         delete pKernel;
 
         delete pProgram;
-        ContextFixture::TearDown();
-        ClDeviceFixture::TearDown();
+        ContextFixture::tearDown();
+        ClDeviceFixture::tearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
@@ -70,9 +71,13 @@ class KernelArgSvmFixture_ : public ContextFixture, public ClDeviceFixture {
     char pCrossThreadData[64];
 };
 
-typedef Test<KernelArgSvmFixture_> KernelArgSvmTest;
+typedef Test<KernelArgSvmFixture> KernelArgSvmTest;
 
 TEST_F(KernelArgSvmTest, GivenValidSvmPtrWhenSettingKernelArgThenSvmPtrIsCorrect) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     char *svmPtr = new char[256];
 
     auto retVal = pKernel->setArgSvm(0, 256, svmPtr, nullptr, 0u);
@@ -86,6 +91,10 @@ TEST_F(KernelArgSvmTest, GivenValidSvmPtrWhenSettingKernelArgThenSvmPtrIsCorrect
 }
 
 HWTEST_F(KernelArgSvmTest, GivenSvmPtrStatefulWhenSettingKernelArgThenArgumentsAreSetCorrectly) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     char *svmPtr = new char[256];
 
     pKernelInfo->argAsPtr(0).bindful = 0;
@@ -106,11 +115,15 @@ HWTEST_F(KernelArgSvmTest, GivenSvmPtrStatefulWhenSettingKernelArgThenArgumentsA
 }
 
 TEST_F(KernelArgSvmTest, GivenValidSvmAllocWhenSettingKernelArgThenArgumentsAreSetCorrectly) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     char *svmPtr = new char[256];
 
     MockGraphicsAllocation svmAlloc(svmPtr, 256);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
@@ -121,41 +134,53 @@ TEST_F(KernelArgSvmTest, GivenValidSvmAllocWhenSettingKernelArgThenArgumentsAreS
 }
 
 TEST_F(KernelArgSvmTest, GivenSvmAllocWithUncacheableWhenSettingKernelArgThenKernelHasUncacheableArgs) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     auto svmPtr = std::make_unique<char[]>(256);
 
     MockGraphicsAllocation svmAlloc(svmPtr.get(), 256);
     svmAlloc.setUncacheable(true);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr.get(), &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr.get(), &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_TRUE(pKernel->hasUncacheableStatelessArgs());
 }
 
 TEST_F(KernelArgSvmTest, GivenSvmAllocWithoutUncacheableAndKenelWithUncachebleArgWhenSettingKernelArgThenKernelDoesNotHaveUncacheableArgs) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     auto svmPtr = std::make_unique<char[]>(256);
 
     MockGraphicsAllocation svmAlloc(svmPtr.get(), 256);
     svmAlloc.setUncacheable(true);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr.get(), &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr.get(), &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_TRUE(pKernel->hasUncacheableStatelessArgs());
 
     svmAlloc.setUncacheable(false);
     pKernel->kernelArguments[0].isStatelessUncacheable = true;
-    retVal = pKernel->setArgSvmAlloc(0, svmPtr.get(), &svmAlloc);
+    retVal = pKernel->setArgSvmAlloc(0, svmPtr.get(), &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_FALSE(pKernel->hasUncacheableStatelessArgs());
 }
 
 HWTEST_F(KernelArgSvmTest, GivenValidSvmAllocStatefulWhenSettingKernelArgThenArgumentsAreSetCorrectly) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     char *svmPtr = new char[256];
 
     MockGraphicsAllocation svmAlloc(svmPtr, 256);
 
     pKernelInfo->argAsPtr(0).bindful = 0;
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize());
@@ -172,6 +197,10 @@ HWTEST_F(KernelArgSvmTest, GivenValidSvmAllocStatefulWhenSettingKernelArgThenArg
 }
 
 HWTEST_F(KernelArgSvmTest, givenOffsetedSvmPointerWhenSetArgSvmAllocIsCalledThenProperSvmAddressIsPatched) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     std::unique_ptr<char[]> svmPtr(new char[256]);
 
     auto offsetedPtr = svmPtr.get() + 4;
@@ -179,7 +208,7 @@ HWTEST_F(KernelArgSvmTest, givenOffsetedSvmPointerWhenSetArgSvmAllocIsCalledThen
     MockGraphicsAllocation svmAlloc(svmPtr.get(), 256);
 
     pKernelInfo->argAsPtr(0).bindful = 0;
-    pKernel->setArgSvmAlloc(0, offsetedPtr, &svmAlloc);
+    pKernel->setArgSvmAlloc(0, offsetedPtr, &svmAlloc, 0u);
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
@@ -191,12 +220,17 @@ HWTEST_F(KernelArgSvmTest, givenOffsetedSvmPointerWhenSetArgSvmAllocIsCalledThen
 }
 
 HWTEST_F(KernelArgSvmTest, givenDeviceSupportingSharedSystemAllocationsWhenSetArgSvmIsCalledWithSurfaceStateThenSizeIsMaxAndAddressIsProgrammed) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     this->pClDevice->deviceInfo.sharedSystemMemCapabilities = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
 
     auto systemPointer = reinterpret_cast<void *>(0xfeedbac);
 
     pKernelInfo->argAsPtr(0).bindful = 0;
-    pKernel->setArgSvmAlloc(0, systemPointer, nullptr);
+    pKernel->setArgSvmAlloc(0, systemPointer, nullptr, 0u);
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
@@ -211,11 +245,21 @@ HWTEST_F(KernelArgSvmTest, givenDeviceSupportingSharedSystemAllocationsWhenSetAr
 }
 
 TEST_F(KernelArgSvmTest, WhenSettingKernelArgImmediateThenInvalidArgValueErrorIsReturned) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     auto retVal = pKernel->setArgImmediate(0, 256, nullptr);
     EXPECT_EQ(CL_INVALID_ARG_VALUE, retVal);
 }
 
 HWTEST_F(KernelArgSvmTest, WhenPatchingWithImplicitSurfaceThenPatchIsApplied) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     constexpr size_t rendSurfSize = sizeof(RENDER_SURFACE_STATE);
 
@@ -264,6 +308,11 @@ HWTEST_F(KernelArgSvmTest, WhenPatchingWithImplicitSurfaceThenPatchIsApplied) {
 }
 
 TEST_F(KernelArgSvmTest, WhenPatchingBufferOffsetThenPatchIsApplied) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     std::vector<char> svmPtr;
     svmPtr.resize(256);
 
@@ -329,7 +378,7 @@ struct SetArgHandlerSetArgSvm {
 
 struct SetArgHandlerSetArgSvmAlloc {
     static void setArg(Kernel &kernel, uint32_t argNum, void *ptrToPatch, size_t allocSize, GraphicsAllocation &alloc) {
-        kernel.setArgSvmAlloc(argNum, ptrToPatch, &alloc);
+        kernel.setArgSvmAlloc(argNum, ptrToPatch, &alloc, 0u);
     }
 
     static constexpr bool supportsOffsets() {
@@ -353,6 +402,11 @@ using SetArgHandlers = ::testing::Types<SetArgHandlerSetArgSvm, SetArgHandlerSet
 
 TYPED_TEST_CASE(KernelArgSvmTestTyped, SetArgHandlers);
 HWTEST_TYPED_TEST(KernelArgSvmTestTyped, GivenBufferKernelArgWhenBufferOffsetIsNeededThenSetArgSetsIt) {
+    const ClDeviceInfo &devInfo = KernelArgSvmFixture::pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     constexpr size_t rendSurfSize = sizeof(RENDER_SURFACE_STATE);
 
@@ -413,6 +467,11 @@ HWTEST_TYPED_TEST(KernelArgSvmTestTyped, GivenBufferKernelArgWhenBufferOffsetIsN
 }
 
 TEST_F(KernelArgSvmTest, givenWritableSvmAllocationWhenSettingAsArgThenDoNotExpectAllocationInCacheFlushVector) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
@@ -420,7 +479,7 @@ TEST_F(KernelArgSvmTest, givenWritableSvmAllocationWhenSettingAsArgThenDoNotExpe
     svmAlloc.setMemObjectsAllocationWithWritableFlags(true);
     svmAlloc.setFlushL3Required(false);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(nullptr, pKernel->kernelArgRequiresCacheFlush[0]);
 
@@ -428,6 +487,11 @@ TEST_F(KernelArgSvmTest, givenWritableSvmAllocationWhenSettingAsArgThenDoNotExpe
 }
 
 TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingAsArgThenExpectAllocationInCacheFlushVector) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
@@ -435,7 +499,7 @@ TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingAsArgThenExpectA
     svmAlloc.setMemObjectsAllocationWithWritableFlags(false);
     svmAlloc.setFlushL3Required(true);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(&svmAlloc, pKernel->kernelArgRequiresCacheFlush[0]);
 
@@ -443,6 +507,11 @@ TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingAsArgThenExpectA
 }
 
 TEST_F(KernelArgSvmTest, givenNoCacheFlushSvmAllocationWhenSettingAsArgThenNotExpectAllocationInCacheFlushVector) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
@@ -450,7 +519,7 @@ TEST_F(KernelArgSvmTest, givenNoCacheFlushSvmAllocationWhenSettingAsArgThenNotEx
     svmAlloc.setMemObjectsAllocationWithWritableFlags(false);
     svmAlloc.setFlushL3Required(false);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(nullptr, pKernel->kernelArgRequiresCacheFlush[0]);
 
@@ -458,6 +527,11 @@ TEST_F(KernelArgSvmTest, givenNoCacheFlushSvmAllocationWhenSettingAsArgThenNotEx
 }
 
 TEST_F(KernelArgSvmTest, givenWritableSvmAllocationWhenSettingKernelExecInfoThenDoNotExpectSvmFlushFlagTrue) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
@@ -472,6 +546,11 @@ TEST_F(KernelArgSvmTest, givenWritableSvmAllocationWhenSettingKernelExecInfoThen
 }
 
 TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingKernelExecInfoThenExpectSvmFlushFlagTrue) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
@@ -486,6 +565,11 @@ TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingKernelExecInfoTh
 }
 
 TEST_F(KernelArgSvmTest, givenNoCacheFlushReadOnlySvmAllocationWhenSettingKernelExecInfoThenExpectSvmFlushFlagFalse) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
@@ -500,13 +584,18 @@ TEST_F(KernelArgSvmTest, givenNoCacheFlushReadOnlySvmAllocationWhenSettingKernel
 }
 
 TEST_F(KernelArgSvmTest, givenCpuAddressIsNullWhenGpuAddressIsValidThenExpectSvmArgUseGpuAddress) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     char svmPtr[256];
 
     pKernelInfo->argAsPtr(0).bufferOffset = 0u;
 
     MockGraphicsAllocation svmAlloc(nullptr, reinterpret_cast<uint64_t>(svmPtr), 256);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
+    auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
@@ -515,6 +604,11 @@ TEST_F(KernelArgSvmTest, givenCpuAddressIsNullWhenGpuAddressIsValidThenExpectSvm
 }
 
 TEST_F(KernelArgSvmTest, givenCpuAddressIsNullWhenGpuAddressIsValidThenPatchBufferOffsetWithGpuAddress) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     std::vector<char> svmPtr;
     svmPtr.resize(256);
 
@@ -533,4 +627,83 @@ TEST_F(KernelArgSvmTest, givenCpuAddressIsNullWhenGpuAddressIsValidThenPatchBuff
     returnedPtr = pKernel->patchBufferOffset(arg, svmPtr.data(), &svmAlloc);
     EXPECT_EQ(svmPtr.data(), returnedPtr);
     EXPECT_EQ(0U, *expectedPatchPtr);
+}
+
+TEST_F(KernelArgSvmTest, GivenZeroCopySvmPtrWhenSettingKernelArgThenKernelUsesSystemMemory) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
+    void *alloc = pContext->getSVMAllocsManager()->createSVMAlloc(
+        4096,
+        MemObjHelper::getSvmAllocationProperties(CL_MEM_READ_ONLY),
+        pContext->getRootDeviceIndices(),
+        pContext->getDeviceBitfields());
+
+    auto svmData = pContext->getSVMAllocsManager()->getSVMAlloc(alloc);
+    auto gpuAllocation = svmData->gpuAllocations.getGraphicsAllocation(*pContext->getRootDeviceIndices().begin());
+    gpuAllocation->setAllocationType(NEO::AllocationType::SVM_ZERO_COPY);
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    auto retVal = pKernel->setArgSvmAlloc(0, alloc, gpuAllocation, 0u);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_TRUE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    pContext->getSVMAllocsManager()->freeSVMAlloc(alloc);
+}
+
+TEST_F(KernelArgSvmTest, GivenGpuSvmPtrWhenSettingKernelArgThenKernelNotUsesSystemMemory) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
+    void *alloc = pContext->getSVMAllocsManager()->createSVMAlloc(
+        4096,
+        MemObjHelper::getSvmAllocationProperties(CL_MEM_READ_ONLY),
+        pContext->getRootDeviceIndices(),
+        pContext->getDeviceBitfields());
+
+    auto svmData = pContext->getSVMAllocsManager()->getSVMAlloc(alloc);
+    auto gpuAllocation = svmData->gpuAllocations.getGraphicsAllocation(*pContext->getRootDeviceIndices().begin());
+    gpuAllocation->setAllocationType(NEO::AllocationType::SVM_GPU);
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    auto retVal = pKernel->setArgSvmAlloc(0, alloc, gpuAllocation, 0u);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    pContext->getSVMAllocsManager()->freeSVMAlloc(alloc);
+}
+
+TEST_F(KernelArgSvmTest, GivenGpuSvmPtrAndKernelIsAlreadySetToUseSystemWhenSettingKernelArgThenKernelUsesSystemMemory) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
+    void *alloc = pContext->getSVMAllocsManager()->createSVMAlloc(
+        4096,
+        MemObjHelper::getSvmAllocationProperties(CL_MEM_READ_ONLY),
+        pContext->getRootDeviceIndices(),
+        pContext->getDeviceBitfields());
+
+    auto svmData = pContext->getSVMAllocsManager()->getSVMAlloc(alloc);
+    auto gpuAllocation = svmData->gpuAllocations.getGraphicsAllocation(*pContext->getRootDeviceIndices().begin());
+    gpuAllocation->setAllocationType(NEO::AllocationType::SVM_GPU);
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+    pKernel->anyKernelArgumentUsingSystemMemory = true;
+
+    auto retVal = pKernel->setArgSvmAlloc(0, alloc, gpuAllocation, 0u);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_TRUE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    pContext->getSVMAllocsManager()->freeSVMAlloc(alloc);
 }

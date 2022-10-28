@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -19,11 +19,11 @@ template <typename T>
 class EventFixture : public ApiFixture<>, public T {
   public:
     void SetUp() override {
-        ApiFixture::SetUp();
+        ApiFixture::setUp();
     }
 
     void TearDown() override {
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
 };
 

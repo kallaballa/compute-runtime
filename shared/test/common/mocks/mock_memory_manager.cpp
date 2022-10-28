@@ -152,6 +152,31 @@ GraphicsAllocation *MockMemoryManager::createGraphicsAllocationFromExistingStora
     return allocation;
 }
 
+GraphicsAllocation *MockMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) {
+    if (handle != invalidSharedHandle) {
+        auto allocation = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, properties, requireSpecificBitness, isHostIpcAllocation);
+        this->capturedSharedHandle = handle;
+        return allocation;
+    } else {
+        this->capturedSharedHandle = handle;
+        return nullptr;
+    }
+}
+
+GraphicsAllocation *MockMemoryManager::createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, AllocationType allocType) {
+    if (toOsHandle(handle) != invalidSharedHandle) {
+        auto graphicsAllocation = createMemoryAllocation(NEO::AllocationType::SHARED_BUFFER, nullptr, reinterpret_cast<void *>(1), 1,
+                                                         4096u, toOsHandle(handle), MemoryPool::SystemCpuInaccessible, rootDeviceIndex,
+                                                         false, false, false);
+        graphicsAllocation->setSharedHandle(toOsHandle(handle));
+        this->capturedSharedHandle = toOsHandle(handle);
+        return graphicsAllocation;
+    } else {
+        this->capturedSharedHandle = toOsHandle(handle);
+        return nullptr;
+    }
+}
+
 bool MockMemoryManager::copyMemoryToAllocationBanks(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy, DeviceBitfield handleMask) {
     copyMemoryToAllocationBanksCalled++;
     copyMemoryToAllocationBanksParamsPassed.push_back({graphicsAllocation, destinationOffset, memoryToCopy, sizeToCopy, handleMask});

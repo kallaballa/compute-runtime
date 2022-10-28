@@ -7,14 +7,18 @@
 
 #pragma once
 
-#include "gmock/gmock.h"
 #include "mock/mock_argument_helper.h"
+#include "mock/mock_ocloc_igc_facade.h"
 #include "mock/mock_offline_linker.h"
 
 namespace NEO {
 
 class OfflineLinkerTest : public ::testing::Test {
   public:
+    OfflineLinkerTest() {
+        mockOclocIgcFacade = std::make_unique<MockOclocIgcFacade>(&mockArgHelper);
+    }
+
     void SetUp() override;
     void TearDown() override;
 
@@ -25,6 +29,7 @@ class OfflineLinkerTest : public ::testing::Test {
   protected:
     MockOclocArgHelper::FilesMap mockArgHelperFilesMap{};
     MockOclocArgHelper mockArgHelper{mockArgHelperFilesMap};
+    std::unique_ptr<MockOclocIgcFacade> mockOclocIgcFacade{};
     char binaryToReturn[8]{7, 7, 7, 7, 0, 1, 2, 3};
 };
 

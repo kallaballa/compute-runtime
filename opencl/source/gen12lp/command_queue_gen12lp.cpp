@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen12lp/hw_cmds.h"
 #include "shared/source/helpers/populate_factory.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
@@ -14,7 +15,7 @@
 
 namespace NEO {
 
-typedef TGLLPFamily Family;
+typedef Gen12LpFamily Family;
 static auto gfxCore = IGFX_GEN12LP_CORE;
 
 template <>

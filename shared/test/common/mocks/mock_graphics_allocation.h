@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,7 +18,9 @@ constexpr DeviceBitfield mockDeviceBitfield(0b1);
 class MockGraphicsAllocation : public MemoryAllocation {
   public:
     using MemoryAllocation::allocationOffset;
+    using MemoryAllocation::allocationType;
     using MemoryAllocation::aubInfo;
+    using MemoryAllocation::cpuPtr;
     using MemoryAllocation::gpuAddress;
     using MemoryAllocation::MemoryAllocation;
     using MemoryAllocation::memoryPool;
@@ -28,7 +30,7 @@ class MockGraphicsAllocation : public MemoryAllocation {
     using MemoryAllocation::usageInfos;
 
     MockGraphicsAllocation()
-        : MemoryAllocation(0, AllocationType::UNKNOWN, nullptr, 0u, 0, MemoryPool::MemoryNull, MemoryManager::maxOsContextCount) {}
+        : MemoryAllocation(0, AllocationType::UNKNOWN, nullptr, 0u, 0, MemoryPool::MemoryNull, MemoryManager::maxOsContextCount, 0llu) {}
 
     MockGraphicsAllocation(void *buffer, size_t sizeIn)
         : MemoryAllocation(0, AllocationType::UNKNOWN, buffer, castToUint64(buffer), 0llu, sizeIn, MemoryPool::MemoryNull, MemoryManager::maxOsContextCount) {}
@@ -45,9 +47,23 @@ class MockGraphicsAllocation : public MemoryAllocation {
         }
     }
 
-    void overrideMemoryPool(MemoryPool::Type pool) {
+    void overrideMemoryPool(MemoryPool pool) {
         this->memoryPool = pool;
     }
+};
+
+class MockGraphicsAllocationTaskCount : public MockGraphicsAllocation {
+  public:
+    uint32_t getTaskCount(uint32_t contextId) const override {
+        getTaskCountCalleedTimes++;
+        return MockGraphicsAllocation::getTaskCount(contextId);
+    }
+    void updateTaskCount(uint32_t newTaskCount, uint32_t contextId) override {
+        updateTaskCountCalleedTimes++;
+        MockGraphicsAllocation::updateTaskCount(newTaskCount, contextId);
+    }
+    static uint32_t getTaskCountCalleedTimes;
+    uint32_t updateTaskCountCalleedTimes = 0;
 };
 
 namespace GraphicsAllocationHelper {

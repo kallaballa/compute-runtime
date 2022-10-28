@@ -1,19 +1,19 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/xe_hpg_core/hw_cmds_xe_hpg_core_base.h"
+
 #include "level_zero/core/source/helpers/l0_populate_factory.h"
 #include "level_zero/core/source/hw_helpers/l0_hw_helper_base.inl"
 #include "level_zero/core/source/hw_helpers/l0_hw_helper_skl_and_later.inl"
 
-#include "hw_cmds.h"
-
 namespace L0 {
 
-using Family = NEO::XE_HPG_COREFamily;
+using Family = NEO::XeHpgCoreFamily;
 static auto gfxCore = IGFX_XE_HPG_CORE;
 
 template <>
@@ -24,6 +24,16 @@ void populateFactoryTable<L0HwHelperHw<Family>>() {
 
 template <>
 bool L0HwHelperHw<Family>::isResumeWARequired() {
+    return true;
+}
+
+template <>
+bool L0HwHelperHw<Family>::platformSupportsPipelineSelectTracking(const NEO::HardwareInfo &hwInfo) const {
+    return true;
+}
+
+template <>
+bool L0HwHelperHw<Family>::platformSupportsFrontEndTracking(const NEO::HardwareInfo &hwInfo) const {
     return true;
 }
 

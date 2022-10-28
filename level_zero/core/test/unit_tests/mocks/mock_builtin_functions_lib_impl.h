@@ -1,9 +1,11 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
+
+#pragma once
 
 #include "level_zero/core/test/unit_tests/mocks/mock_kernel.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_module.h"
@@ -28,12 +30,7 @@ struct MockBuiltinFunctionsLibImpl : BuiltinFunctionsLibImpl {
             builtins[builtId] = loadBuiltIn(NEO::EBuiltInOps::CopyBufferToBuffer, "copyBufferToBufferBytesSingle");
         }
     }
-    void initStatelessBuiltinKernel(L0::Builtin func) override {
-        auto builtId = static_cast<uint32_t>(func);
-        if (builtins[builtId].get() == nullptr) {
-            builtins[builtId] = loadBuiltIn(NEO::EBuiltInOps::CopyBufferToBufferStateless, "copyBufferToBufferBytesSingle");
-        }
-    }
+
     void initBuiltinImageKernel(L0::ImageBuiltin func) override {
         auto builtId = static_cast<uint32_t>(func);
         if (imageBuiltins[builtId].get() == nullptr) {
@@ -47,9 +44,7 @@ struct MockBuiltinFunctionsLibImpl : BuiltinFunctionsLibImpl {
     Kernel *getFunction(Builtin func) override {
         return dummyKernel.get();
     }
-    Kernel *getStatelessFunction(Builtin func) override {
-        return dummyKernel.get();
-    }
+
     Kernel *getImageFunction(ImageBuiltin func) override {
         return dummyKernel.get();
     }

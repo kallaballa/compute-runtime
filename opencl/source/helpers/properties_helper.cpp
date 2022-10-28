@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,6 +16,12 @@
 #include "opencl/source/mem_obj/mem_obj.h"
 
 namespace NEO {
+
+void flushDependentCsr(CommandStreamReceiver &dependentCsr, CsrDependencies &csrDeps) {
+    auto csrOwnership = dependentCsr.obtainUniqueOwnership();
+    dependentCsr.updateTagFromWait();
+    csrDeps.taskCountContainer.push_back({dependentCsr.peekTaskCount(), reinterpret_cast<uint64_t>(dependentCsr.getTagAddress())});
+}
 
 void EventsRequest::fillCsrDependenciesForTimestampPacketContainer(CsrDependencies &csrDeps, CommandStreamReceiver &currentCsr, CsrDependencies::DependenciesType depsType) const {
     for (cl_uint i = 0; i < this->numEventsInWaitList; i++) {
@@ -34,13 +40,24 @@ void EventsRequest::fillCsrDependenciesForTimestampPacketContainer(CsrDependenci
             continue;
         }
 
-        auto sameCsr = (&event->getCommandQueue()->getGpgpuCommandStreamReceiver() == &currentCsr);
+        auto &dependentCsr = event->getCommandQueue()->getGpgpuCommandStreamReceiver();
+        auto sameCsr = (&dependentCsr == &currentCsr);
         bool pushDependency = (CsrDependencies::DependenciesType::OnCsr == depsType && sameCsr) ||
                               (CsrDependencies::DependenciesType::OutOfCsr == depsType && !sameCsr) ||
                               (CsrDependencies::DependenciesType::All == depsType);
 
         if (pushDependency) {
             csrDeps.timestampPacketContainer.push_back(timestampPacketContainer);
+
+            if (!sameCsr) {
+                const auto &hwInfoConfig = *NEO::HwInfoConfig::get(event->getCommandQueue()->getDevice().getHardwareInfo().platform.eProductFamily);
+                if (hwInfoConfig.isDcFlushAllowed()) {
+                    if (!dependentCsr.isLatestTaskCountFlushed()) {
+                        flushDependentCsr(dependentCsr, csrDeps);
+                        currentCsr.makeResident(*dependentCsr.getTagAllocation());
+                    }
+                }
+            }
         }
     }
 }
@@ -53,10 +70,12 @@ void EventsRequest::fillCsrDependenciesForTaskCountContainer(CsrDependencies &cs
         }
 
         if (event->getCommandQueue() && event->getCommandQueue()->getDevice().getRootDeviceIndex() != currentCsr.getRootDeviceIndex()) {
-            auto taskCountPreviousRootDevice = event->peekTaskCount();
-            auto tagAddressPreviousRootDevice = event->getCommandQueue()->getGpgpuCommandStreamReceiver().getTagAddress();
-
-            csrDeps.taskCountContainer.push_back({taskCountPreviousRootDevice, reinterpret_cast<uint64_t>(tagAddressPreviousRootDevice)});
+            auto &dependentCsr = event->getCommandQueue()->getGpgpuCommandStreamReceiver();
+            if (!dependentCsr.isLatestTaskCountFlushed()) {
+                flushDependentCsr(dependentCsr, csrDeps);
+            } else {
+                csrDeps.taskCountContainer.push_back({event->peekTaskCount(), reinterpret_cast<uint64_t>(dependentCsr.getTagAddress())});
+            }
 
             auto graphicsAllocation = event->getCommandQueue()->getGpgpuCommandStreamReceiver().getTagsMultiAllocation()->getGraphicsAllocation(currentCsr.getRootDeviceIndex());
             currentCsr.getResidencyAllocations().push_back(graphicsAllocation);
@@ -80,7 +99,7 @@ TransferProperties::TransferProperties(MemObj *memObj, cl_command_type cmdType, 
             size[0] = *sizePtr;
             offset[0] = *offsetPtr;
             if (doTransferOnCpu &&
-                (false == MemoryPool::isSystemMemoryPool(memObj->getGraphicsAllocation(rootDeviceIndex)->getMemoryPool())) &&
+                (false == MemoryPoolHelper::isSystemMemoryPool(memObj->getGraphicsAllocation(rootDeviceIndex)->getMemoryPool())) &&
                 (memObj->getMemoryManager() != nullptr)) {
                 this->lockedPtr = memObj->getMemoryManager()->lockResource(memObj->getGraphicsAllocation(rootDeviceIndex));
             }

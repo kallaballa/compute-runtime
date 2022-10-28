@@ -19,7 +19,7 @@
 
 namespace NEO {
 
-DrmMemoryOperationsHandlerBind::DrmMemoryOperationsHandlerBind(RootDeviceEnvironment &rootDeviceEnvironment, uint32_t rootDeviceIndex)
+DrmMemoryOperationsHandlerBind::DrmMemoryOperationsHandlerBind(const RootDeviceEnvironment &rootDeviceEnvironment, uint32_t rootDeviceIndex)
     : rootDeviceEnvironment(rootDeviceEnvironment),
       rootDeviceIndex(rootDeviceIndex){};
 
@@ -35,21 +35,33 @@ MemoryOperationsStatus DrmMemoryOperationsHandlerBind::makeResident(Device *devi
 }
 
 MemoryOperationsStatus DrmMemoryOperationsHandlerBind::makeResidentWithinOsContext(OsContext *osContext, ArrayRef<GraphicsAllocation *> gfxAllocations, bool evictable) {
+    auto deviceBitfield = osContext->getDeviceBitfield();
+
     std::lock_guard<std::mutex> lock(mutex);
-    for (auto gfxAllocation = gfxAllocations.begin(); gfxAllocation != gfxAllocations.end(); gfxAllocation++) {
-        auto drmAllocation = static_cast<DrmAllocation *>(*gfxAllocation);
-        for (auto drmIterator = 0u; drmIterator < osContext->getDeviceBitfield().size(); drmIterator++) {
-            if (osContext->getDeviceBitfield().test(drmIterator)) {
+    auto devicesDone = 0u;
+    for (auto drmIterator = 0u; devicesDone < deviceBitfield.count(); drmIterator++) {
+        if (!deviceBitfield.test(drmIterator)) {
+            continue;
+        }
+        devicesDone++;
+
+        for (auto gfxAllocation = gfxAllocations.begin(); gfxAllocation != gfxAllocations.end(); gfxAllocation++) {
+            auto drmAllocation = static_cast<DrmAllocation *>(*gfxAllocation);
+            auto bo = drmAllocation->storageInfo.getNumBanks() > 1 ? drmAllocation->getBOs()[drmIterator] : drmAllocation->getBO();
+
+            if (!bo->bindInfo[bo->getOsContextId(osContext)][drmIterator]) {
                 int result = drmAllocation->makeBOsResident(osContext, drmIterator, nullptr, true);
                 if (result) {
                     return MemoryOperationsStatus::OUT_OF_MEMORY;
                 }
             }
-        }
-        if (!evictable) {
-            drmAllocation->updateResidencyTaskCount(GraphicsAllocation::objectAlwaysResident, osContext->getContextId());
+
+            if (!evictable) {
+                drmAllocation->updateResidencyTaskCount(GraphicsAllocation::objectAlwaysResident, osContext->getContextId());
+            }
         }
     }
+
     return MemoryOperationsStatus::SUCCESS;
 }
 
@@ -104,20 +116,19 @@ MemoryOperationsStatus DrmMemoryOperationsHandlerBind::isResident(Device *device
 }
 
 MemoryOperationsStatus DrmMemoryOperationsHandlerBind::mergeWithResidencyContainer(OsContext *osContext, ResidencyContainer &residencyContainer) {
-    MemoryOperationsStatus retVal = this->makeResidentWithinOsContext(osContext, ArrayRef<GraphicsAllocation *>(residencyContainer), true);
+    if (DebugManager.flags.MakeEachAllocationResident.get() == 2) {
+        auto memoryManager = static_cast<DrmMemoryManager *>(this->rootDeviceEnvironment.executionEnvironment.memoryManager.get());
+
+        auto allocLock = memoryManager->acquireAllocLock();
+        this->makeResidentWithinOsContext(osContext, ArrayRef<GraphicsAllocation *>(memoryManager->getSysMemAllocs()), true);
+        this->makeResidentWithinOsContext(osContext, ArrayRef<GraphicsAllocation *>(memoryManager->getLocalMemAllocs(this->rootDeviceIndex)), true);
+    }
+
+    auto retVal = this->makeResidentWithinOsContext(osContext, ArrayRef<GraphicsAllocation *>(residencyContainer), true);
     if (retVal != MemoryOperationsStatus::SUCCESS) {
         return retVal;
     }
 
-    auto clearContainer = true;
-
-    if (DebugManager.flags.PassBoundBOToExec.get() != -1) {
-        clearContainer = !DebugManager.flags.PassBoundBOToExec.get();
-    }
-
-    if (clearContainer) {
-        residencyContainer.clear();
-    }
     return MemoryOperationsStatus::SUCCESS;
 }
 
@@ -125,7 +136,7 @@ std::unique_lock<std::mutex> DrmMemoryOperationsHandlerBind::lockHandlerIfUsed()
     return std::unique_lock<std::mutex>();
 }
 
-void DrmMemoryOperationsHandlerBind::evictUnusedAllocations(bool waitForCompletion, bool isLockNeeded) {
+MemoryOperationsStatus DrmMemoryOperationsHandlerBind::evictUnusedAllocations(bool waitForCompletion, bool isLockNeeded) {
     auto memoryManager = static_cast<DrmMemoryManager *>(this->rootDeviceEnvironment.executionEnvironment.memoryManager.get());
 
     std::unique_lock<std::mutex> evictLock(mutex, std::defer_lock);
@@ -135,11 +146,19 @@ void DrmMemoryOperationsHandlerBind::evictUnusedAllocations(bool waitForCompleti
 
     auto allocLock = memoryManager->acquireAllocLock();
 
-    this->evictUnusedAllocationsImpl(memoryManager->getSysMemAllocs(), waitForCompletion);
-    this->evictUnusedAllocationsImpl(memoryManager->getLocalMemAllocs(this->rootDeviceIndex), waitForCompletion);
+    for (const auto status : {
+             this->evictUnusedAllocationsImpl(memoryManager->getSysMemAllocs(), waitForCompletion),
+             this->evictUnusedAllocationsImpl(memoryManager->getLocalMemAllocs(this->rootDeviceIndex), waitForCompletion)}) {
+
+        if (status == MemoryOperationsStatus::GPU_HANG_DETECTED_DURING_OPERATION) {
+            return MemoryOperationsStatus::GPU_HANG_DETECTED_DURING_OPERATION;
+        }
+    }
+
+    return MemoryOperationsStatus::SUCCESS;
 }
 
-void DrmMemoryOperationsHandlerBind::evictUnusedAllocationsImpl(std::vector<GraphicsAllocation *> &allocationsForEviction, bool waitForCompletion) {
+MemoryOperationsStatus DrmMemoryOperationsHandlerBind::evictUnusedAllocationsImpl(std::vector<GraphicsAllocation *> &allocationsForEviction, bool waitForCompletion) {
     const auto &engines = this->rootDeviceEnvironment.executionEnvironment.memoryManager->getRegisteredEngines();
     std::vector<GraphicsAllocation *> evictCandidates;
 
@@ -156,7 +175,10 @@ void DrmMemoryOperationsHandlerBind::evictUnusedAllocationsImpl(std::vector<Grap
                     }
 
                     if (waitForCompletion) {
-                        engine.commandStreamReceiver->waitForCompletionWithTimeout(false, 0, engine.commandStreamReceiver->peekLatestFlushedTaskCount());
+                        const auto waitStatus = engine.commandStreamReceiver->waitForCompletionWithTimeout(WaitParams{false, false, 0}, engine.commandStreamReceiver->peekLatestFlushedTaskCount());
+                        if (waitStatus == WaitStatus::GpuHang) {
+                            return MemoryOperationsStatus::GPU_HANG_DETECTED_DURING_OPERATION;
+                        }
                     }
 
                     if (allocation->isUsedByOsContext(engine.osContext->getContextId()) &&
@@ -183,6 +205,8 @@ void DrmMemoryOperationsHandlerBind::evictUnusedAllocationsImpl(std::vector<Grap
         }
         evictCandidates.clear();
     }
+
+    return MemoryOperationsStatus::SUCCESS;
 }
 
 } // namespace NEO

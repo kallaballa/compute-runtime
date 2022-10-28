@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,9 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/device_factory.h"
+#include "shared/test/common/fixtures/mock_aub_center_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_builtins.h"
@@ -19,7 +21,6 @@
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_sip.h"
 #include "shared/test/common/mocks/mock_source_level_debugger.h"
-#include "shared/test/unit_test/fixtures/mock_aub_center_fixture.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/sharings/sharing_factory.h"
@@ -29,7 +30,6 @@
 #include "opencl/test/unit_test/mocks/ult_cl_device_factory.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 using namespace NEO;
@@ -100,9 +100,9 @@ TEST_F(PlatformTest, givenSupportingCl21WhenGettingExtensionsStringThenSubgroups
 
     auto isIndependentForwardProgressSupported = pPlatform->getClDevice(0)->getDeviceInfo().independentForwardProgress;
 
-    EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
+    EXPECT_TRUE(hasSubstr(compilerExtensions, std::string(" -cl-ext=-all,+cl")));
     if (isIndependentForwardProgressSupported) {
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_subgroups")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_subgroups")));
     }
 }
 
@@ -279,55 +279,55 @@ TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatching
     getOpenclCFeaturesList(*hwInfo, features);
 
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
-    EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
+    EXPECT_TRUE(hasSubstr(compilerExtensions, std::string(" -cl-ext=-all,+cl")));
 
     if (hwInfo->capabilityTable.supportsOcl21Features) {
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_subgroups")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_subgroups")));
         if (hwInfo->capabilityTable.supportsVme) {
-            EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_device_side_avc_motion_estimation")));
+            EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_device_side_avc_motion_estimation")));
         } else {
-            EXPECT_THAT(compilerExtensions, testing::Not(::testing::HasSubstr(std::string("cl_intel_spirv_device_side_avc_motion_estimation"))));
+            EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_device_side_avc_motion_estimation")));
         }
         if (hwInfo->capabilityTable.supportsMediaBlock) {
-            EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
+            EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_media_block_io")));
         } else {
-            EXPECT_THAT(compilerExtensions, testing::Not(::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+            EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_media_block_io")));
         }
 
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_subgroups")));
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_spirv_no_integer_wrap_decoration")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_subgroups")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_spirv_no_integer_wrap_decoration")));
     }
 
     if (hwInfo->capabilityTable.ftrSupportsFP64) {
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_fp64")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_fp64")));
     }
 
     if (hwInfo->capabilityTable.supportsImages) {
-        EXPECT_THAT(extensionsList, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+        EXPECT_TRUE(hasSubstr(extensionsList, std::string("cl_khr_3d_image_writes")));
     }
-    EXPECT_THAT(compilerExtensions, ::testing::EndsWith(std::string(" ")));
+    EXPECT_TRUE(endsWith(compilerExtensions, std::string(" ")));
 }
 
 TEST_F(PlatformTest, givenNotSupportingCl21WhenPlatformNotSupportFp64ThenNotFillMatchingSubstringAndFillMandatoryTrailingSpace) {
-    HardwareInfo TesthwInfo = *defaultHwInfo;
-    TesthwInfo.capabilityTable.ftrSupportsFP64 = false;
-    TesthwInfo.capabilityTable.clVersionSupport = 10;
-    TesthwInfo.capabilityTable.supportsOcl21Features = false;
+    HardwareInfo testHwInfo = *defaultHwInfo;
+    testHwInfo.capabilityTable.ftrSupportsFP64 = false;
+    testHwInfo.capabilityTable.clVersionSupport = 10;
+    testHwInfo.capabilityTable.supportsOcl21Features = false;
 
-    std::string extensionsList = getExtensionsList(TesthwInfo);
+    std::string extensionsList = getExtensionsList(testHwInfo);
     OpenClCFeaturesContainer features;
     getOpenclCFeaturesList(*defaultHwInfo, features);
-    if (TesthwInfo.capabilityTable.supportsImages) {
-        EXPECT_THAT(extensionsList, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+    if (testHwInfo.capabilityTable.supportsImages) {
+        EXPECT_TRUE(hasSubstr(extensionsList, std::string("cl_khr_3d_image_writes")));
     }
 
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
-    EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("-cl-ext=-all,+cl")));
+    EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("-cl-ext=-all,+cl")));
 
-    EXPECT_THAT(compilerExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_khr_fp64"))));
-    EXPECT_THAT(compilerExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_khr_subgroups"))));
+    EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_khr_fp64")));
+    EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_khr_subgroups")));
 
-    EXPECT_THAT(compilerExtensions, ::testing::EndsWith(std::string(" ")));
+    EXPECT_TRUE(endsWith(compilerExtensions, std::string(" ")));
 }
 
 TEST_F(PlatformTest, givenFtrSupportAtomicsWhenCreateExtentionsListThenGetMatchingSubstrings) {
@@ -339,11 +339,11 @@ TEST_F(PlatformTest, givenFtrSupportAtomicsWhenCreateExtentionsListThenGetMatchi
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
 
     if (hwInfo->capabilityTable.ftrSupportsInteger64BitAtomics) {
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_int64_base_atomics")));
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_int64_extended_atomics")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_int64_base_atomics")));
+        EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_int64_extended_atomics")));
     } else {
-        EXPECT_THAT(compilerExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_khr_int64_base_atomics"))));
-        EXPECT_THAT(compilerExtensions, ::testing::Not(::testing::HasSubstr(std::string("cl_khr_int64_extended_atomics"))));
+        EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_khr_int64_base_atomics")));
+        EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_khr_int64_extended_atomics")));
     }
 }
 
@@ -357,7 +357,7 @@ TEST_F(PlatformTest, givenSupportedMediaBlockAndClVersion21WhenCreateExtentionsL
     getOpenclCFeaturesList(*defaultHwInfo, features);
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
 
-    EXPECT_THAT(compilerExtensions, testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
+    EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_media_block_io")));
 }
 
 TEST_F(PlatformTest, givenNotSupportedMediaBlockAndClVersion21WhenCreateExtentionsListThenDeviceNotReportsSpritvMediaBlockIoExtension) {
@@ -369,7 +369,7 @@ TEST_F(PlatformTest, givenNotSupportedMediaBlockAndClVersion21WhenCreateExtentio
     getOpenclCFeaturesList(*defaultHwInfo, features);
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
 
-    EXPECT_THAT(compilerExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+    EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_intel_spirv_media_block_io")));
 }
 
 TEST_F(PlatformTest, givenSupportedImagesWhenCreateExtentionsListThenDeviceNotReportsKhr3DImageWritesExtension) {
@@ -380,7 +380,7 @@ TEST_F(PlatformTest, givenSupportedImagesWhenCreateExtentionsListThenDeviceNotRe
     getOpenclCFeaturesList(*defaultHwInfo, features);
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
 
-    EXPECT_THAT(compilerExtensions, testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+    EXPECT_TRUE(hasSubstr(compilerExtensions, std::string("cl_khr_3d_image_writes")));
 }
 
 TEST_F(PlatformTest, givenNotSupportedImagesWhenCreateExtentionsListThenDeviceNotReportsKhr3DImageWritesExtension) {
@@ -391,7 +391,7 @@ TEST_F(PlatformTest, givenNotSupportedImagesWhenCreateExtentionsListThenDeviceNo
     getOpenclCFeaturesList(*defaultHwInfo, features);
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
 
-    EXPECT_THAT(compilerExtensions, testing::Not(testing::HasSubstr(std::string("cl_khr_3d_image_writes"))));
+    EXPECT_FALSE(hasSubstr(compilerExtensions, std::string("cl_khr_3d_image_writes")));
 }
 
 TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledTwiceThenTheSamePlatformIsReturned) {
@@ -438,6 +438,16 @@ TEST(PlatformInitTest, givenSingleDeviceWithNonZeroRootDeviceIndexInPassedDevice
     size_t expectedNumDevices = 1u;
     EXPECT_EQ(expectedNumDevices, platform()->getNumDevices());
     EXPECT_EQ(2u, platform()->getClDevice(0)->getRootDeviceIndex());
+}
+
+TEST(PlatformInitTest, GivenDebuggingEnabledWhenPlatformIsInitializedThenL0DebuggerIsCreated) {
+    std::vector<std::unique_ptr<Device>> devices;
+    auto executionEnvironment = new MockExecutionEnvironment(defaultHwInfo.get(), false, 1);
+    executionEnvironment->setDebuggingEnabled();
+    devices.push_back(std::make_unique<MockDevice>(executionEnvironment, 0));
+    auto status = platform()->initialize(std::move(devices));
+    EXPECT_TRUE(status);
+    EXPECT_NE(nullptr, platform()->getClDevice(0)->getDevice().getL0Debugger());
 }
 
 TEST(PlatformGroupDevicesTest, whenMultipleDevicesAreCreatedThenGroupDevicesCreatesVectorPerEachProductFamily) {

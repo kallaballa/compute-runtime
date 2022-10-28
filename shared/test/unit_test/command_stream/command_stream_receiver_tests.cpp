@@ -7,6 +7,8 @@
 
 #include "shared/source/command_container/implicit_scaling.h"
 #include "shared/source/command_stream/command_stream_receiver_simulated_hw.h"
+#include "shared/source/command_stream/wait_status.h"
+#include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
@@ -15,22 +17,24 @@
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/tag_allocator.h"
+#include "shared/test/common/fixtures/command_stream_receiver_fixture.inl"
 #include "shared/test/common/fixtures/device_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/engine_descriptor_helper.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_allocation_properties.h"
 #include "shared/test/common/mocks/mock_csr.h"
 #include "shared/test/common/mocks/mock_driver_model.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
+#include "shared/test/common/mocks/mock_internal_allocation_storage.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/matchers.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
 #include "shared/test/unit_test/direct_submission/direct_submission_controller_mock.h"
 
-#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 #include <chrono>
 #include <functional>
@@ -45,7 +49,7 @@ using namespace std::chrono_literals;
 struct CommandStreamReceiverTest : public DeviceFixture,
                                    public ::testing::Test {
     void SetUp() override {
-        DeviceFixture::SetUp();
+        DeviceFixture::setUp();
 
         commandStreamReceiver = &pDevice->getGpgpuCommandStreamReceiver();
         ASSERT_NE(nullptr, commandStreamReceiver);
@@ -54,19 +58,84 @@ struct CommandStreamReceiverTest : public DeviceFixture,
     }
 
     void TearDown() override {
-        DeviceFixture::TearDown();
+        DeviceFixture::tearDown();
     }
 
-    CommandStreamReceiver *commandStreamReceiver;
-    MemoryManager *memoryManager;
-    InternalAllocationStorage *internalAllocationStorage;
+    CommandStreamReceiver *commandStreamReceiver = nullptr;
+    MemoryManager *memoryManager = nullptr;
+    InternalAllocationStorage *internalAllocationStorage = nullptr;
 };
+
+TEST_F(CommandStreamReceiverTest, givenOsAgnosticCsrWhenGettingCompletionValueThenProperTaskCountIsReturned) {
+    MockGraphicsAllocation allocation{};
+    uint32_t expectedValue = 0x1234;
+
+    auto &osContext = commandStreamReceiver->getOsContext();
+    allocation.updateTaskCount(expectedValue, osContext.getContextId());
+    EXPECT_EQ(expectedValue, commandStreamReceiver->getCompletionValue(allocation));
+}
+
+TEST_F(CommandStreamReceiverTest, givenOsAgnosticCsrWhenGettingCompletionAddressThenProperAddressIsReturned) {
+    auto expectedAddress = castToUint64(const_cast<uint32_t *>(commandStreamReceiver->getTagAddress()));
+    EXPECT_EQ(expectedAddress, commandStreamReceiver->getCompletionAddress());
+}
 
 HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenDefaultValuesAreSet) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     EXPECT_EQ(0u, csr.peekTaskLevel());
     EXPECT_EQ(0u, csr.peekTaskCount());
     EXPECT_FALSE(csr.isPreambleSent);
+}
+
+HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenCallFillReusableAllocationsList) {
+    auto engineType = pDevice->allEngines[0].getEngineType();
+    pDevice->createEngine(0, {engineType, EngineUsage::Regular});
+    auto csrIndex = pDevice->commandStreamReceivers.size() - 1;
+    auto csr = reinterpret_cast<UltCommandStreamReceiver<FamilyType> *>(pDevice->commandStreamReceivers[csrIndex].get());
+    EXPECT_EQ(1u, csr->fillReusableAllocationsListCalled);
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenCsrWhenCallFillReusableAllocationsListThenAllocateCommandBufferAndMakeItResident) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.SetAmountOfReusableAllocations.set(1);
+    pDevice->getUltCommandStreamReceiver<FamilyType>().callBaseFillReusableAllocationsList = true;
+    EXPECT_TRUE(commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_EQ(0u, commandStreamReceiver->getResidencyAllocations().size());
+
+    commandStreamReceiver->fillReusableAllocationsList();
+
+    EXPECT_FALSE(commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_EQ(1u, commandStreamReceiver->getResidencyAllocations().size());
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenFlagDisabledWhenCallFillReusableAllocationsListThenAllocateCommandBufferAndMakeItResident) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.SetAmountOfReusableAllocations.set(0);
+    pDevice->getUltCommandStreamReceiver<FamilyType>().callBaseFillReusableAllocationsList = true;
+    EXPECT_TRUE(commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_EQ(0u, commandStreamReceiver->getResidencyAllocations().size());
+
+    commandStreamReceiver->fillReusableAllocationsList();
+
+    EXPECT_TRUE(commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_EQ(0u, commandStreamReceiver->getResidencyAllocations().size());
+}
+
+HWTEST_F(CommandStreamReceiverTest, whenRegisterClientThenIncrementClientNum) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    auto numClients = csr.getNumClients();
+
+    csr.registerClient();
+    EXPECT_EQ(csr.getNumClients(), numClients + 1);
+
+    csr.registerClient();
+    EXPECT_EQ(csr.getNumClients(), numClients + 2);
+
+    csr.unregisterClient();
+    EXPECT_EQ(csr.getNumClients(), numClients + 1);
+
+    csr.unregisterClient();
+    EXPECT_EQ(csr.getNumClients(), numClients);
 }
 
 HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenTimestampTypeIs32b) {
@@ -172,6 +241,22 @@ HWTEST_F(CommandStreamReceiverTest, whenStoreAllocationThenStoredAllocationHasTa
     EXPECT_EQ(csr.peekTaskCount(), allocation->getTaskCount(csr.getOsContext().getContextId()));
 }
 
+HWTEST_F(CommandStreamReceiverTest, givenDisableGpuHangDetectionFlagWhenCheckingGpuHangThenDriverModelIsNotCalledAndFalseIsReturned) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.DisableGpuHangDetection.set(true);
+
+    auto driverModelMock = std::make_unique<MockDriverModel>();
+    driverModelMock->isGpuHangDetectedToReturn = true;
+
+    auto osInterface = std::make_unique<OSInterface>();
+    osInterface->setDriverModel(std::move(driverModelMock));
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.executionEnvironment.rootDeviceEnvironments[csr.rootDeviceIndex]->osInterface = std::move(osInterface);
+
+    EXPECT_FALSE(csr.isGpuHangDetected());
+}
+
 HWTEST_F(CommandStreamReceiverTest, givenGpuHangWhenWaititingForCompletionWithTimeoutThenGpuHangIsReturned) {
     auto driverModelMock = std::make_unique<MockDriverModel>();
     driverModelMock->isGpuHangDetectedToReturn = true;
@@ -265,6 +350,84 @@ HWTEST_F(CommandStreamReceiverTest, givenFailingFlushSubmissionsAndNoGpuHangWhen
     EXPECT_EQ(WaitStatus::NotReady, waitStatus);
 }
 
+HWTEST_F(CommandStreamReceiverTest, givenGpuHangWhenWaititingForTaskCountThenGpuHangIsReturned) {
+    auto driverModelMock = std::make_unique<MockDriverModel>();
+    driverModelMock->isGpuHangDetectedToReturn = true;
+
+    auto osInterface = std::make_unique<OSInterface>();
+    osInterface->setDriverModel(std::move(driverModelMock));
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.executionEnvironment.rootDeviceEnvironments[csr.rootDeviceIndex]->osInterface = std::move(osInterface);
+    csr.activePartitions = 1;
+    csr.gpuHangCheckPeriod = 0us;
+
+    volatile std::uint32_t tasksCount[16] = {};
+    csr.tagAddress = tasksCount;
+
+    constexpr auto taskCountToWait = 1;
+    const auto waitStatus = csr.waitForTaskCount(taskCountToWait);
+    EXPECT_EQ(WaitStatus::GpuHang, waitStatus);
+    EXPECT_TRUE(csr.downloadAllocationCalled);
+}
+
+HWTEST_F(CommandStreamReceiverTest, whenDownloadTagAllocationThenDonwloadOnlyIfTagAllocationWasFlushed) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.activePartitions = 1;
+    *csr.tagAddress = 1u;
+
+    auto ret = csr.testTaskCountReady(csr.tagAddress, 0u);
+    EXPECT_TRUE(ret);
+    EXPECT_FALSE(csr.downloadAllocationCalled);
+
+    constexpr auto taskCountToWait = 1;
+    ret = csr.testTaskCountReady(csr.tagAddress, taskCountToWait);
+    EXPECT_TRUE(ret);
+    EXPECT_FALSE(csr.downloadAllocationCalled);
+
+    csr.getTagAllocation()->updateTaskCount(taskCountToWait, csr.osContext->getContextId());
+    ret = csr.testTaskCountReady(csr.tagAddress, taskCountToWait);
+    EXPECT_TRUE(ret);
+    EXPECT_FALSE(csr.downloadAllocationCalled);
+
+    csr.setLatestFlushedTaskCount(taskCountToWait);
+    ret = csr.testTaskCountReady(csr.tagAddress, taskCountToWait);
+    EXPECT_TRUE(ret);
+    EXPECT_TRUE(csr.downloadAllocationCalled);
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenGpuHangAndNonEmptyAllocationsListWhenCallingWaitForTaskCountAndCleanAllocationListThenWaitIsCalledAndGpuHangIsReturned) {
+    auto driverModelMock = std::make_unique<MockDriverModel>();
+    driverModelMock->isGpuHangDetectedToReturn = true;
+
+    auto osInterface = std::make_unique<OSInterface>();
+    osInterface->setDriverModel(std::move(driverModelMock));
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.executionEnvironment.rootDeviceEnvironments[csr.rootDeviceIndex]->osInterface = std::move(osInterface);
+    csr.activePartitions = 1;
+    csr.gpuHangCheckPeriod = 0us;
+
+    volatile std::uint32_t tasksCount[16] = {};
+    VariableBackup<volatile std::uint32_t *> csrTagAddressBackup(&csr.tagAddress);
+    csr.tagAddress = tasksCount;
+
+    auto hostPtr = reinterpret_cast<void *>(0x1234);
+    size_t size = 100;
+    auto gmmHelper = pDevice->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(hostPtr));
+    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0, AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0,
+                                                                  MemoryPool::System4KBPages, MemoryManager::maxOsContextCount, canonizedGpuAddress);
+    temporaryAllocation->updateTaskCount(0u, 0u);
+    csr.getInternalAllocationStorage()->storeAllocationWithTaskCount(std::move(temporaryAllocation), TEMPORARY_ALLOCATION, 2u);
+
+    constexpr auto taskCountToWait = 1;
+    constexpr auto allocationUsage = TEMPORARY_ALLOCATION;
+    const auto waitStatus = csr.waitForTaskCountAndCleanAllocationList(taskCountToWait, allocationUsage);
+
+    EXPECT_EQ(WaitStatus::GpuHang, waitStatus);
+}
+
 HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenCheckedForInitialStatusOfStatelessMocsIndexThenUnknownMocsIsReturend) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     EXPECT_EQ(CacheSettings::unknownMocs, csr.latestSentStatelessMocsConfig);
@@ -291,6 +454,11 @@ TEST_F(CommandStreamReceiverTest, GivenNoParamatersWhenMakingResidentThenResiden
     commandStreamReceiver->processResidency(commandStreamReceiver->getResidencyAllocations(), 0u);
     auto &residencyAllocations = commandStreamReceiver->getResidencyAllocations();
     EXPECT_EQ(0u, residencyAllocations.size());
+}
+
+TEST_F(CommandStreamReceiverTest, WhenDebugSurfaceIsAllocatedThenCorrectTypeIsSet) {
+    auto allocation = commandStreamReceiver->allocateDebugSurface(1024);
+    EXPECT_EQ(AllocationType::DEBUG_CONTEXT_SAVE_AREA, allocation->getAllocationType());
 }
 
 TEST_F(CommandStreamReceiverTest, givenForced32BitAddressingWhenDebugSurfaceIsAllocatedThenRegularAllocationIsReturned) {
@@ -384,6 +552,28 @@ TEST(CommandStreamReceiverSimpleTest, givenCsrWhenSubmitiingBatchBufferThenTaskC
     executionEnvironment.memoryManager->freeGraphicsMemoryImpl(commandBuffer);
 }
 
+TEST(CommandStreamReceiverSimpleTest, givenCsrWhenSubmittingBatchBufferAndFlushFailThenTaskCountIsNotIncremented) {
+    MockExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
+    executionEnvironment.initializeMemoryManager();
+    DeviceBitfield deviceBitfield(1);
+    MockCommandStreamReceiverWithFailingFlush csr(executionEnvironment, 0, deviceBitfield);
+    GraphicsAllocation *commandBuffer = executionEnvironment.memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr.getRootDeviceIndex(), MemoryConstants::pageSize});
+    ASSERT_NE(nullptr, commandBuffer);
+    LinearStream cs(commandBuffer);
+
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr, false};
+    ResidencyContainer residencyList;
+
+    auto expectedTaskCount = csr.peekTaskCount();
+    csr.submitBatchBuffer(batchBuffer, residencyList);
+
+    EXPECT_EQ(expectedTaskCount, csr.peekTaskCount());
+    EXPECT_EQ(expectedTaskCount, csr.peekLatestFlushedTaskCount());
+
+    executionEnvironment.memoryManager->freeGraphicsMemoryImpl(commandBuffer);
+}
+
 HWTEST_F(CommandStreamReceiverTest, givenUpdateTaskCountFromWaitWhenSubmitiingBatchBufferThenTaskCountIsIncrementedAndLatestsValuesSetCorrectly) {
     DebugManagerStateRestore restorer;
     DebugManager.flags.UpdateTaskCountFromWait.set(3);
@@ -449,7 +639,8 @@ HWTEST_F(CommandStreamReceiverTest, whenDirectSubmissionDisabledThenExpectNoFeat
                                                            EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_RCS, EngineUsage::Regular},
                                                                                                         PreemptionMode::ThreadGroup, pDevice->getDeviceBitfield())));
     osContext->setDefaultContext(true);
-    bool ret = csr.initDirectSubmission(*pDevice, *osContext.get());
+    csr.setupContext(*osContext);
+    bool ret = csr.initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr.isDirectSubmissionEnabled());
     EXPECT_FALSE(csr.isBlitterDirectSubmissionEnabled());
@@ -494,8 +685,44 @@ HWTEST_F(CommandStreamReceiverTest, givenUpdateTaskCountFromWaitWhenCheckTaskCou
     }
 }
 
+HWTEST_F(CommandStreamReceiverTest, givenUpdateTaskCountFromWaitWhenCheckIfEnabledThenCanBeEnabledOnlyWithDirectSubmission) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    auto &hwHelper = HwHelper::get(csr.peekHwInfo().platform.eRenderCoreFamily);
+
+    {
+        csr.directSubmissionAvailable = true;
+        EXPECT_EQ(csr.isUpdateTagFromWaitEnabled(), hwHelper.isUpdateTaskCountFromWaitSupported());
+    }
+
+    {
+        csr.directSubmissionAvailable = false;
+        EXPECT_FALSE(csr.isUpdateTagFromWaitEnabled());
+    }
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenUpdateTaskCountFromWaitInMultiRootDeviceEnvironmentWhenCheckIfEnabledThenCanBeEnabledOnlyWithDirectSubmission) {
+
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CreateMultipleRootDevices.set(2);
+    TearDown();
+    SetUp();
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto &hwHelper = HwHelper::get(csr.peekHwInfo().platform.eRenderCoreFamily);
+
+    {
+        csr.directSubmissionAvailable = true;
+        EXPECT_EQ(csr.isUpdateTagFromWaitEnabled(), hwHelper.isUpdateTaskCountFromWaitSupported());
+    }
+
+    {
+        csr.directSubmissionAvailable = false;
+        EXPECT_FALSE(csr.isUpdateTagFromWaitEnabled());
+    }
+}
+
 struct InitDirectSubmissionFixture {
-    void SetUp() {
+    void setUp() {
         DebugManager.flags.EnableDirectSubmission.set(1);
         executionEnvironment = new MockExecutionEnvironment();
         DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
@@ -505,7 +732,7 @@ struct InitDirectSubmissionFixture {
         device.reset(new MockDevice(executionEnvironment, 0u));
     }
 
-    void TearDown() {}
+    void tearDown() {}
 
     DebugManagerStateRestore restore;
     MockExecutionEnvironment *executionEnvironment;
@@ -532,8 +759,9 @@ HWTEST_F(InitDirectSubmissionTest, givenDirectSubmissionControllerEnabledWhenIni
     auto hwInfo = device->getRootDeviceEnvironment().getMutableHardwareInfo();
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
+    csr->setupContext(*osContext);
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
     EXPECT_FALSE(csr->isBlitterDirectSubmissionEnabled());
@@ -560,7 +788,32 @@ HWTEST_F(InitDirectSubmissionTest, givenDirectSubmissionControllerDisabledWhenIn
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
+    EXPECT_TRUE(ret);
+    EXPECT_TRUE(csr->isDirectSubmissionEnabled());
+
+    auto controller = static_cast<DirectSubmissionControllerMock *>(device->executionEnvironment->initializeDirectSubmissionController());
+    EXPECT_EQ(controller, nullptr);
+}
+
+HWTEST_F(InitDirectSubmissionTest, givenSetCsrFlagSetWhenInitDirectSubmissionThenControllerIsNotCreatedAndCsrIsNotRegistered) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.SetCommandStreamReceiver.set(1);
+
+    auto csr = std::make_unique<CommandStreamReceiverHw<FamilyType>>(*device->executionEnvironment, device->getRootDeviceIndex(), device->getDeviceBitfield());
+    std::unique_ptr<OsContext> osContext(OsContext::create(device->getExecutionEnvironment()->rootDeviceEnvironments[0]->osInterface.get(), 0,
+                                                           EngineDescriptorHelper::getDefaultDescriptor({aub_stream::ENGINE_RCS, EngineUsage::Regular},
+                                                                                                        PreemptionMode::ThreadGroup, device->getDeviceBitfield())));
+
+    osContext->ensureContextInitialized();
+    osContext->setDefaultContext(true);
+    auto hwInfo = device->getRootDeviceEnvironment().getMutableHardwareInfo();
+    hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
+    hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
+
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
 
@@ -579,7 +832,8 @@ HWTEST_F(InitDirectSubmissionTest, whenDirectSubmissionEnabledOnRcsThenExpectFea
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
     EXPECT_FALSE(csr->isBlitterDirectSubmissionEnabled());
@@ -611,13 +865,14 @@ HWTEST_F(InitDirectSubmissionTest, whenCallInitDirectSubmissionAgainThenItIsNotR
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     auto directSubmission = csr->directSubmission.get();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
     EXPECT_FALSE(csr->isBlitterDirectSubmissionEnabled());
 
-    ret = csr->initDirectSubmission(*device, *osContext.get());
+    ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
     EXPECT_FALSE(csr->isBlitterDirectSubmissionEnabled());
@@ -636,7 +891,8 @@ HWTEST_F(InitDirectSubmissionTest, whenCallInitDirectSubmissionThenObtainLock) {
     auto hwInfo = device->getRootDeviceEnvironment().getMutableHardwareInfo();
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
-    csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    csr->initDirectSubmission();
     EXPECT_EQ(1u, csr->recursiveLockCounter);
 
     csr.reset();
@@ -652,7 +908,8 @@ HWTEST_F(InitDirectSubmissionTest, givenDirectSubmissionEnabledWhenPlatformNotSu
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
 
@@ -671,7 +928,8 @@ HWTEST_F(InitDirectSubmissionTest, whenDirectSubmissionEnabledOnBcsThenExpectFea
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_BCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_BCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
     EXPECT_TRUE(csr->isBlitterDirectSubmissionEnabled());
@@ -691,7 +949,8 @@ HWTEST_F(InitDirectSubmissionTest, givenDirectSubmissionEnabledWhenPlatformNotSu
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_BCS].engineSupported = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_BCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
     EXPECT_FALSE(csr->isBlitterDirectSubmissionEnabled());
@@ -712,7 +971,8 @@ HWTEST_F(InitDirectSubmissionTest, givenLowPriorityContextWhenDirectSubmissionDi
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useLowPriority = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
 
@@ -730,7 +990,8 @@ HWTEST_F(InitDirectSubmissionTest, givenLowPriorityContextWhenDirectSubmissionEn
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].engineSupported = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useLowPriority = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
 
@@ -750,7 +1011,8 @@ HWTEST_F(InitDirectSubmissionTest, givenInternalContextWhenDirectSubmissionDisab
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useInternal = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
 
@@ -769,7 +1031,8 @@ HWTEST_F(InitDirectSubmissionTest, givenInternalContextWhenDirectSubmissionEnabl
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useInternal = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
 
@@ -789,7 +1052,8 @@ HWTEST_F(InitDirectSubmissionTest, givenRootDeviceContextWhenDirectSubmissionDis
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useRootDevice = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
 
@@ -808,7 +1072,8 @@ HWTEST_F(InitDirectSubmissionTest, givenRootDeviceContextWhenDirectSubmissionEna
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useRootDevice = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
 
@@ -828,7 +1093,8 @@ HWTEST_F(InitDirectSubmissionTest, givenNonDefaultContextWhenDirectSubmissionDis
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useNonDefault = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
 
@@ -848,7 +1114,8 @@ HWTEST_F(InitDirectSubmissionTest, givenNonDefaultContextContextWhenDirectSubmis
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].useNonDefault = true;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_RCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_TRUE(csr->isDirectSubmissionEnabled());
 
@@ -858,6 +1125,7 @@ HWTEST_F(InitDirectSubmissionTest, givenNonDefaultContextContextWhenDirectSubmis
 HWTEST_F(InitDirectSubmissionTest, GivenBlitterOverrideEnabledWhenBlitterIsNonDefaultContextThenExpectDirectSubmissionStarted) {
     DebugManager.flags.DirectSubmissionOverrideBlitterSupport.set(1);
     DebugManager.flags.DirectSubmissionDisableMonitorFence.set(0);
+    DebugManager.flags.DirectSubmissionInsertExtraMiMemFenceCommands.set(0);
 
     auto csr = std::make_unique<CommandStreamReceiverHw<FamilyType>>(*device->executionEnvironment, device->getRootDeviceIndex(), device->getDeviceBitfield());
     std::unique_ptr<OsContext> osContext(OsContext::create(device->getExecutionEnvironment()->rootDeviceEnvironments[0]->osInterface.get(), 0,
@@ -871,7 +1139,8 @@ HWTEST_F(InitDirectSubmissionTest, GivenBlitterOverrideEnabledWhenBlitterIsNonDe
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_BCS].useNonDefault = false;
     hwInfo->capabilityTable.directSubmissionEngines.data[aub_stream::ENGINE_BCS].submitOnInit = false;
 
-    bool ret = csr->initDirectSubmission(*device, *osContext.get());
+    csr->setupContext(*osContext);
+    bool ret = csr->initDirectSubmission();
     EXPECT_TRUE(ret);
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
     EXPECT_TRUE(csr->isBlitterDirectSubmissionEnabled());
@@ -945,7 +1214,7 @@ TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroye
     bool destructorCalled = false;
     int gpuTag = 0;
 
-    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(0, AllocationType::UNKNOWN, &gpuTag, 0llu, 0llu, 1u, MemoryPool::MemoryNull);
+    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(0, AllocationType::UNKNOWN, &gpuTag, 0llu, 0llu, 1u, MemoryPool::MemoryNull, MemoryManager::maxOsContextCount);
     mockGraphicsAllocation->destructorCalled = &destructorCalled;
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     auto csr = std::make_unique<MockCommandStreamReceiver>(executionEnvironment, 0, 1);
@@ -1153,7 +1422,7 @@ TEST(CommandStreamReceiverSimpleTest, givenPrintfTagAllocationAddressFlagEnabled
     char expectedStr[128];
     snprintf(expectedStr, 128, "\nCreated tag allocation %p for engine %u\n", csr.getTagAddress(), csr.getOsContext().getEngineType());
 
-    EXPECT_THAT(output, testing::HasSubstr(std::string(expectedStr)));
+    EXPECT_TRUE(hasSubstr(output, std::string(expectedStr)));
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenGpuIdleImplicitFlushCheckDisabledWhenGpuIsIdleThenReturnFalse) {
@@ -1216,7 +1485,10 @@ TEST(CommandStreamReceiverSimpleTest, givenMultipleActivePartitionsWhenWaitingFo
 
     auto hostPtr = reinterpret_cast<void *>(0x1234);
     size_t size = 100;
-    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0, AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0, MemoryPool::System4KBPages, MemoryManager::maxOsContextCount);
+    auto gmmHelper = executionEnvironment.rootDeviceEnvironments[0]->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(hostPtr));
+    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0, AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0,
+                                                                  MemoryPool::System4KBPages, MemoryManager::maxOsContextCount, canonizedGpuAddress);
     temporaryAllocation->updateTaskCount(0u, 0u);
     csr.getInternalAllocationStorage()->storeAllocationWithTaskCount(std::move(temporaryAllocation), TEMPORARY_ALLOCATION, 2u);
 
@@ -1237,8 +1509,10 @@ TEST(CommandStreamReceiverSimpleTest, givenMultipleActivePartitionsWhenWaitingFo
     CpuIntrinsicsTests::pauseOffset = csr.getPostSyncWriteOffset();
 
     CpuIntrinsicsTests::pauseCounter = 0;
-    csr.waitForTaskCountAndCleanTemporaryAllocationList(3u);
+
+    const auto waitStatus = csr.waitForTaskCountAndCleanTemporaryAllocationList(3u);
     EXPECT_EQ(2u, CpuIntrinsicsTests::pauseCounter);
+    EXPECT_EQ(WaitStatus::Ready, waitStatus);
 
     CpuIntrinsicsTests::pauseAddress = nullptr;
 }
@@ -1261,8 +1535,10 @@ TEST(CommandStreamReceiverSimpleTest, givenEmptyTemporaryAllocationListWhenWaiti
     CpuIntrinsicsTests::pauseValue = 3u;
 
     CpuIntrinsicsTests::pauseCounter = 0;
-    csr.waitForTaskCountAndCleanTemporaryAllocationList(3u);
+
+    const auto waitStatus = csr.waitForTaskCountAndCleanTemporaryAllocationList(3u);
     EXPECT_EQ(0u, CpuIntrinsicsTests::pauseCounter);
+    EXPECT_EQ(WaitStatus::Ready, waitStatus);
 
     CpuIntrinsicsTests::pauseAddress = nullptr;
 }
@@ -1319,8 +1595,10 @@ struct CreateAllocationForHostSurfaceTest : public ::testing::Test {
 TEST_F(CreateAllocationForHostSurfaceTest, givenTemporaryAllocationWhenCreateAllocationForHostSurfaceThenReuseTemporaryAllocationWhenSizeAndAddressMatch) {
     auto hostPtr = reinterpret_cast<void *>(0x1234);
     size_t size = 100;
-    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0,
-                                                                  AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0, MemoryPool::System4KBPages, MemoryManager::maxOsContextCount);
+    auto gmmHelper = executionEnvironment.rootDeviceEnvironments[0]->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(hostPtr));
+    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0, AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0,
+                                                                  MemoryPool::System4KBPages, MemoryManager::maxOsContextCount, canonizedGpuAddress);
     auto allocationPtr = temporaryAllocation.get();
     temporaryAllocation->updateTaskCount(0u, 0u);
     commandStreamReceiver->getInternalAllocationStorage()->storeAllocation(std::move(temporaryAllocation), TEMPORARY_ALLOCATION);
@@ -1331,6 +1609,54 @@ TEST_F(CreateAllocationForHostSurfaceTest, givenTemporaryAllocationWhenCreateAll
 
     auto hostSurfaceAllocationPtr = hostSurface.getAllocation();
     EXPECT_EQ(allocationPtr, hostSurfaceAllocationPtr);
+}
+
+class MockCommandStreamReceiverHostPtrCreate : public MockCommandStreamReceiver {
+  public:
+    MockCommandStreamReceiverHostPtrCreate(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex, const DeviceBitfield deviceBitfield)
+        : MockCommandStreamReceiver(executionEnvironment, rootDeviceIndex, deviceBitfield) {}
+    bool createAllocationForHostSurface(HostPtrSurface &surface, bool requiresL3Flush) override {
+        return CommandStreamReceiver::createAllocationForHostSurface(surface, requiresL3Flush);
+    }
+};
+TEST_F(CreateAllocationForHostSurfaceTest, givenTemporaryAllocationWhenCreateAllocationForHostSurfaceThenHostPtrTaskCountAssignmentWillIncrease) {
+    auto mockCsr = std::make_unique<MockCommandStreamReceiverHostPtrCreate>(executionEnvironment, 0u, device->getDeviceBitfield());
+    mockCsr->internalAllocationStorage = std::make_unique<InternalAllocationStorage>(*mockCsr.get());
+    mockCsr->osContext = &commandStreamReceiver->getOsContext();
+    auto hostPtr = reinterpret_cast<void *>(0x1234);
+    size_t size = 100;
+    auto gmmHelper = executionEnvironment.rootDeviceEnvironments[0]->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(hostPtr));
+    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0, AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0,
+                                                                  MemoryPool::System4KBPages, MemoryManager::maxOsContextCount, canonizedGpuAddress);
+    auto allocationPtr = temporaryAllocation.get();
+    temporaryAllocation->updateTaskCount(0u, 0u);
+    mockCsr->getInternalAllocationStorage()->storeAllocation(std::move(temporaryAllocation), TEMPORARY_ALLOCATION);
+    *mockCsr->getTagAddress() = 1u;
+    HostPtrSurface hostSurface(hostPtr, size);
+
+    uint32_t valueBefore = allocationPtr->hostPtrTaskCountAssignment;
+    mockCsr->createAllocationForHostSurface(hostSurface, false);
+    EXPECT_EQ(valueBefore + 1, hostSurface.getAllocation()->hostPtrTaskCountAssignment);
+    allocationPtr->hostPtrTaskCountAssignment--;
+}
+
+TEST_F(CreateAllocationForHostSurfaceTest, givenTemporaryAllocationWhenCreateAllocationForHostSurfaceThenAllocTaskCountEqualZero) {
+    auto hostPtr = reinterpret_cast<void *>(0x1234);
+    size_t size = 100;
+    auto gmmHelper = executionEnvironment.rootDeviceEnvironments[0]->getGmmHelper();
+    auto canonizedGpuAddress = gmmHelper->canonize(castToUint64(hostPtr));
+    auto temporaryAllocation = std::make_unique<MemoryAllocation>(0, AllocationType::EXTERNAL_HOST_PTR, hostPtr, size, 0,
+                                                                  MemoryPool::System4KBPages, MemoryManager::maxOsContextCount, canonizedGpuAddress);
+    auto allocationPtr = temporaryAllocation.get();
+    temporaryAllocation->updateTaskCount(10u, 0u);
+    commandStreamReceiver->getInternalAllocationStorage()->storeAllocation(std::move(temporaryAllocation), TEMPORARY_ALLOCATION);
+    *commandStreamReceiver->getTagAddress() = 1u;
+    HostPtrSurface hostSurface(hostPtr, size);
+
+    EXPECT_EQ(allocationPtr->getTaskCount(0u), 10u);
+    commandStreamReceiver->createAllocationForHostSurface(hostSurface, false);
+    EXPECT_EQ(allocationPtr->getTaskCount(0u), 0u);
 }
 
 TEST_F(CreateAllocationForHostSurfaceTest, whenCreatingAllocationFromHostPtrSurfaceThenLockMutex) {
@@ -1372,7 +1698,7 @@ TEST_F(CreateAllocationForHostSurfaceTest, givenReadOnlyHostPointerWhenAllocatio
     ASSERT_NE(nullptr, allocation);
 
     EXPECT_NE(memory, allocation->getUnderlyingBuffer());
-    EXPECT_THAT(allocation->getUnderlyingBuffer(), MemCompare(memory, size));
+    EXPECT_EQ(0, memcmp(allocation->getUnderlyingBuffer(), memory, size));
 
     allocation->updateTaskCount(commandStreamReceiver->peekLatestFlushedTaskCount(), commandStreamReceiver->getOsContext().getContextId());
 
@@ -1477,6 +1803,20 @@ TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentWhenCallingEnsur
     memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
 }
 
+TEST_F(CommandStreamReceiverTest, givenForceCommandBufferAlignmentWhenEnsureCommandBufferAllocationThenItHasProperAlignment) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.ForceCommandBufferAlignment.set(2048);
+
+    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({commandStreamReceiver->getRootDeviceIndex(), 128u, AllocationType::COMMAND_BUFFER, pDevice->getDeviceBitfield()});
+    LinearStream commandStream{allocation};
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 129u, 0u);
+    EXPECT_EQ(2 * MemoryConstants::megaByte, commandStream.getGraphicsAllocation()->getUnderlyingBufferSize());
+    EXPECT_EQ(2 * MemoryConstants::megaByte, commandStream.getMaxAvailableSpace());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
 TEST_F(CommandStreamReceiverTest, givenAdditionalAllocationSizeWhenCallingEnsureCommandBufferAllocationThenSizesOfAllocationAndCommandBufferAreCorrect) {
     GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({commandStreamReceiver->getRootDeviceIndex(), 128u, AllocationType::COMMAND_BUFFER, pDevice->getDeviceBitfield()});
     LinearStream commandStream{allocation};
@@ -1502,6 +1842,24 @@ TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndNoAllocations
 TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndAllocationsForReuseWhenCallingEnsureCommandBufferAllocationThenObtainAllocationFromInternalAllocationStorage) {
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({commandStreamReceiver->getRootDeviceIndex(), MemoryConstants::pageSize64k, AllocationType::COMMAND_BUFFER, pDevice->getDeviceBitfield()});
     internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>{allocation}, REUSABLE_ALLOCATION);
+    LinearStream commandStream;
+
+    EXPECT_FALSE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 1u, 0u);
+    EXPECT_EQ(allocation, commandStream.getGraphicsAllocation());
+    EXPECT_TRUE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndEarlyPreallocatedAllocationInReuseListWhenCallingEnsureCommandBufferAllocationThenObtainAllocationFromInternalAllocationStorage) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.SetAmountOfReusableAllocations.set(1);
+    pDevice->getUltCommandStreamReceiver<FamilyType>().callBaseFillReusableAllocationsList = true;
+
+    commandStreamReceiver->fillReusableAllocationsList();
+    auto allocation = internalAllocationStorage->getAllocationsForReuse().peekHead();
+
     LinearStream commandStream;
 
     EXPECT_FALSE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
@@ -1773,4 +2131,156 @@ TEST(CreateWorkPartitionAllocationTest, givenEnabledBlitterWhenInitializingWorkP
     auto retVal = commandStreamReceiver->createWorkPartitionAllocation(device);
     EXPECT_TRUE(retVal);
     EXPECT_EQ(0u, memoryManager->copyMemoryToAllocationBanksCalled);
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenMultipleActivePartitionsWhenWaitLogIsEnabledThenPrintTagValueForAllPartitions) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.LogWaitingForCompletion.set(true);
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.activePartitions = 2;
+
+    volatile uint32_t *tagAddress = csr.tagAddress;
+    constexpr uint32_t tagValue = 2;
+    *tagAddress = tagValue;
+    tagAddress = ptrOffset(tagAddress, csr.postSyncWriteOffset);
+    *tagAddress = tagValue;
+
+    WaitParams waitParams;
+    waitParams.waitTimeout = std::numeric_limits<int64_t>::max();
+    constexpr uint32_t taskCount = 1;
+
+    testing::internal::CaptureStdout();
+
+    WaitStatus status = csr.waitForCompletionWithTimeout(waitParams, taskCount);
+    EXPECT_EQ(WaitStatus::Ready, status);
+
+    std::string output = testing::internal::GetCapturedStdout();
+
+    std::stringstream expectedOutput;
+
+    expectedOutput << std::endl
+                   << "Waiting for task count " << taskCount
+                   << " at location " << const_cast<uint32_t *>(csr.tagAddress)
+                   << " with timeout " << std::hex << waitParams.waitTimeout
+                   << ". Current value: " << std::dec << tagValue
+                   << " " << tagValue
+                   << std::endl
+                   << std::endl
+                   << "Waiting completed. Current value: " << tagValue
+                   << " " << tagValue << std::endl;
+
+    EXPECT_STREQ(expectedOutput.str().c_str(), output.c_str());
+}
+
+TEST_F(CommandStreamReceiverTest, givenPreambleFlagIsSetWhenGettingFlagStateThenExpectCorrectState) {
+    EXPECT_FALSE(commandStreamReceiver->getPreambleSetFlag());
+    commandStreamReceiver->setPreambleSetFlag(true);
+    EXPECT_TRUE(commandStreamReceiver->getPreambleSetFlag());
+}
+
+TEST_F(CommandStreamReceiverTest, givenPreemptionSentIsInitialWhenSettingPreemptionToNewModeThenExpectCorrectPreemption) {
+    PreemptionMode mode = PreemptionMode::Initial;
+    EXPECT_EQ(mode, commandStreamReceiver->getPreemptionMode());
+    mode = PreemptionMode::ThreadGroup;
+    commandStreamReceiver->setPreemptionMode(mode);
+    EXPECT_EQ(mode, commandStreamReceiver->getPreemptionMode());
+}
+
+using CommandStreamReceiverSystolicTests = Test<CommandStreamReceiverSystolicFixture>;
+using SystolicSupport = IsAnyProducts<IGFX_ALDERLAKE_P, IGFX_XE_HP_SDV, IGFX_DG2, IGFX_PVC>;
+
+HWTEST2_F(CommandStreamReceiverSystolicTests, givenSystolicModeChangedWhenFlushTaskCalledThenSystolicStateIsUpdated, SystolicSupport) {
+    testBody<FamilyType>();
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenSshDirtyStateWhenUpdatingStateWithNewHeapThenExpectDirtyStateTrue) {
+    MockGraphicsAllocation allocation{};
+    allocation.gpuAddress = 0xABC000;
+    allocation.size = 0x1000;
+
+    IndirectHeap dummyHeap(&allocation, false);
+
+    auto dirtyStateCopy = static_cast<CommandStreamReceiverHw<FamilyType> *>(commandStreamReceiver)->getSshState();
+
+    bool check = dirtyStateCopy.updateAndCheck(&dummyHeap);
+    EXPECT_TRUE(check);
+
+    check = dirtyStateCopy.updateAndCheck(&dummyHeap);
+    EXPECT_FALSE(check);
+
+    auto dirtyState = static_cast<CommandStreamReceiverHw<FamilyType> *>(commandStreamReceiver)->getSshState();
+
+    check = dirtyState.updateAndCheck(&dummyHeap);
+    EXPECT_TRUE(check);
+
+    check = dirtyState.updateAndCheck(&dummyHeap);
+    EXPECT_FALSE(check);
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenDshDirtyStateWhenUpdatingStateWithNewHeapThenExpectDirtyStateTrue) {
+    MockGraphicsAllocation allocation{};
+    allocation.gpuAddress = 0xABCD00;
+    allocation.size = 0x1000;
+
+    IndirectHeap dummyHeap(&allocation, false);
+
+    auto dirtyStateCopy = static_cast<CommandStreamReceiverHw<FamilyType> *>(commandStreamReceiver)->getDshState();
+
+    bool check = dirtyStateCopy.updateAndCheck(&dummyHeap);
+    EXPECT_TRUE(check);
+
+    check = dirtyStateCopy.updateAndCheck(&dummyHeap);
+    EXPECT_FALSE(check);
+
+    auto dirtyState = static_cast<CommandStreamReceiverHw<FamilyType> *>(commandStreamReceiver)->getDshState();
+
+    check = dirtyState.updateAndCheck(&dummyHeap);
+    EXPECT_TRUE(check);
+
+    check = dirtyState.updateAndCheck(&dummyHeap);
+    EXPECT_FALSE(check);
+}
+
+using CommandStreamReceiverHwTest = Test<CommandStreamReceiverFixture>;
+
+HWTEST2_F(CommandStreamReceiverHwTest, givenSshHeapNotProvidedWhenFlushTaskPerformedThenSbaProgammedSurfaceBaseAddressToZero, IsAtLeastXeHpCore) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+    using _3DSTATE_BINDING_TABLE_POOL_ALLOC = typename FamilyType::_3DSTATE_BINDING_TABLE_POOL_ALLOC;
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    commandStreamReceiver.flushTask(commandStream,
+                                    0,
+                                    &dsh,
+                                    &ioh,
+                                    nullptr,
+                                    taskLevel,
+                                    flushTaskFlags,
+                                    *pDevice);
+
+    auto &cmdStream = commandStreamReceiver.commandStream;
+
+    GenCmdList commands;
+    CmdParse<FamilyType>::parseCommandBuffer(commands,
+                                             cmdStream.getCpuBase(),
+                                             cmdStream.getUsed());
+
+    auto itorCmd = find<STATE_BASE_ADDRESS *>(commands.begin(), commands.end());
+    ASSERT_NE(commands.end(), itorCmd);
+    auto sbaCmd = genCmdCast<STATE_BASE_ADDRESS *>(*itorCmd);
+
+    EXPECT_EQ(0u, sbaCmd->getSurfaceStateBaseAddress());
+
+    itorCmd = find<_3DSTATE_BINDING_TABLE_POOL_ALLOC *>(commands.begin(), commands.end());
+    EXPECT_EQ(commands.end(), itorCmd);
+}
+
+HWTEST_F(CommandStreamReceiverHwTest, givenDcFlushFlagSetWhenGettingCsrFlagValueThenCsrValueMatchesHelperValue) {
+    auto &hwInfo = pDevice->getHardwareInfo();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    bool csrValue = commandStreamReceiver.getDcFlushSupport();
+    bool helperValue = MemorySynchronizationCommands<FamilyType>::getDcFlushEnable(true, hwInfo);
+    EXPECT_EQ(helperValue, csrValue);
 }

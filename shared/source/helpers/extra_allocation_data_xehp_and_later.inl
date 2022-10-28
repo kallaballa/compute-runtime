@@ -28,6 +28,12 @@ void HwHelperHw<Family>::setExtraAllocationData(AllocationData &allocationData, 
             allocationData.flags.requiresCpuAccess = false;
             allocationData.storageInfo.isLockable = false;
         }
+    } else if (hwInfo.featureTable.flags.ftrLocalMemory &&
+               (properties.allocationType == AllocationType::COMMAND_BUFFER ||
+                properties.allocationType == AllocationType::RING_BUFFER ||
+                properties.allocationType == AllocationType::SEMAPHORE_BUFFER)) {
+        allocationData.flags.useSystemMemory = false;
+        allocationData.flags.requiresCpuAccess = true;
     }
 
     if (hwInfoConfig.allowStatelessCompression(hwInfo)) {
@@ -36,6 +42,12 @@ void HwHelperHw<Family>::setExtraAllocationData(AllocationData &allocationData, 
             properties.allocationType == AllocationType::PRINTF_SURFACE) {
             allocationData.flags.requiresCpuAccess = false;
             allocationData.storageInfo.isLockable = false;
+        }
+    }
+
+    if (HwInfoConfig::get(hwInfo.platform.eProductFamily)->isStorageInfoAdjustmentRequired()) {
+        if (properties.allocationType == AllocationType::BUFFER && !properties.flags.preferCompressed && !properties.flags.shareable) {
+            allocationData.storageInfo.isLockable = true;
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,14 +11,13 @@
 #include "shared/source/device/root_device.h"
 #include "shared/source/device/sub_device.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/test/common/fixtures/mock_aub_center_fixture.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
-#include "shared/test/unit_test/fixtures/mock_aub_center_fixture.h"
 
 namespace NEO {
 class CommandStreamReceiver;
 class DriverInfo;
-class OSTime;
 
 template <typename GfxFamily>
 class UltCommandStreamReceiver;
@@ -87,12 +86,8 @@ class MockDevice : public RootDevice {
 
     void injectMemoryManager(MemoryManager *);
 
-    void setPerfCounters(PerformanceCounters *perfCounters) {
-        if (perfCounters) {
-            performanceCounters = std::unique_ptr<PerformanceCounters>(perfCounters);
-        } else {
-            performanceCounters.release();
-        }
+    void setPerfCounters(std::unique_ptr<PerformanceCounters> perfCounters) {
+        performanceCounters = std::move(perfCounters);
     }
 
     size_t getMaxParameterSizeFromIGC() const override {
@@ -136,6 +131,7 @@ class MockDevice : public RootDevice {
         pHwInfo = pHwInfo ? pHwInfo : defaultHwInfo.get();
         for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
             executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(pHwInfo);
+            executionEnvironment->rootDeviceEnvironments[i]->initGmm();
         }
         executionEnvironment->calculateMaxOsContextCount();
         return executionEnvironment;
@@ -166,12 +162,24 @@ class MockDevice : public RootDevice {
         return isDebuggerActiveReturn;
     }
 
-    void allocateRTDispatchGlobals(uint32_t maxBvhLevels) override {
-        if (rtDispatchGlobalsForceAllocation == true) {
-            rtDispatchGlobals[maxBvhLevels] = new MockGraphicsAllocation();
-        } else {
-            Device::allocateRTDispatchGlobals(maxBvhLevels);
+    bool verifyAdapterLuid() override;
+
+    void finalizeRayTracing() {
+        for (unsigned int i = 0; i < rtDispatchGlobalsInfos.size(); i++) {
+            auto rtDispatchGlobalsInfo = rtDispatchGlobalsInfos[i];
+            if (rtDispatchGlobalsForceAllocation == true && rtDispatchGlobalsInfo != nullptr) {
+                for (unsigned int j = 0; j < rtDispatchGlobalsInfo->rtStacks.size(); j++) {
+                    delete rtDispatchGlobalsInfo->rtStacks[j];
+                    rtDispatchGlobalsInfo->rtStacks[j] = nullptr;
+                }
+                delete rtDispatchGlobalsInfo->rtDispatchGlobalsArray;
+                rtDispatchGlobalsInfo->rtDispatchGlobalsArray = nullptr;
+                delete rtDispatchGlobalsInfos[i];
+                rtDispatchGlobalsInfos[i] = nullptr;
+            }
         }
+
+        Device::finalizeRayTracing();
     }
 
     void setRTDispatchGlobalsForceAllocation() {
@@ -182,9 +190,11 @@ class MockDevice : public RootDevice {
 
     bool isDebuggerActiveParentCall = true;
     bool isDebuggerActiveReturn = false;
-    bool rtDispatchGlobalsForceAllocation = false;
     bool callBaseGetMaxParameterSizeFromIGC = false;
+    bool callBaseVerifyAdapterLuid = true;
+    bool verifyAdapterLuidReturnValue = true;
     size_t maxParameterSizeFromIGC = 0u;
+    bool rtDispatchGlobalsForceAllocation = true;
 };
 
 template <>

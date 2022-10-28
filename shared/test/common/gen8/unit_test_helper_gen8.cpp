@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gen8/hw_cmds.h"
 #include "shared/source/gen8/hw_info.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.inl"
@@ -12,7 +13,7 @@
 
 namespace NEO {
 
-using Family = BDWFamily;
+using Family = Gen8Family;
 
 template <>
 uint32_t UnitTestHelper<Family>::getDebugModeRegisterOffset() {
@@ -34,5 +35,5 @@ uint32_t UnitTestHelper<Family>::getTdCtlRegisterValue() {
     return (1u << 7) | (1u << 4);
 }
 
-template struct UnitTestHelper<BDWFamily>;
+template struct UnitTestHelper<Gen8Family>;
 } // namespace NEO

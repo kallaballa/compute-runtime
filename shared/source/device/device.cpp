@@ -11,8 +11,10 @@
 #include "shared/source/command_stream/experimental_command_buffer.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/debugger/debugger_l0.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
+#include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ray_tracing_helper.h"
 #include "shared/source/memory_manager/memory_manager.h"
@@ -36,12 +38,6 @@ Device::Device(ExecutionEnvironment *executionEnvironment, const uint32_t rootDe
 }
 
 Device::~Device() {
-    if (false == commandStreamReceivers.empty()) {
-        if (commandStreamReceivers[0]->skipResourceCleanup()) {
-            return;
-        }
-    }
-
     finalizeRayTracing();
 
     DEBUG_BREAK_IF(nullptr == executionEnvironment->memoryManager.get());
@@ -212,15 +208,13 @@ bool Device::createDeviceImpl() {
     auto &hwInfo = getHardwareInfo();
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
-    executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initGmm();
-
     if (!getDebugger()) {
         this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initDebugger();
     }
 
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     if (getDebugger() && hwHelper.disableL3CacheForDebug(hwInfo)) {
-        getGmmHelper()->disableL3CacheForDebug();
+        getGmmHelper()->forceAllResourcesUncached();
     }
 
     if (!createEngines()) {
@@ -272,8 +266,10 @@ bool Device::createDeviceImpl() {
         auto hardwareInfo = getRootDeviceEnvironment().getMutableHardwareInfo();
         uuid.isValid = false;
 
-        if (DebugManager.flags.EnableChipsetUniqueUUID.get() == 1) {
-            uuid.isValid = HwInfoConfig::get(hardwareInfo->platform.eProductFamily)->getUuid(this, uuid.id);
+        if (DebugManager.flags.EnableChipsetUniqueUUID.get() != 0) {
+            if (HwHelper::get(hwInfo.platform.eRenderCoreFamily).isChipsetUniqueUUIDSupported()) {
+                uuid.isValid = HwInfoConfig::get(hardwareInfo->platform.eProductFamily)->getUuid(this, uuid.id);
+            }
         }
 
         if (!uuid.isValid && getRootDeviceEnvironment().osInterface != nullptr) {
@@ -311,7 +307,7 @@ void Device::addEngineToEngineGroup(EngineControl &engine) {
         return;
     }
 
-    if (hwHelper.isCopyOnlyEngineType(engineGroupType) && DebugManager.flags.EnableBlitterOperationsSupport.get() == 0) {
+    if (EngineHelper::isCopyOnlyEngineType(engineGroupType) && DebugManager.flags.EnableBlitterOperationsSupport.get() == 0) {
         return;
     }
 
@@ -366,8 +362,14 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
         return false;
     }
 
+    commandStreamReceiver->createKernelArgsBufferAllocation();
+
     if (isDefaultEngine) {
         defaultEngineIndex = deviceCsrIndex;
+
+        if (osContext->isDebuggableContext()) {
+            commandStreamReceiver->initializeDeviceWithFirstSubmission();
+        }
     }
 
     if (preemptionMode == PreemptionMode::MidThread && !commandStreamReceiver->createPreemptionAllocation()) {
@@ -379,7 +381,7 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
     if (engineUsage == EngineUsage::Regular) {
         addEngineToEngineGroup(engine);
     }
-
+    commandStreamReceiver->fillReusableAllocationsList();
     commandStreamReceivers.push_back(std::move(commandStreamReceiver));
 
     return true;
@@ -399,20 +401,16 @@ uint64_t Device::getProfilingTimerClock() {
     return getOSTime()->getDynamicDeviceTimerClock(getHardwareInfo());
 }
 
-bool Device::isSimulation() const {
-    auto &hwInfo = getHardwareInfo();
+bool Device::isBcsSplitSupported() {
+    auto bcsSplit = HwInfoConfig::get(getHardwareInfo().platform.eProductFamily)->isBlitSplitEnqueueWARequired(getHardwareInfo()) &&
+                    ApiSpecificConfig::isBcsSplitWaSupported() &&
+                    Device::isBlitSplitEnabled();
 
-    bool simulation = hwInfo.capabilityTable.isSimulation(hwInfo.platform.usDeviceID);
-    for (const auto &engine : allEngines) {
-        if (engine.commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
-            simulation = true;
-        }
+    if (DebugManager.flags.SplitBcsCopy.get() != -1) {
+        bcsSplit = DebugManager.flags.SplitBcsCopy.get();
     }
 
-    if (hwInfo.featureTable.flags.ftrSimulationMode) {
-        simulation = true;
-    }
-    return simulation;
+    return bcsSplit;
 }
 
 double Device::getPlatformHostTimerResolution() const {
@@ -475,17 +473,15 @@ EngineControl &Device::getEngine(uint32_t index) {
 }
 
 bool Device::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const {
-    bool retVal = getOSTime()->getCpuTime(hostTimestamp);
+    TimeStampData timeStamp;
+    auto retVal = getOSTime()->getCpuGpuTime(&timeStamp);
     if (retVal) {
-        TimeStampData timeStamp;
-        retVal = getOSTime()->getCpuGpuTime(&timeStamp);
-        if (retVal) {
-            if (DebugManager.flags.EnableDeviceBasedTimestamps.get()) {
-                auto resolution = getOSTime()->getDynamicDeviceTimerResolution(getHardwareInfo());
-                *deviceTimestamp = static_cast<uint64_t>(timeStamp.GPUTimeStamp * resolution);
-            } else
-                *deviceTimestamp = *hostTimestamp;
-        }
+        *hostTimestamp = timeStamp.CPUTimeinNS;
+        if (DebugManager.flags.EnableDeviceBasedTimestamps.get()) {
+            auto resolution = getOSTime()->getDynamicDeviceTimerResolution(getHardwareInfo());
+            *deviceTimestamp = static_cast<uint64_t>(timeStamp.GPUTimeStamp * resolution);
+        } else
+            *deviceTimestamp = *hostTimestamp;
     }
     return retVal;
 }
@@ -505,17 +501,17 @@ Device *Device::getSubDevice(uint32_t deviceId) const {
 
 Device *Device::getNearestGenericSubDevice(uint32_t deviceId) {
     /*
-    * EngineInstanced: Upper level
-    * Generic SubDevice: 'this'
-    * RootCsr Device: Next level SubDevice (generic)
-    */
+     * EngineInstanced: Upper level
+     * Generic SubDevice: 'this'
+     * RootCsr Device: Next level SubDevice (generic)
+     */
 
     if (engineInstanced) {
         return getRootDevice()->getNearestGenericSubDevice(Math::log2(static_cast<uint32_t>(deviceBitfield.to_ulong())));
     }
 
     if (subdevices.empty() || !hasRootCsr()) {
-        return const_cast<Device *>(this);
+        return this;
     }
     UNRECOVERABLE_IF(deviceId >= subdevices.size());
     return subdevices[deviceId];
@@ -564,6 +560,14 @@ NEO::SourceLevelDebugger *Device::getSourceLevelDebugger() {
     return nullptr;
 }
 
+NEO::DebuggerL0 *Device::getL0Debugger() {
+    auto debugger = getDebugger();
+    if (debugger) {
+        return !debugger->isLegacy() ? static_cast<NEO::DebuggerL0 *>(debugger) : nullptr;
+    }
+    return nullptr;
+}
+
 const std::vector<EngineControl> &Device::getAllEngines() const {
     return this->allEngines;
 }
@@ -579,6 +583,8 @@ EngineControl &Device::getInternalEngine() {
 }
 
 EngineControl &Device::getNextEngineForCommandQueue() {
+    this->initializeEngineRoundRobinControls();
+
     const auto &defaultEngine = this->getDefaultEngine();
 
     const auto &hardwareInfo = this->getHardwareInfo();
@@ -588,7 +594,10 @@ EngineControl &Device::getNextEngineForCommandQueue() {
     const auto defaultEngineGroupIndex = this->getEngineGroupIndexFromEngineGroupType(engineGroupType);
     auto &engineGroup = this->getRegularEngineGroups()[defaultEngineGroupIndex];
 
-    const auto engineIndex = this->regularCommandQueuesCreatedWithinDeviceCount++ % engineGroup.engines.size();
+    auto engineIndex = 0u;
+    do {
+        engineIndex = (this->regularCommandQueuesCreatedWithinDeviceCount++ / this->queuesPerEngineCount) % engineGroup.engines.size();
+    } while (!this->availableEnginesForCommandQueueusRoundRobin.test(engineIndex));
     return engineGroup.engines[engineIndex];
 }
 
@@ -605,19 +614,19 @@ EngineControl *Device::getInternalCopyEngine() {
     return nullptr;
 }
 
-GraphicsAllocation *Device::getRTDispatchGlobals(uint32_t maxBvhLevels) {
-    if (rtDispatchGlobals.size() == 0) {
+RTDispatchGlobalsInfo *Device::getRTDispatchGlobals(uint32_t maxBvhLevels) {
+    if (rtDispatchGlobalsInfos.size() == 0) {
         return nullptr;
     }
 
-    size_t last = rtDispatchGlobals.size() - 1;
+    size_t last = rtDispatchGlobalsInfos.size() - 1;
     if (maxBvhLevels > last) {
         return nullptr;
     }
 
     for (size_t i = last; i >= maxBvhLevels; i--) {
-        if (rtDispatchGlobals[i] != nullptr) {
-            return rtDispatchGlobals[i];
+        if (rtDispatchGlobalsInfos[i] != nullptr) {
+            return rtDispatchGlobalsInfos[i];
         }
 
         if (i == 0) {
@@ -626,17 +635,22 @@ GraphicsAllocation *Device::getRTDispatchGlobals(uint32_t maxBvhLevels) {
     }
 
     allocateRTDispatchGlobals(maxBvhLevels);
-    return rtDispatchGlobals[maxBvhLevels];
+    return rtDispatchGlobalsInfos[maxBvhLevels];
 }
 
 void Device::initializeRayTracing(uint32_t maxBvhLevels) {
     if (rtMemoryBackedBuffer == nullptr) {
         auto size = RayTracingHelper::getTotalMemoryBackedFifoSize(*this);
-        rtMemoryBackedBuffer = getMemoryManager()->allocateGraphicsMemoryWithProperties({getRootDeviceIndex(), size, AllocationType::BUFFER, getDeviceBitfield()});
+
+        AllocationProperties allocProps(getRootDeviceIndex(), true, size, AllocationType::BUFFER, true, getDeviceBitfield());
+        allocProps.flags.resource48Bit = true;
+        allocProps.flags.isUSMDeviceAllocation = true;
+
+        rtMemoryBackedBuffer = getMemoryManager()->allocateGraphicsMemoryWithProperties(allocProps);
     }
 
-    while (rtDispatchGlobals.size() <= maxBvhLevels) {
-        rtDispatchGlobals.push_back(nullptr);
+    while (rtDispatchGlobalsInfos.size() <= maxBvhLevels) {
+        rtDispatchGlobalsInfos.push_back(nullptr);
     }
 }
 
@@ -644,10 +658,44 @@ void Device::finalizeRayTracing() {
     getMemoryManager()->freeGraphicsMemory(rtMemoryBackedBuffer);
     rtMemoryBackedBuffer = nullptr;
 
-    for (size_t i = 0; i < rtDispatchGlobals.size(); i++) {
-        getMemoryManager()->freeGraphicsMemory(rtDispatchGlobals[i]);
-        rtDispatchGlobals[i] = nullptr;
+    for (size_t i = 0; i < rtDispatchGlobalsInfos.size(); i++) {
+        auto rtDispatchGlobalsInfo = rtDispatchGlobalsInfos[i];
+        if (rtDispatchGlobalsInfo == nullptr) {
+            continue;
+        }
+        for (size_t j = 0; j < rtDispatchGlobalsInfo->rtStacks.size(); j++) {
+            getMemoryManager()->freeGraphicsMemory(rtDispatchGlobalsInfo->rtStacks[j]);
+            rtDispatchGlobalsInfo->rtStacks[j] = nullptr;
+        }
+
+        getMemoryManager()->freeGraphicsMemory(rtDispatchGlobalsInfo->rtDispatchGlobalsArray);
+        rtDispatchGlobalsInfo->rtDispatchGlobalsArray = nullptr;
+
+        delete rtDispatchGlobalsInfos[i];
+        rtDispatchGlobalsInfos[i] = nullptr;
     }
+}
+
+void Device::initializeEngineRoundRobinControls() {
+    if (this->availableEnginesForCommandQueueusRoundRobin.any()) {
+        return;
+    }
+
+    uint32_t queuesPerEngine = 1u;
+
+    if (DebugManager.flags.CmdQRoundRobindEngineAssignNTo1.get() != -1) {
+        queuesPerEngine = DebugManager.flags.CmdQRoundRobindEngineAssignNTo1.get();
+    }
+
+    this->queuesPerEngineCount = queuesPerEngine;
+
+    std::bitset<8> availableEngines = std::numeric_limits<uint8_t>::max();
+
+    if (DebugManager.flags.CmdQRoundRobindEngineAssignBitfield.get() != -1) {
+        availableEngines = DebugManager.flags.CmdQRoundRobindEngineAssignBitfield.get();
+    }
+
+    this->availableEnginesForCommandQueueusRoundRobin = availableEngines;
 }
 
 OSTime *Device::getOSTime() const { return getRootDeviceEnvironment().osTime.get(); };
@@ -666,7 +714,7 @@ bool Device::getUuid(std::array<uint8_t, HwInfoConfig::uuidSize> &uuid) {
 }
 
 bool Device::generateUuidFromPciBusInfo(const PhysicalDevicePciBusInfo &pciBusInfo, std::array<uint8_t, HwInfoConfig::uuidSize> &uuid) {
-    if (pciBusInfo.pciDomain != PhysicalDevicePciBusInfo::InvalidValue) {
+    if (pciBusInfo.pciDomain != PhysicalDevicePciBusInfo::invalidValue) {
 
         uuid.fill(0);
         memcpy_s(&uuid[0], 2, &pciBusInfo.pciDomain, 2);
@@ -677,6 +725,108 @@ bool Device::generateUuidFromPciBusInfo(const PhysicalDevicePciBusInfo &pciBusIn
         return true;
     }
     return false;
+}
+
+void Device::generateUuid(std::array<uint8_t, HwInfoConfig::uuidSize> &uuid) {
+    const auto &deviceInfo = getDeviceInfo();
+    const auto &hardwareInfo = getHardwareInfo();
+    uint32_t rootDeviceIndex = getRootDeviceIndex();
+    uuid.fill(0);
+    memcpy_s(&uuid[0], sizeof(uint32_t), &deviceInfo.vendorId, sizeof(deviceInfo.vendorId));
+    memcpy_s(&uuid[4], sizeof(uint32_t), &hardwareInfo.platform.usDeviceID, sizeof(hardwareInfo.platform.usDeviceID));
+    memcpy_s(&uuid[8], sizeof(uint32_t), &rootDeviceIndex, sizeof(rootDeviceIndex));
+}
+
+void Device::getAdapterMask(uint32_t &nodeMask) {
+    if (verifyAdapterLuid()) {
+        nodeMask = 1;
+    }
+}
+
+void Device::allocateRTDispatchGlobals(uint32_t maxBvhLevels) {
+    UNRECOVERABLE_IF(rtDispatchGlobalsInfos.size() < maxBvhLevels + 1);
+    UNRECOVERABLE_IF(rtDispatchGlobalsInfos[maxBvhLevels] != nullptr);
+
+    uint32_t extraBytesLocal = 0;
+    uint32_t extraBytesGlobal = 0;
+    uint32_t dispatchGlobalsStride = MemoryConstants::pageSize64k;
+    UNRECOVERABLE_IF(RayTracingHelper::getDispatchGlobalSize() > dispatchGlobalsStride);
+
+    bool allocFailed = false;
+
+    const auto deviceCount = HwHelper::getSubDevicesCount(executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->getHardwareInfo());
+    auto dispatchGlobalsSize = deviceCount * dispatchGlobalsStride;
+    auto rtStackSize = RayTracingHelper::getRTStackSizePerTile(*this, deviceCount, maxBvhLevels, extraBytesLocal, extraBytesGlobal);
+
+    std::unique_ptr<RTDispatchGlobalsInfo> dispatchGlobalsInfo = std::make_unique<RTDispatchGlobalsInfo>();
+    if (dispatchGlobalsInfo == nullptr) {
+        return;
+    }
+
+    auto &hwInfo = getHardwareInfo();
+    auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+
+    GraphicsAllocation *dispatchGlobalsArrayAllocation = nullptr;
+
+    AllocationProperties arrayAllocProps(getRootDeviceIndex(), true, dispatchGlobalsSize,
+                                         AllocationType::BUFFER, true, getDeviceBitfield());
+    arrayAllocProps.flags.resource48Bit = true;
+    arrayAllocProps.flags.isUSMDeviceAllocation = true;
+    dispatchGlobalsArrayAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(arrayAllocProps);
+
+    if (dispatchGlobalsArrayAllocation == nullptr) {
+        return;
+    }
+
+    for (unsigned int tile = 0; tile < deviceCount; tile++) {
+        DeviceBitfield deviceBitfield =
+            (deviceCount == 1)
+                ? this->getDeviceBitfield()
+                : subdevices[tile]->getDeviceBitfield();
+
+        AllocationProperties allocProps(getRootDeviceIndex(), true, rtStackSize, AllocationType::BUFFER, true, deviceBitfield);
+        allocProps.flags.resource48Bit = true;
+        allocProps.flags.isUSMDeviceAllocation = true;
+
+        auto rtStackAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(allocProps);
+
+        if (rtStackAllocation == nullptr) {
+            allocFailed = true;
+            break;
+        }
+
+        struct RTDispatchGlobals dispatchGlobals = {0};
+
+        dispatchGlobals.rtMemBasePtr = rtStackAllocation->getGpuAddress();
+        dispatchGlobals.callStackHandlerKSP = reinterpret_cast<uint64_t>(nullptr);
+        dispatchGlobals.stackSizePerRay = 0;
+        dispatchGlobals.numDSSRTStacks = RayTracingHelper::stackDssMultiplier;
+        dispatchGlobals.maxBVHLevels = maxBvhLevels;
+
+        uint32_t *dispatchGlobalsAsArray = reinterpret_cast<uint32_t *>(&dispatchGlobals);
+        dispatchGlobalsAsArray[7] = 1;
+
+        MemoryTransferHelper::transferMemoryToAllocation(hwInfoConfig.isBlitCopyRequiredForLocalMemory(this->getHardwareInfo(), *dispatchGlobalsArrayAllocation),
+                                                         *this,
+                                                         dispatchGlobalsArrayAllocation,
+                                                         tile * dispatchGlobalsStride,
+                                                         &dispatchGlobals,
+                                                         sizeof(RTDispatchGlobals));
+
+        dispatchGlobalsInfo->rtStacks.push_back(rtStackAllocation);
+    }
+
+    if (allocFailed) {
+        for (auto allocation : dispatchGlobalsInfo->rtStacks) {
+            getMemoryManager()->freeGraphicsMemory(allocation);
+        }
+
+        getMemoryManager()->freeGraphicsMemory(dispatchGlobalsArrayAllocation);
+        return;
+    }
+
+    dispatchGlobalsInfo->rtDispatchGlobalsArray = dispatchGlobalsArrayAllocation;
+    rtDispatchGlobalsInfos[maxBvhLevels] = dispatchGlobalsInfo.release();
 }
 
 } // namespace NEO

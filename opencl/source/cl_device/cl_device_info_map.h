@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,7 +12,7 @@
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/cl_device/cl_device_info.h"
 
-#include "CL/cl_ext_intel.h"
+#include "CL/cl_ext.h"
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
 
@@ -171,6 +171,7 @@ template<> struct Map<CL_DEVICE_TYPE                                        > : 
 template<> struct Map<CL_DEVICE_VENDOR                                      > : public ClMapBase<CL_DEVICE_VENDOR,                                      const char *,                    &ClDeviceInfo::vendor> {};
 template<> struct Map<CL_DEVICE_VERSION                                     > : public ClMapBase<CL_DEVICE_VERSION,                                     const char *,                    &ClDeviceInfo::clVersion> {};
 template<> struct Map<CL_DRIVER_VERSION                                     > : public ClMapBase<CL_DRIVER_VERSION,                                     const char *,                    &ClDeviceInfo::driverVersion> {};
+template<> struct Map<CL_DRIVER_UUID_KHR                                    > : public ClMapBase<CL_DRIVER_UUID_KHR,                                    const char *,                    &ClDeviceInfo::driverVersion> {};
 template<> struct Map<CL_DEVICE_WORK_GROUP_COLLECTIVE_FUNCTIONS_SUPPORT     > : public ClMapBase<CL_DEVICE_WORK_GROUP_COLLECTIVE_FUNCTIONS_SUPPORT,     uint32_t,                        &ClDeviceInfo::workGroupCollectiveFunctionsSupport> {};
 // clang-format on
 

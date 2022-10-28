@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <functional>
 
+namespace NEO {
+
 class MockDriverModel : public NEO::DriverModel {
   public:
     MockDriverModel() : NEO::DriverModel(NEO::DriverModelType::UNKNOWN) {}
@@ -24,10 +26,10 @@ class MockDriverModel : public NEO::DriverModel {
     NEO::PhysicalDevicePciBusInfo getPciBusInfo() const override { return pciBusInfo; }
 
     size_t getMaxMemAllocSize() const override {
-        return 0;
+        return maxAllocSize;
     }
 
-    bool isGpuHangDetected(uint32_t contextId) override {
+    bool isGpuHangDetected(NEO::OsContext &osContext) override {
         if (isGpuHangDetectedSideEffect) {
             std::invoke(isGpuHangDetectedSideEffect);
         }
@@ -35,7 +37,26 @@ class MockDriverModel : public NEO::DriverModel {
         return isGpuHangDetectedToReturn;
     }
 
-    NEO::PhysicalDevicePciBusInfo pciBusInfo{};
+    PhysicalDevicePciSpeedInfo getPciSpeedInfo() const override { return pciSpeedInfo; }
+
+    PhysicalDevicePciSpeedInfo pciSpeedInfo{};
+    PhysicalDevicePciBusInfo pciBusInfo{};
     bool isGpuHangDetectedToReturn{};
     std::function<void()> isGpuHangDetectedSideEffect{};
+    size_t maxAllocSize = 0;
 };
+
+class MockDriverModelWDDM : public MockDriverModel {
+  public:
+    MockDriverModelWDDM() : MockDriverModel() {
+        driverModelType = DriverModelType::WDDM;
+    }
+};
+
+class MockDriverModelDRM : public MockDriverModel {
+  public:
+    MockDriverModelDRM() : MockDriverModel() {
+        driverModelType = DriverModelType::DRM;
+    }
+};
+} // namespace NEO

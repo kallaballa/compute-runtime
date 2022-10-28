@@ -1,12 +1,14 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#pragma once
+
 #include "CL/cl.h"
-#include "CL/cl_gl_ext.h"
+#include "CL/cl_gl.h"
 
 #include <string>
 

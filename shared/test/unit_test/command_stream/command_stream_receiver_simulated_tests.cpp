@@ -16,11 +16,11 @@
 #include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/helpers/hw_helper_tests.h"
 #include "shared/test/common/mocks/mock_aub_manager.h"
-#include "shared/test/common/mocks/mock_csr_simulated_common_hw.h"
 #include "shared/test/common/mocks/mock_gmm.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/mock_os_context.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
+#include "shared/test/unit_test/mocks/mock_csr_simulated_common_hw.h"
 
 #include <array>
 #include <memory>
@@ -327,7 +327,7 @@ HWTEST_F(CommandStreamSimulatedTests, givenCompressedAllocationWhenCloningPageTa
     csr->setupContext(osContext);
     auto mockHardwareContext = static_cast<MockHardwareContext *>(csr->hardwareContextController->hardwareContexts[0].get());
 
-    MockGmm gmm(pDevice->executionEnvironment->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, 1, 0, false);
+    MockGmm gmm(csr->peekGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     gmm.isCompressionEnabled = true;
 
     int dummy = 1;
@@ -344,6 +344,37 @@ HWTEST_F(CommandStreamSimulatedTests, givenCompressedAllocationWhenCloningPageTa
 
     EXPECT_EQ(1u, mockManager->storedAllocationParams.size());
     EXPECT_TRUE(mockManager->storedAllocationParams[0].additionalParams.compressionEnabled);
+    EXPECT_FALSE(mockManager->storedAllocationParams[0].additionalParams.uncached);
+}
+
+HWTEST_F(CommandStreamSimulatedTests, givenUncachedAllocationWhenCloningPageTableIsRequiredThenAubManagerIsUsedForWriteMemory) {
+    auto mockManager = std::make_unique<MockAubManager>();
+    mockManager->storeAllocationParams = true;
+
+    auto csr = std::make_unique<MockSimulatedCsrHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    csr->aubManager = mockManager.get();
+    MockOsContext osContext(0, EngineDescriptorHelper::getDefaultDescriptor());
+    csr->setupContext(osContext);
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(csr->hardwareContextController->hardwareContexts[0].get());
+
+    MockGmm gmm(csr->peekGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED, false, {}, true);
+    gmm.isCompressionEnabled = false;
+
+    int dummy = 1;
+    GraphicsAllocation graphicsAllocation{0, AllocationType::UNKNOWN,
+                                          &dummy, 0, 0, sizeof(dummy), MemoryPool::MemoryNull, MemoryManager::maxOsContextCount};
+    graphicsAllocation.storageInfo.cloningOfPageTables = true;
+
+    graphicsAllocation.setDefaultGmm(&gmm);
+
+    csr->writeMemoryWithAubManager(graphicsAllocation);
+
+    EXPECT_FALSE(mockHardwareContext->writeMemory2Called);
+    EXPECT_TRUE(mockManager->writeMemory2Called);
+
+    EXPECT_EQ(1u, mockManager->storedAllocationParams.size());
+    EXPECT_FALSE(mockManager->storedAllocationParams[0].additionalParams.compressionEnabled);
+    EXPECT_TRUE(mockManager->storedAllocationParams[0].additionalParams.uncached);
 }
 
 HWTEST_F(CommandStreamSimulatedTests, givenTileInstancedAllocationWhenWriteMemoryWithAubManagerThenEachHardwareContextGetsDifferentMemoryBank) {
@@ -386,7 +417,7 @@ HWTEST_F(CommandStreamSimulatedTests, givenCompressedTileInstancedAllocationWhen
 
     csr->multiOsContextCapable = true;
 
-    MockGmm gmm(pDevice->executionEnvironment->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, 1, 0, false);
+    MockGmm gmm(csr->peekGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, {}, true);
     gmm.isCompressionEnabled = true;
 
     int dummy = 1;
@@ -403,10 +434,51 @@ HWTEST_F(CommandStreamSimulatedTests, givenCompressedTileInstancedAllocationWhen
     EXPECT_TRUE(firstMockHardwareContext->writeMemory2Called);
     EXPECT_EQ(1u, firstMockHardwareContext->storedAllocationParams.size());
     EXPECT_TRUE(firstMockHardwareContext->storedAllocationParams[0].additionalParams.compressionEnabled);
+    EXPECT_FALSE(firstMockHardwareContext->storedAllocationParams[0].additionalParams.uncached);
 
     EXPECT_TRUE(secondMockHardwareContext->writeMemory2Called);
     EXPECT_EQ(1u, secondMockHardwareContext->storedAllocationParams.size());
     EXPECT_TRUE(secondMockHardwareContext->storedAllocationParams[0].additionalParams.compressionEnabled);
+    EXPECT_FALSE(secondMockHardwareContext->storedAllocationParams[0].additionalParams.uncached);
+}
+
+HWTEST_F(CommandStreamSimulatedTests, givenUncachedTileInstancedAllocationWhenWriteMemoryWithAubManagerThenEachHardwareContextGetsCompressionInfo) {
+    auto mockManager = std::make_unique<MockAubManager>();
+
+    auto csr = std::make_unique<MockSimulatedCsrHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    csr->aubManager = mockManager.get();
+    MockOsContext osContext(0, EngineDescriptorHelper::getDefaultDescriptor(0b11));
+    csr->hardwareContextController = std::make_unique<HardwareContextController>(*mockManager, osContext, 0);
+    auto firstMockHardwareContext = static_cast<MockHardwareContext *>(csr->hardwareContextController->hardwareContexts[0].get());
+    firstMockHardwareContext->storeAllocationParams = true;
+    auto secondMockHardwareContext = static_cast<MockHardwareContext *>(csr->hardwareContextController->hardwareContexts[1].get());
+    secondMockHardwareContext->storeAllocationParams = true;
+
+    csr->multiOsContextCapable = true;
+
+    MockGmm gmm(csr->peekGmmHelper(), nullptr, 1, 0, GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED, false, {}, true);
+    gmm.isCompressionEnabled = false;
+
+    int dummy = 1;
+    GraphicsAllocation graphicsAllocation{0, AllocationType::UNKNOWN,
+                                          &dummy, 0, 0, sizeof(dummy), MemoryPool::LocalMemory, MemoryManager::maxOsContextCount};
+    graphicsAllocation.storageInfo.cloningOfPageTables = false;
+    graphicsAllocation.storageInfo.tileInstanced = true;
+    graphicsAllocation.storageInfo.memoryBanks = 0b11u;
+
+    graphicsAllocation.setDefaultGmm(&gmm);
+
+    csr->writeMemoryWithAubManager(graphicsAllocation);
+
+    EXPECT_TRUE(firstMockHardwareContext->writeMemory2Called);
+    EXPECT_EQ(1u, firstMockHardwareContext->storedAllocationParams.size());
+    EXPECT_FALSE(firstMockHardwareContext->storedAllocationParams[0].additionalParams.compressionEnabled);
+    EXPECT_TRUE(firstMockHardwareContext->storedAllocationParams[0].additionalParams.uncached);
+
+    EXPECT_TRUE(secondMockHardwareContext->writeMemory2Called);
+    EXPECT_EQ(1u, secondMockHardwareContext->storedAllocationParams.size());
+    EXPECT_FALSE(secondMockHardwareContext->storedAllocationParams[0].additionalParams.compressionEnabled);
+    EXPECT_TRUE(secondMockHardwareContext->storedAllocationParams[0].additionalParams.uncached);
 }
 
 HWTEST_F(CommandStreamSimulatedTests, givenTileInstancedAllocationWithMissingMemoryBankWhenWriteMemoryWithAubManagerThenAbortIsCalled) {
@@ -458,7 +530,7 @@ HWTEST_F(CommandStreamSimulatedTests, givenSpecificMemoryPoolAllocationWhenWrite
 
     int dummy = 1;
 
-    MemoryPool::Type poolsWith4kPages[] = {
+    MemoryPool poolsWith4kPages[] = {
         MemoryPool::System4KBPages,
         MemoryPool::System4KBPagesWith32BitGpuAddressing,
         MemoryPool::SystemCpuInaccessible};
@@ -491,7 +563,7 @@ HWTEST_F(CommandStreamSimulatedTests, givenSpecificMemoryPoolAllocationWhenWrite
         }
     }
 
-    MemoryPool::Type poolsWith64kPages[] = {
+    MemoryPool poolsWith64kPages[] = {
         MemoryPool::System64KBPages,
         MemoryPool::System64KBPagesWith32BitGpuAddressing,
         MemoryPool::LocalMemory};

@@ -12,16 +12,19 @@
 #include "shared/source/command_stream/experimental_command_buffer.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/command_stream/scratch_space_controller.h"
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/direct_submission/direct_submission_controller.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/gmm_helper/cache_settings_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/array_count.h"
-#include "shared/source/helpers/cache_policy.h"
 #include "shared/source/helpers/flush_stamp.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/logical_state_helper.h"
 #include "shared/source/helpers/pause_on_gpu_properties.h"
+#include "shared/source/helpers/ray_tracing_helper.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
@@ -30,7 +33,9 @@
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/os_interface/os_interface.h"
-#include "shared/source/utilities/cpuintrinsics.h"
+#include "shared/source/os_interface/sys_calls_common.h"
+#include "shared/source/utilities/hw_timestamps.h"
+#include "shared/source/utilities/perf_counter.h"
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/source/utilities/wait_util.h"
 
@@ -43,7 +48,7 @@ CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvi
                                              uint32_t rootDeviceIndex,
                                              const DeviceBitfield deviceBitfield)
     : executionEnvironment(executionEnvironment), rootDeviceIndex(rootDeviceIndex), deviceBitfield(deviceBitfield) {
-    residencyAllocations.reserve(20);
+    residencyAllocations.reserve(startingResidencyContainerSize);
 
     latestSentStatelessMocsConfig = CacheSettings::unknownMocs;
     submissionAggregator.reset(new SubmissionAggregator());
@@ -58,7 +63,6 @@ CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvi
         indirectHeap[i] = nullptr;
     }
     internalAllocationStorage = std::make_unique<InternalAllocationStorage>(*this);
-
     const auto &hwInfo = peekHwInfo();
     uint32_t subDeviceCount = static_cast<uint32_t>(deviceBitfield.count());
     bool platformImplicitScaling = HwHelper::get(hwInfo.platform.eRenderCoreFamily).platformSupportsImplicitScaling(hwInfo);
@@ -68,6 +72,10 @@ CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvi
         this->activePartitions = subDeviceCount;
         this->staticWorkPartitioningEnabled = true;
     }
+
+    auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    hwInfoConfig->fillFrontEndPropertiesSupportStructure(feSupportFlags, hwInfo);
+    hwInfoConfig->fillPipelineSelectPropertiesSupportStructure(pipelineSupportFlags, hwInfo);
 }
 
 CommandStreamReceiver::~CommandStreamReceiver() {
@@ -100,6 +108,10 @@ SubmissionStatus CommandStreamReceiver::submitBatchBuffer(BatchBuffer &batchBuff
     this->latestSentTaskCount = taskCount + 1;
 
     SubmissionStatus retVal = this->flush(batchBuffer, allocationsForResidency);
+
+    if (retVal != NEO::SubmissionStatus::SUCCESS) {
+        return retVal;
+    }
     if (!isUpdateTagFromWaitEnabled()) {
         this->latestFlushedTaskCount = taskCount + 1;
     }
@@ -115,11 +127,22 @@ void CommandStreamReceiver::makeResident(MultiGraphicsAllocation &gfxAllocation)
 void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
     auto submissionTaskCount = this->taskCount + 1;
     if (gfxAllocation.isResidencyTaskCountBelow(submissionTaskCount, osContext->getContextId())) {
-        this->getResidencyAllocations().push_back(&gfxAllocation);
-        checkForNewResources(submissionTaskCount, gfxAllocation.getTaskCount(osContext->getContextId()), gfxAllocation);
+        auto pushAllocations = true;
+
+        if (DebugManager.flags.MakeEachAllocationResident.get() != -1) {
+            pushAllocations = !DebugManager.flags.MakeEachAllocationResident.get();
+        }
+
+        if (pushAllocations) {
+            this->getResidencyAllocations().push_back(&gfxAllocation);
+        }
+
         gfxAllocation.updateTaskCount(submissionTaskCount, osContext->getContextId());
-        if (!gfxAllocation.isResident(osContext->getContextId())) {
-            this->totalMemoryUsed += gfxAllocation.getUnderlyingBufferSize();
+        if (this->dispatchMode == DispatchMode::BatchedDispatch) {
+            checkForNewResources(submissionTaskCount, gfxAllocation.getTaskCount(osContext->getContextId()), gfxAllocation);
+            if (!gfxAllocation.isResident(osContext->getContextId())) {
+                this->totalMemoryUsed += gfxAllocation.getUnderlyingBufferSize();
+            }
         }
     }
     gfxAllocation.updateResidencyTaskCount(submissionTaskCount, osContext->getContextId());
@@ -143,11 +166,13 @@ void CommandStreamReceiver::makeNonResident(GraphicsAllocation &gfxAllocation) {
     }
 }
 
-void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency) {
+void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency, bool clearAllocations) {
     for (auto &surface : allocationsForResidency) {
         this->makeNonResident(*surface);
     }
-    allocationsForResidency.clear();
+    if (clearAllocations) {
+        allocationsForResidency.clear();
+    }
     this->processEviction();
 }
 
@@ -155,31 +180,43 @@ void CommandStreamReceiver::makeResidentHostPtrAllocation(GraphicsAllocation *gf
     makeResident(*gfxAllocation);
 }
 
-void CommandStreamReceiver::waitForTaskCount(uint32_t requiredTaskCount) {
+WaitStatus CommandStreamReceiver::waitForTaskCount(uint32_t requiredTaskCount) {
     auto address = getTagAddress();
-    if (address) {
-        baseWaitFunction(address, false, 0, requiredTaskCount);
+    if (!skipResourceCleanup() && address) {
+        this->downloadTagAllocation(requiredTaskCount);
+        return baseWaitFunction(address, WaitParams{false, false, 0}, requiredTaskCount);
     }
+
+    return WaitStatus::Ready;
 }
 
-void CommandStreamReceiver::waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) {
+WaitStatus CommandStreamReceiver::waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) {
+    WaitStatus waitStatus{WaitStatus::Ready};
     auto &list = allocationUsage == TEMPORARY_ALLOCATION ? internalAllocationStorage->getTemporaryAllocations() : internalAllocationStorage->getAllocationsForReuse();
     if (!list.peekIsEmpty()) {
-        this->CommandStreamReceiver::waitForTaskCount(requiredTaskCount);
+        waitStatus = this->CommandStreamReceiver::waitForTaskCount(requiredTaskCount);
     }
     internalAllocationStorage->cleanAllocationList(requiredTaskCount, allocationUsage);
+
+    return waitStatus;
 }
 
-void CommandStreamReceiver::waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount) {
-    waitForTaskCountAndCleanAllocationList(requiredTaskCount, TEMPORARY_ALLOCATION);
-};
+WaitStatus CommandStreamReceiver::waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount) {
+    return waitForTaskCountAndCleanAllocationList(requiredTaskCount, TEMPORARY_ALLOCATION);
+}
 
 void CommandStreamReceiver::ensureCommandBufferAllocation(LinearStream &commandStream, size_t minimumRequiredSize, size_t additionalAllocationSize) {
     if (commandStream.getAvailableSpace() >= minimumRequiredSize) {
         return;
     }
 
-    const auto allocationSize = alignUp(minimumRequiredSize + additionalAllocationSize, MemoryConstants::pageSize64k);
+    auto alignment = MemoryConstants::pageSize64k;
+
+    if (DebugManager.flags.ForceCommandBufferAlignment.get() != -1) {
+        alignment = DebugManager.flags.ForceCommandBufferAlignment.get() * MemoryConstants::kiloByte;
+    }
+
+    const auto allocationSize = alignUp(minimumRequiredSize + additionalAllocationSize, alignment);
     constexpr static auto allocationType = AllocationType::COMMAND_BUFFER;
     auto allocation = this->getInternalAllocationStorage()->obtainReusableAllocation(allocationSize, allocationType).release();
     if (allocation == nullptr) {
@@ -197,6 +234,17 @@ void CommandStreamReceiver::ensureCommandBufferAllocation(LinearStream &commandS
     commandStream.replaceGraphicsAllocation(allocation);
 }
 
+void CommandStreamReceiver::fillReusableAllocationsList() {
+    auto amountToFill = HwHelper::get(peekHwInfo().platform.eRenderCoreFamily).getAmountOfAllocationsToFill();
+    for (auto i = 0u; i < amountToFill; i++) {
+        const AllocationProperties commandStreamAllocationProperties{rootDeviceIndex, true, MemoryConstants::pageSize64k, AllocationType::COMMAND_BUFFER,
+                                                                     isMultiOsContextCapable(), false, osContext->getDeviceBitfield()};
+        auto allocation = this->getMemoryManager()->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
+        getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
+        this->makeResident(*allocation);
+    }
+}
+
 MemoryManager *CommandStreamReceiver::getMemoryManager() const {
     DEBUG_BREAK_IF(!executionEnvironment.memoryManager);
     return executionEnvironment.memoryManager.get();
@@ -210,6 +258,10 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
 
 OSInterface *CommandStreamReceiver::getOSInterface() const {
     return executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface.get();
+}
+
+GmmHelper *CommandStreamReceiver::peekGmmHelper() const {
+    return executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->gmmHelper.get();
 }
 
 uint64_t CommandStreamReceiver::getWorkPartitionAllocationGpuAddress() const {
@@ -228,14 +280,14 @@ bool CommandStreamReceiver::skipResourceCleanup() const {
 }
 
 bool CommandStreamReceiver::isGpuHangDetected() const {
-    return this->getOSInterface() && this->getOSInterface()->getDriverModel() && this->getOSInterface()->getDriverModel()->isGpuHangDetected(osContext->getContextId());
+    if (DebugManager.flags.DisableGpuHangDetection.get()) {
+        return false;
+    }
+
+    return this->osContext && this->getOSInterface() && this->getOSInterface()->getDriverModel() && this->getOSInterface()->getDriverModel()->isGpuHangDetected(*osContext);
 }
 
 void CommandStreamReceiver::cleanupResources() {
-    if (this->skipResourceCleanup()) {
-        return;
-    }
-
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, TEMPORARY_ALLOCATION);
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, REUSABLE_ALLOCATION);
 
@@ -251,7 +303,7 @@ void CommandStreamReceiver::cleanupResources() {
     }
 
     if (tagsMultiAllocation) {
-        //Null tag address to prevent waiting for tag update when freeing it
+        // Null tag address to prevent waiting for tag update when freeing it
         tagAllocation = nullptr;
         tagAddress = nullptr;
         DEBUG_BREAK_IF(tagAllocation != nullptr);
@@ -288,9 +340,19 @@ void CommandStreamReceiver::cleanupResources() {
         getMemoryManager()->freeGraphicsMemory(workPartitionAllocation);
         workPartitionAllocation = nullptr;
     }
+
+    if (kernelArgsBufferAllocation) {
+        getMemoryManager()->freeGraphicsMemory(kernelArgsBufferAllocation);
+        kernelArgsBufferAllocation = nullptr;
+    }
 }
 
-WaitStatus CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
+WaitStatus CommandStreamReceiver::waitForCompletionWithTimeout(const WaitParams &params, uint32_t taskCountToWait) {
+    bool printWaitForCompletion = DebugManager.flags.LogWaitingForCompletion.get();
+    if (printWaitForCompletion) {
+        printTagAddressContent(taskCountToWait, params.waitTimeout, true);
+    }
+
     uint32_t latestSentTaskCount = this->latestFlushedTaskCount;
     if (latestSentTaskCount < taskCountToWait) {
         if (!this->flushBatchedSubmissions()) {
@@ -299,11 +361,26 @@ WaitStatus CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeou
         }
     }
 
-    return baseWaitFunction(getTagAddress(), enableTimeout, timeoutMicroseconds, taskCountToWait);
+    auto retCode = baseWaitFunction(getTagAddress(), params, taskCountToWait);
+    if (printWaitForCompletion) {
+        printTagAddressContent(taskCountToWait, params.waitTimeout, false);
+    }
+    return retCode;
 }
 
-WaitStatus CommandStreamReceiver::baseWaitFunction(volatile uint32_t *pollAddress, bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
-    std::chrono::microseconds elapsedTimeSinceGpuHangCheck{0};
+bool CommandStreamReceiver::checkGpuHangDetected(TimeType currentTime, TimeType &lastHangCheckTime) const {
+    std::chrono::microseconds elapsedTimeSinceGpuHangCheck = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - lastHangCheckTime);
+
+    if (elapsedTimeSinceGpuHangCheck.count() >= gpuHangCheckPeriod.count()) {
+        lastHangCheckTime = currentTime;
+        if (isGpuHangDetected()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+WaitStatus CommandStreamReceiver::baseWaitFunction(volatile uint32_t *pollAddress, const WaitParams &params, uint32_t taskCountToWait) {
     std::chrono::high_resolution_clock::time_point waitStartTime, lastHangCheckTime, currentTime;
     int64_t timeDiff = 0;
 
@@ -311,28 +388,24 @@ WaitStatus CommandStreamReceiver::baseWaitFunction(volatile uint32_t *pollAddres
     if (latestSentTaskCount < taskCountToWait) {
         this->flushTagUpdate();
     }
-
     volatile uint32_t *partitionAddress = pollAddress;
 
     waitStartTime = std::chrono::high_resolution_clock::now();
     lastHangCheckTime = waitStartTime;
     for (uint32_t i = 0; i < activePartitions; i++) {
-        while (*partitionAddress < taskCountToWait && timeDiff <= timeoutMicroseconds) {
-            if (WaitUtils::waitFunction(partitionAddress, taskCountToWait)) {
+        while (*partitionAddress < taskCountToWait && timeDiff <= params.waitTimeout) {
+            this->downloadTagAllocation(taskCountToWait);
+
+            if (!params.indefinitelyPoll && WaitUtils::waitFunction(partitionAddress, taskCountToWait)) {
                 break;
             }
 
             currentTime = std::chrono::high_resolution_clock::now();
-            elapsedTimeSinceGpuHangCheck = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - lastHangCheckTime);
-
-            if (elapsedTimeSinceGpuHangCheck.count() >= gpuHangCheckPeriod.count()) {
-                lastHangCheckTime = currentTime;
-                if (isGpuHangDetected()) {
-                    return WaitStatus::GpuHang;
-                }
+            if (checkGpuHangDetected(currentTime, lastHangCheckTime)) {
+                return WaitStatus::GpuHang;
             }
 
-            if (enableTimeout) {
+            if (params.enableTimeout) {
                 timeDiff = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - waitStartTime).count();
             }
         }
@@ -340,7 +413,15 @@ WaitStatus CommandStreamReceiver::baseWaitFunction(volatile uint32_t *pollAddres
         partitionAddress = ptrOffset(partitionAddress, this->postSyncWriteOffset);
     }
 
-    return testTaskCountReady(pollAddress, taskCountToWait) ? WaitStatus::Ready : WaitStatus::NotReady;
+    partitionAddress = pollAddress;
+    for (uint32_t i = 0; i < activePartitions; i++) {
+        if (*partitionAddress < taskCountToWait) {
+            return WaitStatus::NotReady;
+        }
+        partitionAddress = ptrOffset(partitionAddress, this->postSyncWriteOffset);
+    }
+
+    return WaitStatus::Ready;
 }
 
 void CommandStreamReceiver::setTagAllocation(GraphicsAllocation *allocation) {
@@ -352,14 +433,14 @@ void CommandStreamReceiver::setTagAllocation(GraphicsAllocation *allocation) {
 }
 
 MultiGraphicsAllocation &CommandStreamReceiver::createTagsMultiAllocation() {
-    std::vector<uint32_t> rootDeviceIndices;
+    RootDeviceIndicesContainer rootDeviceIndices;
 
     if (ApiSpecificConfig::getApiType() == ApiSpecificConfig::L0) {
         rootDeviceIndices.push_back(rootDeviceIndex);
     } else {
         for (auto index = 0u; index < this->executionEnvironment.rootDeviceEnvironments.size(); index++) {
-            if (this->executionEnvironment.rootDeviceEnvironments[index].get()->getHardwareInfo()->platform.eProductFamily ==
-                this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex].get()->getHardwareInfo()->platform.eProductFamily) {
+            if (this->executionEnvironment.rootDeviceEnvironments[index]->getHardwareInfo()->platform.eProductFamily ==
+                this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->getHardwareInfo()->platform.eProductFamily) {
                 rootDeviceIndices.push_back(index);
             }
         }
@@ -428,6 +509,12 @@ AubSubCaptureStatus CommandStreamReceiver::checkAndActivateAubSubCapture(const s
 
 void CommandStreamReceiver::addAubComment(const char *comment) {}
 
+void CommandStreamReceiver::downloadAllocation(GraphicsAllocation &gfxAllocation) {
+    if (this->downloadAllocationImpl) {
+        this->downloadAllocationImpl(gfxAllocation);
+    }
+}
+
 void CommandStreamReceiver::startControllingDirectSubmissions() {
     auto controller = this->executionEnvironment.directSubmissionController.get();
     if (controller) {
@@ -437,7 +524,7 @@ void CommandStreamReceiver::startControllingDirectSubmissions() {
 
 GraphicsAllocation *CommandStreamReceiver::allocateDebugSurface(size_t size) {
     UNRECOVERABLE_IF(debugSurface != nullptr);
-    debugSurface = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, size, AllocationType::INTERNAL_HOST_MEMORY, getOsContext().getDeviceBitfield()});
+    debugSurface = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, size, AllocationType::DEBUG_CONTEXT_SAVE_AREA, getOsContext().getDeviceBitfield()});
     return debugSurface;
 }
 
@@ -453,6 +540,7 @@ IndirectHeap &CommandStreamReceiver::getIndirectHeap(IndirectHeap::Type heapType
     if (heap && heap->getAvailableSpace() < minRequiredSize && heapMemory) {
         internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(heapMemory), REUSABLE_ALLOCATION);
         heapMemory = nullptr;
+        this->heapStorageReqiuresRecyclingTag = true;
     }
 
     if (!heapMemory) {
@@ -465,7 +553,7 @@ IndirectHeap &CommandStreamReceiver::getIndirectHeap(IndirectHeap::Type heapType
 void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
                                                size_t minRequiredSize, IndirectHeap *&indirectHeap) {
     size_t reservedSize = 0;
-    auto finalHeapSize = defaultHeapSize;
+    auto finalHeapSize = getDefaultHeapSize();
     if (IndirectHeap::Type::SURFACE_STATE == heapType) {
         finalHeapSize = defaultSshSize;
     }
@@ -665,6 +753,7 @@ std::unique_lock<CommandStreamReceiver::MutexType> CommandStreamReceiver::obtain
 }
 AllocationsList &CommandStreamReceiver::getTemporaryAllocations() { return internalAllocationStorage->getTemporaryAllocations(); }
 AllocationsList &CommandStreamReceiver::getAllocationsForReuse() { return internalAllocationStorage->getAllocationsForReuse(); }
+AllocationsList &CommandStreamReceiver::getDeferredAllocations() { return internalAllocationStorage->getDeferredAllocations(); }
 
 bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surface, bool requiresL3Flush) {
     std::unique_lock<decltype(hostPtrSurfaceCreationMutex)> lock = this->obtainHostPtrSurfaceCreationLock();
@@ -691,7 +780,8 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
     if (allocation == nullptr) {
         return false;
     }
-    allocation->updateTaskCount(CompletionStamp::notReady, osContext->getContextId());
+    allocation->hostPtrTaskCountAssignment++;
+    allocation->updateTaskCount(0u, osContext->getContextId());
     surface.setAllocation(allocation.get());
     internalAllocationStorage->storeAllocation(std::move(allocation), TEMPORARY_ALLOCATION);
     return true;
@@ -699,7 +789,7 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
 
 TagAllocatorBase *CommandStreamReceiver::getEventTsAllocator() {
     if (profilingTimeStampAllocator.get() == nullptr) {
-        std::vector<uint32_t> rootDeviceIndices = {rootDeviceIndex};
+        RootDeviceIndicesContainer rootDeviceIndices = {rootDeviceIndex};
         profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(rootDeviceIndices, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
                                                                                    sizeof(HwTimeStamps), false, osContext->getDeviceBitfield());
     }
@@ -708,7 +798,7 @@ TagAllocatorBase *CommandStreamReceiver::getEventTsAllocator() {
 
 TagAllocatorBase *CommandStreamReceiver::getEventPerfCountAllocator(const uint32_t tagSize) {
     if (perfCounterAllocator.get() == nullptr) {
-        std::vector<uint32_t> rootDeviceIndices = {rootDeviceIndex};
+        RootDeviceIndicesContainer rootDeviceIndices = {rootDeviceIndex};
         perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(
             rootDeviceIndices, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize, false, osContext->getDeviceBitfield());
     }
@@ -742,7 +832,8 @@ bool CommandStreamReceiver::needsPageTableManager() const {
 
 void CommandStreamReceiver::printDeviceIndex() {
     if (DebugManager.flags.PrintDeviceAndEngineIdOnSubmission.get()) {
-        printf("Submission to RootDevice Index: %u, Sub-Devices Mask: %lu, EngineId: %u (%s, %s)\n",
+        printf("%u: Submission to RootDevice Index: %u, Sub-Devices Mask: %lu, EngineId: %u (%s, %s)\n",
+               SysCalls::getProcessId(),
                this->getRootDeviceIndex(),
                this->osContext->getDeviceBitfield().to_ulong(),
                this->osContext->getEngineType(),
@@ -771,9 +862,18 @@ bool CommandStreamReceiver::checkImplicitFlushForGpuIdle() {
     return false;
 }
 
+void CommandStreamReceiver::downloadTagAllocation(uint32_t taskCountToWait) {
+    if (this->getTagAllocation()) {
+        if (taskCountToWait && taskCountToWait <= this->peekLatestFlushedTaskCount()) {
+            this->downloadAllocation(*this->getTagAllocation());
+        }
+    }
+}
+
 bool CommandStreamReceiver::testTaskCountReady(volatile uint32_t *pollAddress, uint32_t taskCountToWait) {
+    this->downloadTagAllocation(taskCountToWait);
     for (uint32_t i = 0; i < activePartitions; i++) {
-        if (*pollAddress < taskCountToWait) {
+        if (!WaitUtils::waitFunction(pollAddress, taskCountToWait)) {
             return false;
         }
 
@@ -783,7 +883,49 @@ bool CommandStreamReceiver::testTaskCountReady(volatile uint32_t *pollAddress, u
 }
 
 const HardwareInfo &CommandStreamReceiver::peekHwInfo() const {
-    return *executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
+    return *peekRootDeviceEnvironment().getHardwareInfo();
+}
+
+const RootDeviceEnvironment &CommandStreamReceiver::peekRootDeviceEnvironment() const {
+    return *executionEnvironment.rootDeviceEnvironments[rootDeviceIndex];
+}
+
+uint32_t CommandStreamReceiver::getCompletionValue(const GraphicsAllocation &gfxAllocation) {
+    if (completionFenceValuePointer) {
+        return *completionFenceValuePointer;
+    }
+    auto osContextId = osContext->getContextId();
+    return gfxAllocation.getTaskCount(osContextId);
+}
+
+bool CommandStreamReceiver::createPerDssBackedBuffer(Device &device) {
+    UNRECOVERABLE_IF(perDssBackedBuffer != nullptr);
+    auto size = RayTracingHelper::getTotalMemoryBackedFifoSize(device);
+
+    perDssBackedBuffer = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, size, AllocationType::BUFFER, device.getDeviceBitfield()});
+
+    return perDssBackedBuffer != nullptr;
+}
+
+void CommandStreamReceiver::printTagAddressContent(uint32_t taskCountToWait, int64_t waitTimeout, bool start) {
+    auto postSyncAddress = getTagAddress();
+    if (start) {
+        PRINT_DEBUG_STRING(true, stdout,
+                           "\nWaiting for task count %u at location %p with timeout %llx. Current value:",
+                           taskCountToWait, postSyncAddress, waitTimeout);
+    } else {
+        PRINT_DEBUG_STRING(true, stdout,
+                           "%s", "\nWaiting completed. Current value:");
+    }
+    for (uint32_t i = 0; i < activePartitions; i++) {
+        PRINT_DEBUG_STRING(true, stdout, " %u", *postSyncAddress);
+        postSyncAddress = ptrOffset(postSyncAddress, this->postSyncWriteOffset);
+    }
+    PRINT_DEBUG_STRING(true, stdout, "%s", "\n");
+}
+
+LogicalStateHelper *CommandStreamReceiver::getLogicalStateHelper() const {
+    return logicalStateHelper.get();
 }
 
 } // namespace NEO

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,7 +21,6 @@
 #include "opencl/test/unit_test/mocks/mock_program.h"
 
 #include "gtest/gtest.h"
-#include "hw_cmds.h"
 
 using namespace NEO;
 
@@ -29,7 +28,6 @@ TEST_F(KernelImageArgTest, GivenKernelWithImageArgsWhenCheckingDifferentScenario
     size_t imageWidth = image->getImageDesc().image_width;
     size_t imageHeight = image->getImageDesc().image_height;
     size_t imageDepth = image->getImageDesc().image_depth;
-    uint32_t objectId = pKernelInfo->argAsImg(4).bindful;
 
     cl_mem memObj = image.get();
 
@@ -50,8 +48,6 @@ TEST_F(KernelImageArgTest, GivenKernelWithImageArgsWhenCheckingDifferentScenario
 
     auto imgDepthOffset = ptrOffset(crossThreadData, 0x30);
     EXPECT_EQ(imageDepth, *imgDepthOffset);
-
-    EXPECT_EQ(objectId, *crossThreadData);
 }
 
 TEST_F(KernelImageArgTest, givenKernelWithFlatImageTokensWhenArgIsSetThenPatchAllParams) {
@@ -249,7 +245,7 @@ HWTEST_F(KernelImageArgTest, givenImgWithMcsAllocWhenMakeResidentThenMakeMcsAllo
     pKernel->makeResident(*csr.get());
     EXPECT_TRUE(csr->isMadeResident(mcsAlloc));
 
-    csr->makeSurfacePackNonResident(csr->getResidencyAllocations());
+    csr->makeSurfacePackNonResident(csr->getResidencyAllocations(), true);
 
     EXPECT_TRUE(csr->isMadeNonResident(mcsAlloc));
 

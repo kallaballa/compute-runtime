@@ -1,12 +1,11 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/tools/source/sysman/global_operations/global_operations_imp.h"
 #include "level_zero/tools/source/sysman/global_operations/linux/os_global_operations_imp.h"
 
@@ -49,7 +48,7 @@ const std::string driverVersion("5.0.0-37-generic SMP mod_unload");
 const std::string srcVersion("5.0.0-37");
 const std::string ueventWedgedFile("/var/lib/libze_intel_gpu/wedged_file");
 const std::string mockFunctionResetPath("/MOCK_FUNCTION_LEVEL_RESET_PATH");
-const std::string mockDeviceDir("/MOCK_DEVICE_DIR");
+const std::string mockDeviceDir("devices/pci0000:89/0000:89:02.0/0000:8a:00.0/0000:8b:01.0/0000:8c:00.0");
 const std::string mockDeviceName("/MOCK_DEVICE_NAME");
 
 struct GlobalOperationsEngineHandleContext : public EngineHandleContext {
@@ -77,9 +76,8 @@ struct GlobalOperationsDiagnosticsHandleContext : public DiagnosticsHandleContex
 };
 template <>
 struct Mock<GlobalOperationsDiagnosticsHandleContext> : public GlobalOperationsDiagnosticsHandleContext {
-    void initMock(std::vector<ze_device_handle_t> &deviceHandles) {}
     Mock<GlobalOperationsDiagnosticsHandleContext>(OsSysman *pOsSysman) : GlobalOperationsDiagnosticsHandleContext(pOsSysman) {}
-    MOCK_METHOD(void, init, (std::vector<ze_device_handle_t> & deviceHandles), (override));
+    ADDMETHOD_NOBASE_VOIDRETURN(init, ());
 };
 
 struct GlobalOperationsFirmwareHandleContext : public FirmwareHandleContext {
@@ -87,15 +85,15 @@ struct GlobalOperationsFirmwareHandleContext : public FirmwareHandleContext {
 };
 template <>
 struct Mock<GlobalOperationsFirmwareHandleContext> : public GlobalOperationsFirmwareHandleContext {
-    void initMock() {}
     Mock<GlobalOperationsFirmwareHandleContext>(OsSysman *pOsSysman) : GlobalOperationsFirmwareHandleContext(pOsSysman) {}
-    MOCK_METHOD(void, init, (), (override));
+    ADDMETHOD_NOBASE_VOIDRETURN(init, ());
 };
 
 class GlobalOperationsSysfsAccess : public SysfsAccess {};
 
 template <>
 struct Mock<GlobalOperationsSysfsAccess> : public GlobalOperationsSysfsAccess {
+    bool isRootSet = true;
     ze_result_t getRealPathVal(const std::string file, std::string &val) {
         if (file.compare(functionLevelReset) == 0) {
             val = mockFunctionResetPath;
@@ -278,6 +276,13 @@ struct Mock<GlobalOperationsSysfsAccess> : public GlobalOperationsSysfsAccess {
         return false;
     }
 
+    bool isRootUser() override {
+        if (isRootSet == true) {
+            return true;
+        } else {
+            return false;
+        }
+    }
     Mock<GlobalOperationsSysfsAccess>() = default;
 
     MOCK_METHOD(ze_result_t, read, (const std::string file, std::string &val), (override));
@@ -416,9 +421,9 @@ struct Mock<GlobalOperationsFsAccess> : public GlobalOperationsFsAccess {
     MOCK_METHOD(ze_result_t, canWrite, (const std::string file), (override));
 };
 
-class FirmwareInterface : public FirmwareUtil {};
+class GlobalOpsFwInterface : public FirmwareUtil {};
 template <>
-struct Mock<FirmwareInterface> : public FirmwareUtil {
+struct Mock<GlobalOpsFwInterface> : public GlobalOpsFwInterface {
 
     ze_result_t mockFwDeviceInit(void) {
         return ZE_RESULT_SUCCESS;
@@ -437,7 +442,7 @@ struct Mock<FirmwareInterface> : public FirmwareUtil {
         ifrStatus = false;
         return ZE_RESULT_SUCCESS;
     }
-    Mock<FirmwareInterface>() = default;
+    Mock<GlobalOpsFwInterface>() = default;
 
     MOCK_METHOD(ze_result_t, fwDeviceInit, (), (override));
     MOCK_METHOD(ze_result_t, getFirstDevice, (igsc_device_info * info), (override));
@@ -447,11 +452,53 @@ struct Mock<FirmwareInterface> : public FirmwareUtil {
     ADDMETHOD_NOBASE(fwSupportedDiagTests, ze_result_t, ZE_RESULT_SUCCESS, (std::vector<std::string> & supportedDiagTests));
     ADDMETHOD_NOBASE(fwRunDiagTests, ze_result_t, ZE_RESULT_SUCCESS, (std::string & osDiagType, zes_diag_result_t *pResult));
     ADDMETHOD_NOBASE(fwGetMemoryErrorCount, ze_result_t, ZE_RESULT_SUCCESS, (zes_ras_error_type_t category, uint32_t subDeviceCount, uint32_t subDeviceId, uint64_t &count));
+    ADDMETHOD_NOBASE(fwGetEccConfig, ze_result_t, ZE_RESULT_SUCCESS, (uint8_t * currentState, uint8_t *pendingState));
+    ADDMETHOD_NOBASE(fwSetEccConfig, ze_result_t, ZE_RESULT_SUCCESS, (uint8_t newState, uint8_t *currentState, uint8_t *pendingState));
     ADDMETHOD_NOBASE_VOIDRETURN(getDeviceSupportedFwTypes, (std::vector<std::string> & fwTypes));
+};
+
+struct MockGlobalOpsLinuxSysmanImp : public LinuxSysmanImp {
+    MockGlobalOpsLinuxSysmanImp(SysmanDeviceImp *pParentSysmanDeviceImp) : LinuxSysmanImp(pParentSysmanDeviceImp) {}
+    std::vector<int> fdList = {0, 1, 2};
+    ::pid_t ourDevicePid = 0;
+    int ourDeviceFd = 0;
+    ze_result_t mockError = ZE_RESULT_SUCCESS;
+    ze_result_t mockInitDeviceError = ZE_RESULT_SUCCESS;
+    void getPidFdsForOpenDevice(ProcfsAccess *pProcfsAccess, SysfsAccess *pSysfsAccess, const ::pid_t pid, std::vector<int> &deviceFds) override {
+        if (ourDevicePid) {
+            deviceFds.push_back(ourDeviceFd);
+        }
+    }
+    void releaseDeviceResources(void) override {}
+    ze_result_t initDevice() override {
+        if (mockInitDeviceError != ZE_RESULT_SUCCESS) {
+            return mockInitDeviceError;
+        }
+        return ZE_RESULT_SUCCESS;
+    }
+    ze_result_t osWarmReset() override {
+        if (mockError != ZE_RESULT_SUCCESS) {
+            return mockError;
+        }
+        return ZE_RESULT_SUCCESS;
+    }
+    ze_result_t osColdReset() override {
+        if (mockError != ZE_RESULT_SUCCESS) {
+            return mockError;
+        }
+        return ZE_RESULT_SUCCESS;
+    }
+    void setMockError(ze_result_t result) {
+        mockError = result;
+    }
+    void setMockInitDeviceError(ze_result_t result) {
+        mockInitDeviceError = result;
+    }
 };
 
 class PublicLinuxGlobalOperationsImp : public L0::LinuxGlobalOperationsImp {
   public:
+    using LinuxGlobalOperationsImp::pLinuxSysmanImp;
     using LinuxGlobalOperationsImp::resetTimeout;
 };
 

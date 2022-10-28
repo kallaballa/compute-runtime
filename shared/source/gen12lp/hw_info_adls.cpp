@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/aub_mem_dump/definitions/aub_services.h"
-#include "shared/source/gen12lp/hw_cmds.h"
+#include "shared/source/gen12lp/hw_cmds_adls.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
@@ -14,10 +14,6 @@
 namespace NEO {
 
 const char *HwMapper<IGFX_ALDERLAKE_S>::abbreviation = "adls";
-
-bool isSimulationADLS(unsigned short deviceId) {
-    return false;
-};
 
 const PLATFORM ADLS::platform = {
     IGFX_ALDERLAKE_S,
@@ -40,7 +36,6 @@ const RuntimeCapabilityTable ADLS::capabilityTable{
     0,                                              // sharedSystemMemCapabilities
     83.333,                                         // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                      // requiredPreemptionSurfaceSize
-    &isSimulationADLS,                              // isSimulation
     "lp",                                           // platformType
     "",                                             // deviceName
     PreemptionMode::MidThread,                      // defaultPreemptionMode
@@ -80,7 +75,8 @@ const RuntimeCapabilityTable ADLS::capabilityTable{
     true,                                           // supportsMediaBlock
     false,                                          // p2pAccessSupported
     false,                                          // p2pAtomicAccessSupported
-    true                                            // fusedEuEnabled
+    true,                                           // fusedEuEnabled
+    false                                           // l0DebuggerSupported;
 };
 
 WorkaroundTable ADLS::workaroundTable = {};
@@ -120,18 +116,36 @@ void ADLS::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waUntypedBufferCompression = true;
 };
 
-const HardwareInfo ADLS_HW_CONFIG::hwInfo = {
+void ADLS::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * ADLS::threadsPerEu;
+    gtSysInfo->TotalPsThreadsWindowerRange = 64;
+    gtSysInfo->CsrSizeInMb = 8;
+    gtSysInfo->MaxEuPerSubSlice = ADLS::maxEuPerSubslice;
+    gtSysInfo->MaxSlicesSupported = ADLS::maxSlicesSupported;
+    gtSysInfo->MaxSubSlicesSupported = ADLS::maxSubslicesSupported;
+    gtSysInfo->MaxDualSubSlicesSupported = ADLS::maxDualSubslicesSupported;
+    gtSysInfo->IsL3HashModeEnabled = false;
+    gtSysInfo->IsDynamicallyPopulated = false;
+
+    if (setupFeatureTableAndWorkaroundTable) {
+        setupFeatureAndWorkaroundTable(hwInfo);
+    }
+}
+
+const HardwareInfo AdlsHwConfig::hwInfo = {
     &ADLS::platform,
     &ADLS::featureTable,
     &ADLS::workaroundTable,
-    &ADLS_HW_CONFIG::gtSystemInfo,
+    &AdlsHwConfig::gtSystemInfo,
     ADLS::capabilityTable,
 };
 
-GT_SYSTEM_INFO ADLS_HW_CONFIG::gtSystemInfo = {0};
-void ADLS_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+GT_SYSTEM_INFO AdlsHwConfig::gtSystemInfo = {0};
+void AdlsHwConfig::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->ThreadCount = gtSysInfo->EUCount * ADLS::threadsPerEu;
     gtSysInfo->DualSubSliceCount = gtSysInfo->SubSliceCount;
     gtSysInfo->L3CacheSizeInKb = 1920;
     gtSysInfo->L3BankCount = 4;
@@ -140,29 +154,19 @@ void ADLS_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTa
     gtSysInfo->TotalHsThreads = 0;
     gtSysInfo->TotalDsThreads = 0;
     gtSysInfo->TotalGsThreads = 0;
-    gtSysInfo->TotalPsThreadsWindowerRange = 64;
-    gtSysInfo->CsrSizeInMb = 8;
-    gtSysInfo->MaxEuPerSubSlice = ADLS::maxEuPerSubslice;
-    gtSysInfo->MaxSlicesSupported = ADLS::maxSlicesSupported;
     gtSysInfo->MaxSubSlicesSupported = 1;
     gtSysInfo->MaxDualSubSlicesSupported = 2;
-    gtSysInfo->IsL3HashModeEnabled = false;
-    gtSysInfo->IsDynamicallyPopulated = false;
 
     gtSysInfo->CCSInfo.IsValid = true;
     gtSysInfo->CCSInfo.NumberOfCCSEnabled = 1;
     gtSysInfo->CCSInfo.Instances.CCSEnableMask = 0b1;
-
-    if (setupFeatureTableAndWorkaroundTable) {
-        setupFeatureAndWorkaroundTable(hwInfo);
-    }
 };
 
-const HardwareInfo ADLS::hwInfo = ADLS_HW_CONFIG::hwInfo;
+const HardwareInfo ADLS::hwInfo = AdlsHwConfig::hwInfo;
 const uint64_t ADLS::defaultHardwareInfoConfig = 0x100020010;
 
 void setupADLSHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
-    ADLS_HW_CONFIG::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+    AdlsHwConfig::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
 }
 
 void (*ADLS::setupHardwareInfo)(HardwareInfo *, bool, const uint64_t) = setupADLSHardwareInfoImpl;

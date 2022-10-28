@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,6 +18,7 @@ namespace NEO {
 class Image;
 struct KernelInfo;
 struct SurfaceFormatInfo;
+class HwHelper;
 
 using ImageCreatFunc = Image *(*)(Context *context,
                                   const MemoryProperties &memoryProperties,
@@ -56,7 +57,7 @@ class Image : public MemObj {
     const static cl_ulong maskMagic = 0xFFFFFFFFFFFFFFFFLL;
     static const cl_ulong objectMagic = MemObj::objectMagic | 0x01;
 
-    ~Image() override;
+    ~Image() override = default;
 
     static Image *create(Context *context,
                          const MemoryProperties &memoryProperties,
@@ -114,10 +115,10 @@ class Image : public MemObj {
                                  size_t *imageSlicePitch);
 
     static bool isImage1d(const cl_image_desc &imageDesc);
-
     static bool isImage2d(cl_mem_object_type imageType);
-
+    static bool isImage3d(cl_mem_object_type imageType);
     static bool isImage2dOr2dArray(cl_mem_object_type imageType);
+    static bool isImageArray(cl_mem_object_type imageType);
 
     static bool isDepthFormat(const cl_image_format &imageFormat);
 
@@ -149,7 +150,7 @@ class Image : public MemObj {
 
     Image *redescribe();
     Image *redescribeFillImage();
-    ImageCreatFunc createFunction;
+    ImageCreatFunc createFunction = nullptr;
 
     uint32_t getQPitch() { return qPitch; }
     void setQPitch(uint32_t qPitch) { this->qPitch = qPitch; }
@@ -185,6 +186,8 @@ class Image : public MemObj {
     cl_int writeNV12Planes(const void *hostPtr, size_t hostPtrRowPitch, uint32_t rootDeviceIndex);
     void setMcsSurfaceInfo(const McsSurfaceInfo &info) { mcsSurfaceInfo = info; }
     const McsSurfaceInfo &getMcsSurfaceInfo() { return mcsSurfaceInfo; }
+    void setPlane(const GMM_YUV_PLANE_ENUM plane) { this->plane = plane; }
+    GMM_YUV_PLANE_ENUM getPlane() const { return this->plane; }
     size_t calculateOffsetForMapping(const MemObjOffsetArray &origin) const override;
 
     virtual void transformImage2dArrayTo3d(void *memory) = 0;
@@ -232,11 +235,12 @@ class Image : public MemObj {
     size_t hostPtrRowPitch = 0;
     size_t hostPtrSlicePitch = 0;
     size_t imageCount = 0;
-    uint32_t cubeFaceIndex;
-    cl_uint mediaPlaneType;
+    uint32_t cubeFaceIndex = __GMM_NO_CUBE_MAP;
+    cl_uint mediaPlaneType = 0;
     SurfaceOffsets surfaceOffsets = {0};
     uint32_t baseMipLevel = 0;
     uint32_t mipCount = 1;
+    GMM_YUV_PLANE_ENUM plane = GMM_NO_PLANE;
 
     static bool isValidSingleChannelFormat(const cl_image_format *imageFormat);
     static bool isValidIntensityFormat(const cl_image_format *imageFormat);
@@ -250,6 +254,35 @@ class Image : public MemObj {
     static bool isValidDepthStencilFormat(const cl_image_format *imageFormat);
     static bool isValidYUVFormat(const cl_image_format *imageFormat);
     static bool hasAlphaChannel(const cl_image_format *imageFormat);
+    static size_t getImageHeight(const cl_image_desc &imageDesc);
+    static size_t getImageDepth(const cl_image_desc &imageDesc);
+    static size_t getHostPtrMinSize(cl_mem_object_type imageType, const cl_image_format &imageFormat,
+                                    size_t hostPtrRowPitch, size_t hostPtrSlicePitch, size_t imageHeight, size_t imageDepth, size_t imageCount);
+    static size_t getHostPtrSlicePitch(const cl_image_desc &imageDesc, size_t hostPtrRowPitch, size_t imageHeight);
+    static bool isParentMemObject(const cl_image_desc &imageDesc);
+    static bool isImageFromBuffer(const cl_image_desc &imageDesc, Buffer *buffer);
+    static void setImageProperties(Image *image, const cl_image_desc &imageDesc, const ImageInfo &imageInfo, Image *parentImage, Buffer *parentBuffer,
+                                   size_t hostPtrRowPitch, size_t hostPtrSlicePitch, size_t imageCount, size_t hostPtrMinSize);
+
+    static void adjustImagePropertiesFromParentImage(size_t &width, size_t &height, size_t &depth, ImageInfo &imageInfo, cl_image_desc &descriptor, Image *parentImage);
+
+    static void setAllocationInfoFromParentBuffer(CreateMemObj::AllocationInfo &allocationInfo, const void *&hostPtr, void *&hostPtrToSet,
+                                                  Buffer *parentBuffer, ImageInfo &imageInfo, uint32_t rootDeviceIndex);
+
+    static void setAllocationInfoFromHostPtrWithSharedContext(CreateMemObj::AllocationInfo &allocationInfo, uint32_t rootDeviceIndex, ImageInfo &imageInfo,
+                                                              Context *context, bool preferCompression, MemoryManager *memoryManager, const void *hostPtr);
+
+    static void setAllocationInfoFromHostPtr(CreateMemObj::AllocationInfo &allocationInfo, uint32_t rootDeviceIndex, const HardwareInfo &hwInfo,
+                                             const MemoryProperties &memoryProperties, ImageInfo &imageInfo, Context *context, bool preferCompression,
+                                             MemoryManager *memoryManager, const void *hostPtr, size_t hostPtrMinSize);
+
+    static void setAllocationInfoFromImageInfo(CreateMemObj::AllocationInfo &allocationInfo, uint32_t rootDeviceIndex, const HardwareInfo &hwInfo,
+                                               const MemoryProperties &memoryProperties, ImageInfo &imageInfo, Context *context, bool preferCompression,
+                                               MemoryManager *memoryManager);
+
+    static void providePerformanceHintForCreateImage(Image *image, const HardwareInfo &hwInfo, CreateMemObj::AllocationInfo &allocationInfo, Context *context);
+
+    static void setImageDesriptorIfParentImage(cl_image_desc &imageDescriptor, size_t imageWidth, size_t imageHeight, cl_mem memObject);
 };
 
 template <typename GfxFamily>
@@ -276,11 +309,8 @@ class ImageHw : public Image {
             const SurfaceOffsets *surfaceOffsets = nullptr)
         : Image(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, imageFormat, imageDesc,
                 zeroCopy, std::move(multiGraphicsAllocation), isObjectRedescribed, baseMipLevel, mipCount, surfaceFormatInfo, surfaceOffsets) {
-        if (getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D ||
-            getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER ||
-            getImageDesc().image_type == CL_MEM_OBJECT_IMAGE2D ||
-            getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY ||
-            getImageDesc().image_type == CL_MEM_OBJECT_IMAGE2D_ARRAY) {
+
+        if (!isImage3d(imageDesc.image_type)) {
             this->imageDesc.image_depth = 0;
         }
 

@@ -47,6 +47,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         size_t bindingTablePointer,
         [[maybe_unused]] size_t offsetSamplerState,
         uint32_t numSamplers,
+        const uint32_t threadGroupCount,
         uint32_t numThreadsPerThreadGroup,
         const Kernel &kernel,
         uint32_t bindingTablePrefetchSize,
@@ -79,6 +80,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         uint64_t kernelStartOffset,
         uint32_t simd,
         const size_t localWorkSize[3],
+        const uint32_t threadGroupCount,
         const uint64_t offsetInterfaceDescriptorTable,
         uint32_t &interfaceDescriptorIndex,
         PreemptionMode preemptionMode,
@@ -105,8 +107,6 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         uint32_t &numChannels,
         size_t &sizePerThreadDataTotal,
         size_t &localWorkItems);
-
-    inline static bool resetBindingTablePrefetch();
 
     static size_t getSizeRequiredCS();
     static size_t getSizeRequiredForCacheFlush(const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);

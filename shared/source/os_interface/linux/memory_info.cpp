@@ -7,20 +7,27 @@
 
 #include "shared/source/os_interface/linux/memory_info.h"
 
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
+
+#include <iostream>
 
 namespace NEO {
 
-MemoryInfo::MemoryInfo(const RegionContainer &regionInfo)
-    : drmQueryRegions(regionInfo), systemMemoryRegion(drmQueryRegions[0]) {
-    UNRECOVERABLE_IF(systemMemoryRegion.region.memoryClass != I915_MEMORY_CLASS_SYSTEM);
+MemoryInfo::MemoryInfo(const RegionContainer &regionInfo, const Drm &inputDrm)
+    : drm(inputDrm), drmQueryRegions(regionInfo), systemMemoryRegion(drmQueryRegions[0]) {
+    auto ioctlHelper = drm.getIoctlHelper();
+    const auto memoryClassSystem = ioctlHelper->getDrmParamValue(DrmParam::MemoryClassSystem);
+    const auto memoryClassDevice = ioctlHelper->getDrmParamValue(DrmParam::MemoryClassDevice);
+    UNRECOVERABLE_IF(this->systemMemoryRegion.region.memoryClass != memoryClassSystem);
     std::copy_if(drmQueryRegions.begin(), drmQueryRegions.end(), std::back_inserter(localMemoryRegions),
-                 [](const MemoryRegion &memoryRegionInfo) {
-                     return (memoryRegionInfo.region.memoryClass == I915_MEMORY_CLASS_DEVICE);
+                 [&](const MemoryRegion &memoryRegionInfo) {
+                     return (memoryRegionInfo.region.memoryClass == memoryClassDevice);
                  });
 }
 
@@ -49,8 +56,18 @@ void MemoryInfo::assignRegionsFromDistances(const std::vector<DistanceInfo> &dis
     }
 }
 
-uint32_t MemoryInfo::createGemExt(Drm *drm, const MemRegionsVec &memClassInstances, size_t allocSize, uint32_t &handle) {
-    return drm->getIoctlHelper()->createGemExt(drm, memClassInstances, allocSize, handle);
+uint32_t MemoryInfo::createGemExt(const MemRegionsVec &memClassInstances, size_t allocSize, uint32_t &handle, std::optional<uint32_t> vmId, int32_t pairHandle) {
+    return this->drm.getIoctlHelper()->createGemExt(memClassInstances, allocSize, handle, vmId, pairHandle);
+}
+
+uint32_t MemoryInfo::getTileIndex(uint32_t memoryBank, const HardwareInfo &hwInfo) {
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    auto tileIndex = Math::log2(memoryBank);
+    tileIndex = hwHelper.isBankOverrideRequired(hwInfo) ? 0 : tileIndex;
+    if (DebugManager.flags.OverrideDrmRegion.get() != -1) {
+        tileIndex = DebugManager.flags.OverrideDrmRegion.get();
+    }
+    return tileIndex;
 }
 
 MemoryClassInstance MemoryInfo::getMemoryRegionClassAndInstance(uint32_t memoryBank, const HardwareInfo &hwInfo) {
@@ -59,13 +76,7 @@ MemoryClassInstance MemoryInfo::getMemoryRegionClassAndInstance(uint32_t memoryB
         return systemMemoryRegion.region;
     }
 
-    auto index = Math::log2(memoryBank);
-
-    index = hwHelper.isBankOverrideRequired(hwInfo) ? 0 : index;
-
-    if (DebugManager.flags.OverrideDrmRegion.get() != -1) {
-        index = DebugManager.flags.OverrideDrmRegion.get();
-    }
+    auto index = getTileIndex(memoryBank, hwInfo);
 
     UNRECOVERABLE_IF(index >= localMemoryRegions.size());
 
@@ -97,11 +108,36 @@ void MemoryInfo::printRegionSizes() {
     }
 }
 
-uint32_t MemoryInfo::createGemExtWithSingleRegion(Drm *drm, uint32_t memoryBanks, size_t allocSize, uint32_t &handle) {
-    auto pHwInfo = drm->getRootDeviceEnvironment().getHardwareInfo();
+uint32_t MemoryInfo::createGemExtWithSingleRegion(uint32_t memoryBanks, size_t allocSize, uint32_t &handle, int32_t pairHandle) {
+    auto pHwInfo = this->drm.getRootDeviceEnvironment().getHardwareInfo();
     auto regionClassAndInstance = getMemoryRegionClassAndInstance(memoryBanks, *pHwInfo);
     MemRegionsVec region = {regionClassAndInstance};
-    auto ret = createGemExt(drm, region, allocSize, handle);
+    std::optional<uint32_t> vmId;
+    if (!this->drm.isPerContextVMRequired()) {
+        if (memoryBanks != 0 && DebugManager.flags.EnablePrivateBO.get()) {
+            auto tileIndex = getTileIndex(memoryBanks, *pHwInfo);
+            vmId = this->drm.getVirtualMemoryAddressSpace(tileIndex);
+        }
+    }
+    auto ret = createGemExt(region, allocSize, handle, vmId, pairHandle);
+    return ret;
+}
+
+uint32_t MemoryInfo::createGemExtWithMultipleRegions(uint32_t memoryBanks, size_t allocSize, uint32_t &handle) {
+    auto pHwInfo = this->drm.getRootDeviceEnvironment().getHardwareInfo();
+    auto banks = std::bitset<4>(memoryBanks);
+    MemRegionsVec memRegions{};
+    size_t currentBank = 0;
+    size_t i = 0;
+    while (i < banks.count()) {
+        if (banks.test(currentBank)) {
+            auto regionClassAndInstance = getMemoryRegionClassAndInstance(1u << currentBank, *pHwInfo);
+            memRegions.push_back(regionClassAndInstance);
+            i++;
+        }
+        currentBank++;
+    }
+    auto ret = createGemExt(memRegions, allocSize, handle, {}, -1);
     return ret;
 }
 

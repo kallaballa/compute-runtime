@@ -1,9 +1,11 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
+
+#pragma once
 
 #include "shared/test/common/helpers/execution_environment_helper.h"
 #include "shared/test/common/mocks/mock_builtins.h"
@@ -12,7 +14,6 @@
 #include "shared/test/common/mocks/mock_os_library.h"
 #include "shared/test/common/mocks/mock_sip.h"
 #include "shared/test/common/mocks/mock_source_level_debugger.h"
-#include "shared/test/common/test_macros/test.h"
 
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 

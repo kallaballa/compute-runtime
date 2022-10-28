@@ -17,4 +17,7 @@ struct TestTraits<IGFX_GEN9_CORE> {
     static constexpr bool deviceEnqueueSupport = false;
     static constexpr bool implementsPreambleThreadArbitration = true;
     static constexpr bool forceGpuNonCoherent = false;
+    static constexpr bool imagesSupported = true;
+    static constexpr bool programComputeModeCommandProgramsThreadArbitrationPolicy = true;
+    static constexpr bool programComputeModeCommandProgramsNonCoherent = false;
 };

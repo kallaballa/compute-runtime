@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "shared/source/command_stream/thread_arbitration_policy.h"
 #include "shared/source/kernel/dispatch_kernel_encoder_interface.h"
 #include "shared/source/unified_memory/unified_memory.h"
 
@@ -15,6 +16,17 @@
 #include <memory>
 
 namespace L0 {
+
+struct KernelExt {
+    virtual ~KernelExt() = default;
+};
+
+struct KernelArgInfo {
+    const void *value;
+    uint32_t allocId;
+    uint32_t allocIdMemoryManagerCounter;
+    bool isSetToNullptr = false;
+};
 
 struct KernelImp : Kernel {
     KernelImp(Module *module);
@@ -26,6 +38,7 @@ struct KernelImp : Kernel {
         return ZE_RESULT_SUCCESS;
     }
 
+    ze_result_t getBaseAddress(uint64_t *baseAddress) override;
     ze_result_t setIndirectAccess(ze_kernel_indirect_access_flags_t flags) override;
     ze_result_t getIndirectAccess(ze_kernel_indirect_access_flags_t *flags) override;
     ze_result_t getSourceAttributes(uint32_t *pSize, char **pString) override;
@@ -70,6 +83,8 @@ struct KernelImp : Kernel {
     ze_result_t setArgSampler(uint32_t argIndex, size_t argSize, const void *argVal);
 
     virtual void setBufferSurfaceState(uint32_t argIndex, void *address, NEO::GraphicsAllocation *alloc) = 0;
+
+    void setInlineSamplers();
 
     ze_result_t initialize(const ze_kernel_desc_t *desc);
 
@@ -130,14 +145,10 @@ struct KernelImp : Kernel {
 
     ze_result_t setCacheConfig(ze_cache_config_flags_t flags) override;
     bool usesRayTracing() {
-        return kernelImmData->getDescriptor().hasRTCalls();
+        return kernelImmData->getDescriptor().kernelAttributes.flags.hasRTCalls;
     }
 
-    ze_result_t getProfileInfo(zet_profile_properties_t *pProfileProperties) override {
-        pProfileProperties->flags = 0;
-        pProfileProperties->numTokens = 0;
-        return ZE_RESULT_SUCCESS;
-    }
+    ze_result_t getProfileInfo(zet_profile_properties_t *pProfileProperties) override;
 
     bool hasIndirectAccess() {
         return kernelHasIndirectAccess;
@@ -151,11 +162,10 @@ struct KernelImp : Kernel {
     }
 
     ze_result_t setSchedulingHintExp(ze_scheduling_hint_exp_desc_t *pHint) override;
-    uint32_t getSchedulingHintExp();
 
     NEO::ImplicitArgs *getImplicitArgs() const override { return pImplicitArgs.get(); }
-    uint32_t getSizeForImplicitArgsPatching() const override;
-    void patchImplicitArgs(void *&pOut) const override;
+
+    KernelExt *getExtension(uint32_t extensionType);
 
   protected:
     KernelImp() = default;
@@ -173,6 +183,7 @@ struct KernelImp : Kernel {
     Module *module = nullptr;
 
     typedef ze_result_t (KernelImp::*KernelArgHandler)(uint32_t argIndex, size_t argSize, const void *argVal);
+    std::vector<KernelArgInfo> kernelArgInfos;
     std::vector<KernelImp::KernelArgHandler> kernelArgHandlers;
     std::vector<NEO::GraphicsAllocation *> residencyContainer;
 
@@ -212,8 +223,9 @@ struct KernelImp : Kernel {
 
     bool kernelHasIndirectAccess = true;
 
-    uint32_t schedulingHintExpFlag = 0u;
     std::unique_ptr<NEO::ImplicitArgs> pImplicitArgs;
+
+    std::unique_ptr<KernelExt> pExtension;
 };
 
 } // namespace L0

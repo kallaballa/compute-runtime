@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #pragma once
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/helpers/debug_helpers.h"
 
 #include <level_zero/ze_api.h>
 
@@ -15,6 +16,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+
 namespace L0 {
 
 class EuThread {
@@ -150,6 +152,10 @@ class EuThread {
     }
 
     uint64_t getMemoryHandle() const { return memoryHandle; }
+
+    uint8_t getLastCounter() const {
+        return systemRoutineCounter;
+    }
 
   public:
     static constexpr uint64_t invalidHandle = std::numeric_limits<uint64_t>::max();

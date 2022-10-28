@@ -18,6 +18,7 @@ enum class CachePolicy : uint32_t;
 enum class CacheRegion : uint16_t;
 
 struct OsHandleLinux : OsHandle {
+    ~OsHandleLinux() override = default;
     BufferObject *bo = nullptr;
 };
 
@@ -33,27 +34,27 @@ class DrmAllocation : public GraphicsAllocation {
         MemoryUnmapFunction unmapFunction;
     };
 
-    DrmAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, BufferObject *bo, void *ptrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool)
-        : DrmAllocation(rootDeviceIndex, 1, allocationType, bo, ptrIn, sizeIn, sharedHandle, pool) {}
+    DrmAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, BufferObject *bo, void *ptrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool pool, uint64_t canonizedGpuAddress)
+        : DrmAllocation(rootDeviceIndex, 1, allocationType, bo, ptrIn, sizeIn, sharedHandle, pool, canonizedGpuAddress) {}
 
-    DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObject *bo, void *ptrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool)
-        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, sizeIn, sharedHandle, pool, MemoryManager::maxOsContextCount), bufferObjects(EngineLimits::maxHandleCount) {
+    DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObject *bo, void *ptrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool pool, uint64_t canonizedGpuAddress)
+        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, sizeIn, sharedHandle, pool, MemoryManager::maxOsContextCount, canonizedGpuAddress), bufferObjects(EngineLimits::maxHandleCount) {
         bufferObjects[0] = bo;
     }
 
-    DrmAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, BufferObject *bo, void *ptrIn, uint64_t gpuAddress, size_t sizeIn, MemoryPool::Type pool)
-        : DrmAllocation(rootDeviceIndex, 1, allocationType, bo, ptrIn, gpuAddress, sizeIn, pool) {}
+    DrmAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, BufferObject *bo, void *ptrIn, uint64_t canonizedGpuAddress, size_t sizeIn, MemoryPool pool)
+        : DrmAllocation(rootDeviceIndex, 1, allocationType, bo, ptrIn, canonizedGpuAddress, sizeIn, pool) {}
 
-    DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObject *bo, void *ptrIn, uint64_t gpuAddress, size_t sizeIn, MemoryPool::Type pool)
-        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, gpuAddress, 0, sizeIn, pool, MemoryManager::maxOsContextCount), bufferObjects(EngineLimits::maxHandleCount) {
+    DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObject *bo, void *ptrIn, uint64_t canonizedGpuAddress, size_t sizeIn, MemoryPool pool)
+        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, canonizedGpuAddress, 0, sizeIn, pool, MemoryManager::maxOsContextCount), bufferObjects(EngineLimits::maxHandleCount) {
         bufferObjects[0] = bo;
     }
 
-    DrmAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, BufferObjects &bos, void *ptrIn, uint64_t gpuAddress, size_t sizeIn, MemoryPool::Type pool)
-        : DrmAllocation(rootDeviceIndex, 1, allocationType, bos, ptrIn, gpuAddress, sizeIn, pool) {}
+    DrmAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, BufferObjects &bos, void *ptrIn, uint64_t canonizedGpuAddress, size_t sizeIn, MemoryPool pool)
+        : DrmAllocation(rootDeviceIndex, 1, allocationType, bos, ptrIn, canonizedGpuAddress, sizeIn, pool) {}
 
-    DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObjects &bos, void *ptrIn, uint64_t gpuAddress, size_t sizeIn, MemoryPool::Type pool)
-        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, gpuAddress, 0, sizeIn, pool, MemoryManager::maxOsContextCount),
+    DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObjects &bos, void *ptrIn, uint64_t canonizedGpuAddress, size_t sizeIn, MemoryPool pool)
+        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, canonizedGpuAddress, 0, sizeIn, pool, MemoryManager::maxOsContextCount),
           bufferObjects(bos) {
     }
 
@@ -78,13 +79,24 @@ class DrmAllocation : public GraphicsAllocation {
         this->bufferObjects.resize(size);
     }
 
+    uint32_t getNumHandles() override {
+        return this->numHandles;
+    }
+
+    void setNumHandles(uint32_t numHandles) override {
+        this->numHandles = numHandles;
+    }
+
     uint64_t peekInternalHandle(MemoryManager *memoryManager) override;
+
+    uint64_t peekInternalHandle(MemoryManager *memoryManager, uint32_t handleId) override;
 
     bool setCacheRegion(Drm *drm, CacheRegion regionIndex);
     bool setCacheAdvice(Drm *drm, size_t regionSize, CacheRegion regionIndex);
     void setCachePolicy(CachePolicy memType);
 
     bool setMemAdvise(Drm *drm, MemAdviseFlags flags);
+    bool setMemPrefetch(Drm *drm, uint32_t subDeviceId);
 
     void *getMmapPtr() { return this->mmapPtr; }
     void setMmapPtr(void *ptr) { this->mmapPtr = ptr; }
@@ -106,6 +118,7 @@ class DrmAllocation : public GraphicsAllocation {
     StackVec<uint32_t, 1> registeredBoBindHandles;
     MemAdviseFlags enabledMemAdviseFlags{};
     StackVec<MemoryToUnmap, 1> memoryToUnmap;
+    uint32_t numHandles = 0u;
 
     void *mmapPtr = nullptr;
     size_t mmapSize = 0u;

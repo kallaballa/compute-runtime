@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "shared/test/common/mocks/mock_compiler_interface.h"
 #include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_os_library.h"
 #include "shared/test/common/mocks/mock_sip.h"
 #include "shared/test/common/mocks/mock_source_level_debugger.h"
@@ -27,17 +28,16 @@ namespace L0 {
 namespace ult {
 
 struct ActiveDebuggerFixture {
-    void SetUp() { // NOLINT(readability-identifier-naming)
-        NEO::MockCompilerEnableGuard mock(true);
-        ze_result_t returnValue;
-        auto executionEnvironment = new NEO::ExecutionEnvironment();
-        auto mockBuiltIns = new MockBuiltins();
-        executionEnvironment->prepareRootDeviceEnvironments(1);
+    void setUp() {
 
-        hwInfo = *defaultHwInfo.get();
+        ze_result_t returnValue;
+        auto executionEnvironment = new NEO::MockExecutionEnvironment();
+        auto mockBuiltIns = new MockBuiltins();
+
+        hwInfo = *executionEnvironment->rootDeviceEnvironments[0]->getMutableHardwareInfo();
 
         executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
-        executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+        executionEnvironment->rootDeviceEnvironments[0]->initGmm();
 
         auto isHexadecimalArrayPrefered = HwHelper::get(hwInfo.platform.eRenderCoreFamily).isSipKernelAsHexadecimalArrayPreferred();
         if (isHexadecimalArrayPrefered) {
@@ -47,6 +47,7 @@ struct ActiveDebuggerFixture {
         debugger = new MockActiveSourceLevelDebugger(new MockOsLibrary);
         executionEnvironment->rootDeviceEnvironments[0]->debugger.reset(debugger);
         executionEnvironment->initializeMemoryManager();
+        executionEnvironment->setDebuggingEnabled();
 
         device = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u);
         device->setDebuggerActive(true);
@@ -54,7 +55,7 @@ struct ActiveDebuggerFixture {
         std::vector<std::unique_ptr<NEO::Device>> devices;
         devices.push_back(std::unique_ptr<NEO::Device>(device));
 
-        auto driverHandleUlt = whitebox_cast(DriverHandle::create(std::move(devices), L0EnvVariables{}, &returnValue));
+        auto driverHandleUlt = whiteboxCast(DriverHandle::create(std::move(devices), L0EnvVariables{}, &returnValue));
         driverHandle.reset(driverHandleUlt);
 
         ASSERT_NE(nullptr, driverHandle);
@@ -66,7 +67,7 @@ struct ActiveDebuggerFixture {
         deviceL0 = L0::Device::fromHandle(hDevice);
         ASSERT_NE(nullptr, deviceL0);
     }
-    void TearDown() { // NOLINT(readability-identifier-naming)
+    void tearDown() {
         L0::GlobalDriver = nullptr;
     }
 

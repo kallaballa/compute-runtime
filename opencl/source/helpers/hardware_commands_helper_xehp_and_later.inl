@@ -101,9 +101,32 @@ size_t HardwareCommandsHelper<GfxFamily>::sendCrossThreadData(
 
     auto pImplicitArgs = kernel.getImplicitArgs();
     if (pImplicitArgs) {
-        auto implicitArgsSize = static_cast<uint32_t>(sizeof(ImplicitArgs));
-        dest = static_cast<char *>(indirectHeap.getSpace(implicitArgsSize));
-        memcpy_s(dest, implicitArgsSize, pImplicitArgs, implicitArgsSize);
+        pImplicitArgs->localIdTablePtr = indirectHeap.getGraphicsAllocation()->getGpuAddress() + offsetCrossThreadData;
+
+        const auto &kernelDescriptor = kernel.getDescriptor();
+        const auto &hwInfo = kernel.getHardwareInfo();
+        auto sizeForImplicitArgsProgramming = ImplicitArgsHelper::getSizeForImplicitArgsPatching(pImplicitArgs, kernelDescriptor, hwInfo);
+
+        auto sizeForLocalIdsProgramming = sizeForImplicitArgsProgramming - sizeof(ImplicitArgs);
+        offsetCrossThreadData += sizeForLocalIdsProgramming;
+
+        auto ptrToPatchImplicitArgs = indirectHeap.getSpace(sizeForImplicitArgsProgramming);
+
+        const auto &kernelAttributes = kernelDescriptor.kernelAttributes;
+        uint32_t requiredWalkOrder = 0u;
+        size_t localWorkSize[3] = {pImplicitArgs->localSizeX, pImplicitArgs->localSizeY, pImplicitArgs->localSizeZ};
+        auto generationOfLocalIdsByRuntime = EncodeDispatchKernel<GfxFamily>::isRuntimeLocalIdsGenerationRequired(
+            3,
+            localWorkSize,
+            std::array<uint8_t, 3>{
+                {kernelAttributes.workgroupWalkOrder[0],
+                 kernelAttributes.workgroupWalkOrder[1],
+                 kernelAttributes.workgroupWalkOrder[2]}},
+            kernelAttributes.flags.requiresWorkgroupWalkOrder,
+            requiredWalkOrder,
+            kernelDescriptor.kernelAttributes.simdSize);
+
+        ImplicitArgsHelper::patchImplicitArgs(ptrToPatchImplicitArgs, *pImplicitArgs, kernelDescriptor, hwInfo, std::make_pair(generationOfLocalIdsByRuntime, requiredWalkOrder));
     }
 
     using InlineData = typename GfxFamily::INLINE_DATA;
@@ -132,11 +155,6 @@ size_t HardwareCommandsHelper<GfxFamily>::sendCrossThreadData(
 }
 
 template <typename GfxFamily>
-bool HardwareCommandsHelper<GfxFamily>::resetBindingTablePrefetch() {
-    return false;
-}
-
-template <typename GfxFamily>
 void HardwareCommandsHelper<GfxFamily>::setInterfaceDescriptorOffset(
     WALKER_TYPE *walkerCmd,
     uint32_t &interfaceDescriptorIndex) {
@@ -149,7 +167,7 @@ void HardwareCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(Line
     auto &hardwareInfo = commandQueue.getDevice().getHardwareInfo();
     args.unTypedDataPortCacheFlush = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily).unTypedDataPortCacheFlushRequired();
 
-    MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandStream, args);
+    MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(*commandStream, args);
 
     // 2. flush all affected L3 lines
     if constexpr (GfxFamily::isUsingL3Control) {
@@ -161,7 +179,7 @@ void HardwareCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(Line
         }
         for (size_t subrangeNumber = 0; subrangeNumber < subranges.size(); subrangeNumber += maxFlushSubrangeCount) {
             size_t rangeCount = subranges.size() <= subrangeNumber + maxFlushSubrangeCount ? subranges.size() - subrangeNumber : maxFlushSubrangeCount;
-            Range<L3Range> range = CreateRange(subranges.begin() + subrangeNumber, rangeCount);
+            Range<L3Range> range = createRange(subranges.begin() + subrangeNumber, rangeCount);
             uint64_t postSyncAddressToFlush = 0;
             if (rangeCount < maxFlushSubrangeCount || subranges.size() - subrangeNumber - maxFlushSubrangeCount == 0) {
                 postSyncAddressToFlush = postSyncAddress;

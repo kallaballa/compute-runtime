@@ -5,9 +5,10 @@
  *
  */
 
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/test/common/mocks/mock_command_stream_receiver.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/event/user_event.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
@@ -31,12 +32,12 @@ HWTEST_F(MultiRootDeviceCommandStreamReceiverBufferTests, givenMultipleEventInMu
     size_t offset = 0;
     size_t size = 1;
 
-    auto pCmdQ1 = context.get()->getSpecialQueue(1u);
-    auto pCmdQ2 = context.get()->getSpecialQueue(2u);
+    auto pCmdQ1 = context->getSpecialQueue(1u);
+    auto pCmdQ2 = context->getSpecialQueue(2u);
 
-    std::unique_ptr<MockProgram> program(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context.get(), context.get()->getDevices(), &retVal));
+    std::unique_ptr<MockProgram> program(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context.get(), context->getDevices(), &retVal));
     program->build(program->getDevices(), nullptr, false);
-    std::unique_ptr<MockKernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfoForKernel("FillBufferBytes"), *context.get()->getDevice(0), &retVal));
+    std::unique_ptr<MockKernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfoForKernel("FillBufferBytes"), *context->getDevice(0), &retVal));
 
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);
@@ -146,9 +147,9 @@ HWTEST_F(MultiRootDeviceCommandStreamReceiverTests, givenMultipleEventInMultiRoo
 
     auto context = std::make_unique<MockContext>(ClDeviceVector(devices, 3), false);
 
-    auto pCmdQ1 = context.get()->getSpecialQueue(1u);
-    auto pCmdQ2 = context.get()->getSpecialQueue(2u);
-    auto pCmdQ3 = context.get()->getSpecialQueue(3u);
+    auto pCmdQ1 = context->getSpecialQueue(1u);
+    auto pCmdQ2 = context->getSpecialQueue(2u);
+    auto pCmdQ3 = context->getSpecialQueue(3u);
 
     Event event1(pCmdQ1, CL_COMMAND_NDRANGE_KERNEL, 5, 15);
     Event event2(nullptr, CL_COMMAND_NDRANGE_KERNEL, 6, 16);
@@ -259,14 +260,15 @@ struct CrossDeviceDependenciesTests : public ::testing::Test {
         defaultHwInfo->capabilityTable.blitterOperationsSupported = true;
         deviceFactory = std::make_unique<UltClDeviceFactory>(3, 0);
         auto device1 = deviceFactory->rootDevices[1];
+
         auto device2 = deviceFactory->rootDevices[2];
 
         cl_device_id devices[] = {device1, device2};
 
         context = std::make_unique<MockContext>(ClDeviceVector(devices, 2), false);
 
-        pCmdQ1 = context.get()->getSpecialQueue(1u);
-        pCmdQ2 = context.get()->getSpecialQueue(2u);
+        pCmdQ1 = context->getSpecialQueue(1u);
+        pCmdQ2 = context->getSpecialQueue(2u);
     }
 
     void TearDown() override {
@@ -632,6 +634,43 @@ HWTEST_F(CrossDeviceDependenciesTests, givenWaitListWithEventBlockedByUserEventW
     pCmdQ2->release();
 }
 
+HWTEST_F(MultiRootDeviceCommandStreamReceiverTests, givenUnflushedQueueAndEventInMultiRootDeviceEnvironmentWhenTheyArePassedToSecondQueueThenFlushSubmissions) {
+    auto deviceFactory = std::make_unique<UltClDeviceFactory>(3, 0);
+    deviceFactory->rootDevices[1]->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+    deviceFactory->rootDevices[1]->getUltCommandStreamReceiver<FamilyType>().useNewResourceImplicitFlush = false;
+
+    cl_device_id devices[] = {deviceFactory->rootDevices[1], deviceFactory->rootDevices[2]};
+
+    auto context = std::make_unique<MockContext>(ClDeviceVector(devices, 2), false);
+    auto pCmdQ1 = context.get()->getSpecialQueue(1u);
+    auto pCmdQ2 = context.get()->getSpecialQueue(2u);
+
+    pCmdQ1->getGpgpuCommandStreamReceiver().overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    cl_event outputEvent{};
+    cl_event inputEvent;
+
+    pCmdQ1->enqueueMarkerWithWaitList(
+        0,
+        nullptr,
+        &inputEvent);
+    pCmdQ1->enqueueMarkerWithWaitList(
+        1,
+        &inputEvent,
+        &outputEvent);
+
+    EXPECT_FALSE(pCmdQ1->getGpgpuCommandStreamReceiver().isLatestTaskCountFlushed());
+
+    pCmdQ2->enqueueMarkerWithWaitList(
+        1,
+        &outputEvent,
+        nullptr);
+    EXPECT_TRUE(pCmdQ1->getGpgpuCommandStreamReceiver().isLatestTaskCountFlushed());
+    castToObject<Event>(inputEvent)->release();
+    castToObject<Event>(outputEvent)->release();
+    pCmdQ1->finish();
+    pCmdQ2->finish();
+}
+
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenStaticPartitioningEnabledWhenFlushingTaskThenWorkPartitionAllocationIsMadeResident) {
     DebugManagerStateRestore restore{};
     DebugManager.flags.EnableStaticPartitioning.set(1);
@@ -646,11 +685,14 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenStaticPartitioningEnabledWhen
     mockCsr.storeMakeResidentAllocations = true;
 
     DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+    cleanupHeaps();
+    initHeaps();
     mockCsr.flushTask(commandStream,
                       0,
-                      dsh,
-                      ioh,
-                      ssh,
+                      &dsh,
+                      &ioh,
+                      &ssh,
                       taskLevel,
                       dispatchFlags,
                       *device);
@@ -666,22 +708,25 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenStaticPartitioningEnabledWhen
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEnqueueWithoutArbitrationPolicyWhenPolicyIsAlreadyProgrammedThenReuse) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.ForceThreadArbitrationPolicyProgrammingWithScm.set(1);
+
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto &csrThreadArbitrationPolicy = commandStreamReceiver.streamProperties.stateComputeMode.threadArbitrationPolicy.value;
 
-    uint32_t sentThreadArbitrationPolicy = ThreadArbitrationPolicy::RoundRobinAfterDependency;
+    int32_t sentThreadArbitrationPolicy = ThreadArbitrationPolicy::RoundRobinAfterDependency;
 
     flushTaskFlags.threadArbitrationPolicy = sentThreadArbitrationPolicy;
 
     flushTask(commandStreamReceiver);
 
-    EXPECT_EQ(static_cast<uint32_t>(csrThreadArbitrationPolicy), sentThreadArbitrationPolicy);
+    EXPECT_EQ(csrThreadArbitrationPolicy, sentThreadArbitrationPolicy);
 
     flushTaskFlags.threadArbitrationPolicy = ThreadArbitrationPolicy::NotPresent;
 
     flushTask(commandStreamReceiver);
 
-    EXPECT_EQ(static_cast<uint32_t>(csrThreadArbitrationPolicy), sentThreadArbitrationPolicy);
+    EXPECT_EQ(csrThreadArbitrationPolicy, sentThreadArbitrationPolicy);
 }
 
 struct PreambleThreadArbitrationMatcher {
@@ -738,6 +783,98 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenTagValueNotMeetingTaskCountTo
     CpuIntrinsicsTests::pauseAddress = mockCsr->tagAddress;
     CpuIntrinsicsTests::pauseValue = taskCountToWait;
 
-    const auto ret = mockCsr->waitForCompletionWithTimeout(false, 1, taskCountToWait);
+    const auto ret = mockCsr->waitForCompletionWithTimeout(WaitParams{false, false, 1}, taskCountToWait);
     EXPECT_EQ(NEO::WaitStatus::Ready, ret);
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenTagValueNotMeetingTaskCountToWaitAndIndefinitelyPollWhenWaitForCompletionThenDoNotCallWaitUtils) {
+    VariableBackup<volatile uint32_t *> backupPauseAddress(&CpuIntrinsicsTests::pauseAddress);
+    VariableBackup<uint32_t> backupPauseValue(&CpuIntrinsicsTests::pauseValue);
+
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    pDevice->resetCommandStreamReceiver(mockCsr);
+
+    uint32_t taskCountToWait = 2u;
+
+    *mockCsr->tagAddress = 1u;
+
+    CpuIntrinsicsTests::pauseAddress = mockCsr->tagAddress;
+    CpuIntrinsicsTests::pauseValue = taskCountToWait;
+
+    const auto ret = mockCsr->waitForCompletionWithTimeout(WaitParams{true, true, 10}, taskCountToWait);
+    EXPECT_EQ(NEO::WaitStatus::NotReady, ret);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, WhenFlushingAllCachesThenPipeControlIsAdded) {
+    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.FlushAllCaches.set(true);
+
+    char buff[sizeof(PIPE_CONTROL) * 3];
+    LinearStream stream(buff, sizeof(PIPE_CONTROL) * 3);
+
+    PipeControlArgs args;
+    MemorySynchronizationCommands<FamilyType>::addSingleBarrier(stream, args);
+
+    parseCommands<FamilyType>(stream, 0);
+
+    PIPE_CONTROL *pipeControl = getCommand<PIPE_CONTROL>();
+
+    ASSERT_NE(nullptr, pipeControl);
+
+    // WA pipeControl added
+    if (cmdList.size() == 2) {
+        pipeControl++;
+    }
+
+    EXPECT_TRUE(pipeControl->getDcFlushEnable());
+    EXPECT_TRUE(pipeControl->getRenderTargetCacheFlushEnable());
+    EXPECT_TRUE(pipeControl->getInstructionCacheInvalidateEnable());
+    EXPECT_TRUE(pipeControl->getTextureCacheInvalidationEnable());
+    EXPECT_TRUE(pipeControl->getPipeControlFlushEnable());
+    EXPECT_TRUE(pipeControl->getVfCacheInvalidationEnable());
+    EXPECT_TRUE(pipeControl->getConstantCacheInvalidationEnable());
+    EXPECT_TRUE(pipeControl->getStateCacheInvalidationEnable());
+    EXPECT_TRUE(pipeControl->getTlbInvalidate());
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenDebugDisablingCacheFlushWhenAddingPipeControlWithCacheFlushThenOverrideRequestAndDisableCacheFlushFlags) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.DoNotFlushCaches.set(true);
+
+    char buff[sizeof(PIPE_CONTROL) * 3];
+    LinearStream stream(buff, sizeof(PIPE_CONTROL) * 3);
+
+    PipeControlArgs args;
+    args.dcFlushEnable = true;
+    args.constantCacheInvalidationEnable = true;
+    args.instructionCacheInvalidateEnable = true;
+    args.pipeControlFlushEnable = true;
+    args.renderTargetCacheFlushEnable = true;
+    args.stateCacheInvalidationEnable = true;
+    args.textureCacheInvalidationEnable = true;
+    args.vfCacheInvalidationEnable = true;
+
+    MemorySynchronizationCommands<FamilyType>::addSingleBarrier(stream, args);
+
+    parseCommands<FamilyType>(stream, 0);
+
+    PIPE_CONTROL *pipeControl = getCommand<PIPE_CONTROL>();
+
+    ASSERT_NE(nullptr, pipeControl);
+
+    // WA pipeControl added
+    if (cmdList.size() == 2) {
+        pipeControl++;
+    }
+
+    EXPECT_FALSE(pipeControl->getDcFlushEnable());
+    EXPECT_FALSE(pipeControl->getRenderTargetCacheFlushEnable());
+    EXPECT_FALSE(pipeControl->getInstructionCacheInvalidateEnable());
+    EXPECT_FALSE(pipeControl->getTextureCacheInvalidationEnable());
+    EXPECT_FALSE(pipeControl->getPipeControlFlushEnable());
+    EXPECT_FALSE(pipeControl->getVfCacheInvalidationEnable());
+    EXPECT_FALSE(pipeControl->getConstantCacheInvalidationEnable());
+    EXPECT_FALSE(pipeControl->getStateCacheInvalidationEnable());
 }

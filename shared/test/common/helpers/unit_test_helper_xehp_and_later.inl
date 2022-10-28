@@ -6,8 +6,10 @@
  */
 
 #include "shared/source/command_container/command_encoder.h"
+#include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/kernel/kernel_descriptor.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 
 namespace NEO {
@@ -78,4 +80,50 @@ template <typename GfxFamily>
 inline void UnitTestHelper<GfxFamily>::setPipeControlHdcPipelineFlush(typename GfxFamily::PIPE_CONTROL &pipeControl, bool hdcPipelineFlush) {
     pipeControl.setHdcPipelineFlush(hdcPipelineFlush);
 }
+
+template <typename GfxFamily>
+inline void UnitTestHelper<GfxFamily>::adjustKernelDescriptorForImplicitArgs(KernelDescriptor &kernelDescriptor) {
+    kernelDescriptor.kernelAttributes.flags.requiresImplicitArgs = true;
+}
+
+template <typename GfxFamily>
+std::vector<bool> UnitTestHelper<GfxFamily>::getProgrammedLargeGrfValues(CommandStreamReceiver &csr, LinearStream &linearStream) {
+    using STATE_COMPUTE_MODE = typename GfxFamily::STATE_COMPUTE_MODE;
+
+    std::vector<bool> largeGrfValues;
+    HardwareParse hwParser;
+    hwParser.parseCommands<GfxFamily>(csr, linearStream);
+    auto commands = hwParser.getCommandsList<STATE_COMPUTE_MODE>();
+    for (auto &cmd : commands) {
+        largeGrfValues.push_back(reinterpret_cast<STATE_COMPUTE_MODE *>(cmd)->getLargeGrfMode());
+    }
+    return largeGrfValues;
+}
+
+template <typename GfxFamily>
+inline bool UnitTestHelper<GfxFamily>::getWorkloadPartitionForStoreRegisterMemCmd(typename GfxFamily::MI_STORE_REGISTER_MEM &storeRegisterMem) {
+    return storeRegisterMem.getWorkloadPartitionIdOffsetEnable();
+}
+
+template <typename GfxFamily>
+GenCmdList::iterator UnitTestHelper<GfxFamily>::findMidThreadPreemptionAllocationCommand(GenCmdList::iterator begin, GenCmdList::iterator end) {
+    return end;
+}
+
+template <typename GfxFamily>
+std::vector<GenCmdList::iterator> UnitTestHelper<GfxFamily>::findAllMidThreadPreemptionAllocationCommand(GenCmdList::iterator begin, GenCmdList::iterator end) {
+    std::vector<GenCmdList::iterator> emptyList;
+    return emptyList;
+}
+
+template <typename GfxFamily>
+bool UnitTestHelper<GfxFamily>::getSystolicFlagValueFromPipelineSelectCommand(const typename GfxFamily::PIPELINE_SELECT &pipelineSelectCmd) {
+    return pipelineSelectCmd.getSystolicModeEnable();
+}
+
+template <typename GfxFamily>
+size_t UnitTestHelper<GfxFamily>::getAdditionalDshSize() {
+    return 0;
+}
+
 } // namespace NEO

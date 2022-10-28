@@ -14,14 +14,14 @@
 using namespace NEO;
 namespace ULT {
 
-class clRetainReleaseCommandQueueTests : public ApiFixture<>,
+class ClRetainReleaseCommandQueueTests : public ApiFixture<>,
                                          public ::testing::Test {
   public:
     void SetUp() override {
-        ApiFixture::SetUp();
+        ApiFixture::setUp();
     }
     void TearDown() override {
-        ApiFixture::TearDown();
+        ApiFixture::tearDown();
     }
 
     cl_command_queue createClQueue() {
@@ -32,7 +32,7 @@ class clRetainReleaseCommandQueueTests : public ApiFixture<>,
     cl_queue_properties noProperties[5] = {0};
 };
 
-TEST_F(clRetainReleaseCommandQueueTests, GivenValidCommandQueueWhenRetainingAndReleasingThenReferenceCountIsUpdatedCorrectly) {
+TEST_F(ClRetainReleaseCommandQueueTests, GivenValidCommandQueueWhenRetainingAndReleasingThenReferenceCountIsUpdatedCorrectly) {
 
     auto queue = this->createClQueue();
     ASSERT_EQ(CL_SUCCESS, this->retVal);

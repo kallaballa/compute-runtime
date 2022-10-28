@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,24 +8,21 @@
 #pragma once
 
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/test_macros/test.h"
 
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 
-#include "gtest/gtest.h"
-
 using namespace NEO;
 
 class ScenarioTest : public ::testing::Test,
                      public PlatformFixture {
-    using PlatformFixture::SetUp;
+    using PlatformFixture::setUp;
 
   protected:
     void SetUp() override {
         DebugManager.flags.EnableTimestampPacket.set(false);
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
 
         auto pDevice = pPlatform->getClDevice(0);
         ASSERT_NE(nullptr, pDevice);
@@ -46,7 +43,7 @@ class ScenarioTest : public ::testing::Test,
         context->release();
         program->release();
 
-        PlatformFixture::TearDown();
+        PlatformFixture::tearDown();
     }
 
     cl_int retVal;

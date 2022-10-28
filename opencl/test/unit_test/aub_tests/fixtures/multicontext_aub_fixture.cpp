@@ -14,7 +14,7 @@
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/tests_configuration.h"
+#include "shared/test/common/tests_configuration.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/platform/platform.h"
@@ -23,7 +23,7 @@
 
 namespace NEO {
 
-void MulticontextAubFixture::SetUp(uint32_t numberOfTiles, EnabledCommandStreamers enabledCommandStreamers, bool enableCompression) {
+void MulticontextAubFixture::setUp(uint32_t numberOfTiles, EnabledCommandStreamers enabledCommandStreamers, bool enableCompression) {
     this->numberOfEnabledTiles = numberOfTiles;
     const ::testing::TestInfo *const testInfo = ::testing::UnitTest::GetInstance()->current_test_info();
 
@@ -100,6 +100,7 @@ void MulticontextAubFixture::SetUp(uint32_t numberOfTiles, EnabledCommandStreame
     ultHwConfig.useHwCsr = true;
     constructPlatform()->peekExecutionEnvironment()->prepareRootDeviceEnvironments(1u);
     platform()->peekExecutionEnvironment()->rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(&localHwInfo);
+    platform()->peekExecutionEnvironment()->rootDeviceEnvironments[rootDeviceIndex]->initGmm();
     initPlatform();
 
     rootDevice = platform()->getClDevice(0);
@@ -152,7 +153,7 @@ void MulticontextAubFixture::SetUp(uint32_t numberOfTiles, EnabledCommandStreame
     }
 }
 
-void MulticontextAubFixture::TearDown() {
+void MulticontextAubFixture::tearDown() {
     auto filename = DebugManager.flags.AUBDumpCaptureFileName.get();
 
     std::string tileString = std::to_string(numberOfEnabledTiles) + "tx";
@@ -175,7 +176,7 @@ void MulticontextAubFixture::overridePlatformConfigForAllEnginesSupport(Hardware
 #ifdef SUPPORT_XE_HP_SDV
         if (localHwInfo.platform.eProductFamily == IGFX_XE_HP_SDV) {
             setupCalled = true;
-            XE_HP_SDV_CONFIG::setupHardwareInfoMultiTile(&localHwInfo, true, true);
+            XehpSdvHwConfig::setupHardwareInfo(&localHwInfo, true);
 
             // Mock values
             localHwInfo.gtSystemInfo.SliceCount = 8;
@@ -195,7 +196,7 @@ void MulticontextAubFixture::overridePlatformConfigForAllEnginesSupport(Hardware
             ASSERT_TRUE(numberOfEnabledTiles == 1);
             setupCalled = true;
 
-            DG2_CONFIG::setupHardwareInfoMultiTile(&localHwInfo, true, false);
+            Dg2HwConfig::setupHardwareInfo(&localHwInfo, true);
 
             // Mock values
             localHwInfo.gtSystemInfo.SliceCount = 8;
@@ -214,7 +215,7 @@ void MulticontextAubFixture::overridePlatformConfigForAllEnginesSupport(Hardware
         if (localHwInfo.platform.eProductFamily == IGFX_PVC) {
             setupCalled = true;
 
-            PVC_CONFIG::setupHardwareInfoMultiTile(&localHwInfo, true, true);
+            PvcHwConfig::setupHardwareInfo(&localHwInfo, true);
 
             // Mock values
             localHwInfo.gtSystemInfo.SliceCount = 8;

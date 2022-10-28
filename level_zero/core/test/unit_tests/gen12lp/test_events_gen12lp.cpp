@@ -1,13 +1,14 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/common/test_macros/test.h"
+#include "shared/source/gen12lp/hw_cmds_base.h"
+#include "shared/test/common/mocks/mock_timestamp_packet.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 
-#include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/source/event/event.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_event.h"
@@ -15,14 +16,8 @@
 namespace L0 {
 namespace ult {
 struct TimestampEvent : public Test<DeviceFixture> {
-  public:
-    class MockTimestampPackets32 : public TimestampPackets<uint32_t> {
-      public:
-        using typename TimestampPackets<uint32_t>::Packet;
-    };
-
     void SetUp() override {
-        DeviceFixture::SetUp();
+        DeviceFixture::setUp();
         ze_event_pool_desc_t eventPoolDesc = {};
         eventPoolDesc.count = 1;
         eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE | ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
@@ -41,7 +36,9 @@ struct TimestampEvent : public Test<DeviceFixture> {
     }
 
     void TearDown() override {
-        DeviceFixture::TearDown();
+        event.reset(nullptr);
+        eventPool.reset(nullptr);
+        DeviceFixture::tearDown();
     }
 
     std::unique_ptr<L0::EventPool> eventPool;

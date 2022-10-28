@@ -7,9 +7,9 @@
 
 #pragma once
 #include "shared/source/os_interface/linux/engine_info.h"
+#include "shared/source/os_interface/linux/i915.h"
 #include "shared/test/common/libult/linux/drm_mock.h"
 
-#include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_memory_manager.h"
 #include "level_zero/tools/source/sysman/engine/linux/os_engine_imp.h"
 #include "level_zero/tools/source/sysman/linux/pmu/pmu_imp.h"
@@ -42,15 +42,15 @@ struct Mock<EngineNeoDrm> : public EngineNeoDrm {
 
     bool queryEngineInfoMockPositiveTest() {
         std::vector<NEO::EngineCapabilities> i915engineInfo(6);
-        i915engineInfo[0].engine.engineClass = I915_ENGINE_CLASS_RENDER;
+        i915engineInfo[0].engine.engineClass = drm_i915_gem_engine_class::I915_ENGINE_CLASS_RENDER;
         i915engineInfo[0].engine.engineInstance = 0;
-        i915engineInfo[1].engine.engineClass = I915_ENGINE_CLASS_RENDER;
+        i915engineInfo[1].engine.engineClass = drm_i915_gem_engine_class::I915_ENGINE_CLASS_RENDER;
         i915engineInfo[1].engine.engineInstance = 1;
-        i915engineInfo[2].engine.engineClass = I915_ENGINE_CLASS_VIDEO;
+        i915engineInfo[2].engine.engineClass = drm_i915_gem_engine_class::I915_ENGINE_CLASS_VIDEO;
         i915engineInfo[2].engine.engineInstance = 1;
-        i915engineInfo[3].engine.engineClass = I915_ENGINE_CLASS_COPY;
+        i915engineInfo[3].engine.engineClass = drm_i915_gem_engine_class::I915_ENGINE_CLASS_COPY;
         i915engineInfo[3].engine.engineInstance = 0;
-        i915engineInfo[4].engine.engineClass = I915_ENGINE_CLASS_VIDEO_ENHANCE;
+        i915engineInfo[4].engine.engineClass = drm_i915_gem_engine_class::I915_ENGINE_CLASS_VIDEO_ENHANCE;
         i915engineInfo[4].engine.engineInstance = 0;
         i915engineInfo[5].engine.engineClass = I915_INVALID_ENGINE_CLASS;
         i915engineInfo[5].engine.engineInstance = 0;
@@ -127,12 +127,7 @@ struct Mock<EngineSysfsAccess> : public EngineSysfsAccess {
     Mock<EngineSysfsAccess>() = default;
 };
 
-class DrmMockEngineInfoFailing : public DrmMock {
-  public:
-    using DrmMock::DrmMock;
-    DrmMockEngineInfoFailing(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(rootDeviceEnvironment) {}
-    int handleRemainingRequests(unsigned long request, void *arg) override { return -1; }
-};
+using DrmMockEngineInfoFailing = DrmMock;
 
 } // namespace ult
 } // namespace L0

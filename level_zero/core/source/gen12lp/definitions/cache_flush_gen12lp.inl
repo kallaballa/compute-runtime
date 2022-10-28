@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,15 +17,12 @@ void CommandListCoreFamily<gfxCoreFamily>::applyMemoryRangesBarrier(uint32_t num
                                                                     const size_t *pRangeSizes,
                                                                     const void **pRanges) {
 
-    using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
-
     const auto &hwInfo = this->device->getHwInfo();
     bool supportL3Control = hwInfo.capabilityTable.supportCacheFlushAfterWalker;
     if (!supportL3Control) {
         NEO::PipeControlArgs args;
-        args.dcFlushEnable = NEO::MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
-        NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandContainer.getCommandStream(),
-                                                                      args);
+        args.dcFlushEnable = this->dcFlushSupport;
+        NEO::MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(*commandContainer.getCommandStream(), args);
     } else {
         NEO::LinearStream *commandStream = commandContainer.getCommandStream();
         NEO::SVMAllocsManager *svmAllocsManager =

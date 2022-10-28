@@ -15,6 +15,7 @@
 #include "shared/test/common/helpers/hw_helper_tests.h"
 #include "shared/test/common/helpers/ult_hw_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/helpers/cl_hw_helper.h"
@@ -32,11 +33,12 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, WhenGettingMaxBarriersPer
 }
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenHwHelperWhenGetGpuTimeStampInNSIsCalledThenOnlyLow32BitsFromTimeStampAreUsedAndCorrectValueIsReturned) {
+    constexpr uint64_t mask = static_cast<uint64_t>(std::numeric_limits<typename FamilyType::TimestampPacketType>::max());
 
     auto &helper = HwHelper::get(renderCoreFamily);
     auto timeStamp = 0x00ff'ffff'ffff;
     auto frequency = 123456.0;
-    auto result = static_cast<uint64_t>((timeStamp & 0xffff'ffff) * frequency);
+    auto result = static_cast<uint64_t>((timeStamp & mask) * frequency);
 
     EXPECT_EQ(result, helper.getGpuTimeStampInNS(timeStamp, frequency));
 }
@@ -84,9 +86,20 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenXeHPAndLaterPlatform
     EXPECT_TRUE(hwHelper.timestampPacketWriteSupported());
 }
 
-HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenXeHPAndLaterPlatformWhenCheckAssignEngineRoundRobinSupportedThenReturnTrue) {
+HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenXeHPAndLaterPlatformWhenPreferInternalBcsEngineThenReturnTrue) {
     auto &hwHelper = HwHelperHw<FamilyType>::get();
-    EXPECT_TRUE(hwHelper.isAssignEngineRoundRobinSupported());
+    EXPECT_TRUE(hwHelper.preferInternalBcsEngine());
+}
+
+HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenXeHPAndLaterPlatformAndDebugFlagsWhenPreferInternalBcsEngineThenReturnsCorrectResult) {
+    DebugManagerStateRestore restore;
+    auto &hwHelper = HwHelperHw<FamilyType>::get();
+
+    DebugManager.flags.PreferInternalBcsEngine.set(1);
+    EXPECT_TRUE(hwHelper.preferInternalBcsEngine());
+
+    DebugManager.flags.PreferInternalBcsEngine.set(0);
+    EXPECT_FALSE(hwHelper.preferInternalBcsEngine());
 }
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenAllFlagsSetWhenGetGpgpuEnginesThenReturnThreeRcsEnginesFourCcsEnginesAndOneBcsEngine) {
@@ -235,9 +248,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, PipeControlHelperTestsXeHPAndLater, WhenAddingPipeC
         LinearStream stream(buffer, 128);
         hardwareInfo.featureTable.flags.ftrLocalMemory = ftrLocalMemory;
 
-        MemorySynchronizationCommands<FamilyType>::addPipeControlWA(stream, address, hardwareInfo);
+        MemorySynchronizationCommands<FamilyType>::addBarrierWa(stream, address, hardwareInfo);
 
-        if (MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hardwareInfo) == false) {
+        if (MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hardwareInfo) == false) {
             EXPECT_EQ(0u, stream.getUsed());
             continue;
         }
@@ -309,7 +322,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, PipeControlHelperTestsXeHPAndLater, givenRequestedC
     PipeControlArgs args;
     args.hdcPipelineFlush = true;
     args.compressionControlSurfaceCcsFlush = true;
-    MemorySynchronizationCommands<FamilyType>::addPipeControl(stream, args);
+    MemorySynchronizationCommands<FamilyType>::addSingleBarrier(stream, args);
 
     auto pipeControl = reinterpret_cast<PIPE_CONTROL *>(buffer);
     EXPECT_TRUE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControl));
@@ -325,7 +338,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, PipeControlHelperTestsXeHPAndLater, givenDebugVaria
     LinearStream stream(buffer, sizeof(buffer));
 
     PipeControlArgs args;
-    MemorySynchronizationCommands<FamilyType>::addPipeControl(stream, args);
+    MemorySynchronizationCommands<FamilyType>::addSingleBarrier(stream, args);
 
     auto pipeControl = reinterpret_cast<PIPE_CONTROL *>(buffer);
     EXPECT_TRUE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControl));
@@ -343,7 +356,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, PipeControlHelperTestsXeHPAndLater, givenDebugDisab
     PipeControlArgs args;
     args.hdcPipelineFlush = true;
     args.compressionControlSurfaceCcsFlush = true;
-    MemorySynchronizationCommands<FamilyType>::addPipeControl(stream, args);
+    MemorySynchronizationCommands<FamilyType>::addSingleBarrier(stream, args);
 
     auto pipeControl = reinterpret_cast<PIPE_CONTROL *>(buffer);
     EXPECT_FALSE(UnitTestHelper<FamilyType>::getPipeControlHdcPipelineFlush(*pipeControl));
@@ -366,7 +379,7 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, WhenIsPipeControlWArequir
         hwInfo.featureTable.flags.ftrLocalMemory = ftrLocalMemory;
 
         EXPECT_EQ(UnitTestHelper<FamilyType>::isPipeControlWArequired(hwInfo),
-                  MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(hwInfo));
+                  MemorySynchronizationCommands<FamilyType>::isBarrierWaRequired(hwInfo));
     }
 }
 
@@ -419,9 +432,9 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, PipeControlHelperTestsXeHPAndLater, givenPostSyncPi
     PipeControlArgs args;
     args.workloadPartitionOffset = true;
 
-    MemorySynchronizationCommands<FamilyType>::addPipeControlAndProgramPostSyncOperation(
+    MemorySynchronizationCommands<FamilyType>::addBarrierWithPostSyncOperation(
         stream,
-        POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+        PostSyncMode::ImmediateData,
         gpuAddress,
         data,
         hardwareInfo,
@@ -481,4 +494,8 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, HwInfoConfigTestXeHpAndLater, givenCLImageFormatsWh
     for (const auto &format : redescribeFormats) {
         EXPECT_EQ(false, clHwHelper.isFormatRedescribable(format));
     }
+}
+
+HWCMDTEST_F(IGFX_XE_HP_CORE, HwHelperTestXeHPAndLater, givenHwInfosWhenIsMatrixMultiplyAccumulateSupportedThenReturnTrue) {
+    EXPECT_TRUE(HwInfoConfig::get(productFamily)->isMatrixMultiplyAccumulateSupported(*defaultHwInfo));
 }

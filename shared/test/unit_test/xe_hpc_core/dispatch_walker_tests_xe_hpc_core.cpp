@@ -6,79 +6,41 @@
  */
 
 #include "shared/source/command_container/command_encoder.h"
-#include "shared/source/execution_environment/root_device_environment.h"
-#include "shared/source/os_interface/device_factory.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/default_hw_info.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
+
+#include "hw_cmds_xe_hpc_core_base.h"
 
 using namespace NEO;
 
 using WalkerDispatchTestsXeHpcCore = ::testing::Test;
 
-XE_HPC_CORETEST_F(WalkerDispatchTestsXeHpcCore, whenEncodeAdditionalWalkerFieldsThenPostSyncDataIsCorrectlySet) {
-    struct {
-        unsigned short revisionId;
-        int32_t programGlobalFenceAsPostSyncOperationInComputeWalker;
-        bool expectSystemMemoryFenceRequest;
-    } testInputs[] = {
-        {0x0, -1, false},
-        {0x3, -1, true},
-        {0x0, 0, false},
-        {0x3, 0, false},
-        {0x0, 1, true},
-        {0x3, 1, true},
-    };
-
-    DebugManagerStateRestore debugRestorer;
-    auto walkerCmd = FamilyType::cmdInitGpgpuWalker;
-    auto &postSyncData = walkerCmd.getPostSync();
-    auto hwInfo = *defaultHwInfo;
-
-    for (auto &testInput : testInputs) {
-        hwInfo.platform.usRevId = testInput.revisionId;
-        DebugManager.flags.ProgramGlobalFenceAsPostSyncOperationInComputeWalker.set(
-            testInput.programGlobalFenceAsPostSyncOperationInComputeWalker);
-
-        postSyncData.setSystemMemoryFenceRequest(false);
-
-        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, KernelExecutionType::Default);
-        EXPECT_EQ(testInput.expectSystemMemoryFenceRequest, postSyncData.getSystemMemoryFenceRequest());
-    }
-}
-
-XE_HPC_CORETEST_F(WalkerDispatchTestsXeHpcCore, givenPvcWhenEncodeAdditionalWalkerFieldsIsCalledThenComputeDispatchAllIsCorrectlySet) {
+XE_HPC_CORETEST_F(WalkerDispatchTestsXeHpcCore, givenXeHpcWhenEncodeAdditionalWalkerFieldsIsCalledThenComputeDispatchAllIsCorrectlySet) {
     using COMPUTE_WALKER = typename FamilyType::COMPUTE_WALKER;
     DebugManagerStateRestore debugRestorer;
     auto walkerCmd = FamilyType::cmdInitGpgpuWalker;
     auto hwInfo = *defaultHwInfo;
 
+    EncodeWalkerArgs walkerArgs{KernelExecutionType::Default, true};
     {
-        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, KernelExecutionType::Default);
+        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, walkerArgs);
         EXPECT_FALSE(walkerCmd.getComputeDispatchAllWalkerEnable());
+    }
+
+    {
+        const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+        uint32_t expectedValue = hwInfoConfig.isComputeDispatchAllWalkerEnableInComputeWalkerRequired(hwInfo);
+        walkerArgs.kernelExecutionType = KernelExecutionType::Concurrent;
+        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, walkerArgs);
+        EXPECT_EQ(expectedValue, walkerCmd.getComputeDispatchAllWalkerEnable());
     }
 
     {
         DebugManager.flags.ComputeDispatchAllWalkerEnableInComputeWalker.set(1);
-        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, KernelExecutionType::Default);
-        EXPECT_TRUE(walkerCmd.getComputeDispatchAllWalkerEnable());
-    }
-}
-
-XE_HPC_CORETEST_F(WalkerDispatchTestsXeHpcCore, givenPvcXtTemporaryWhenEncodeAdditionalWalkerFieldsIsCalledThenComputeDispatchAllIsCorrectlySet) {
-    using COMPUTE_WALKER = typename FamilyType::COMPUTE_WALKER;
-
-    auto hwInfo = *defaultHwInfo;
-    hwInfo.platform.usDeviceID = 0x0BE5;
-    auto walkerCmd = FamilyType::cmdInitGpgpuWalker;
-
-    {
-        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, KernelExecutionType::Default);
-        EXPECT_FALSE(walkerCmd.getComputeDispatchAllWalkerEnable());
-    }
-
-    {
-        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, KernelExecutionType::Concurrent);
+        EncodeDispatchKernel<FamilyType>::encodeAdditionalWalkerFields(hwInfo, walkerCmd, walkerArgs);
         EXPECT_TRUE(walkerCmd.getComputeDispatchAllWalkerEnable());
     }
 }

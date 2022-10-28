@@ -5,15 +5,16 @@
  *
  */
 
+#pragma once
+
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/os_interface.h"
-#include "shared/test/common/test_macros/test.h"
 
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/tools/source/sysman/sysman.h"
-#include "level_zero/tools/test/unit_tests/sources/sysman/linux/mock_fw_util_fixture.h"
+#include "level_zero/tools/test/unit_tests/sources/sysman/firmware_util/mock_fw_util_fixture.h"
 #include "level_zero/tools/test/unit_tests/sources/sysman/linux/mock_procfs_access_fixture.h"
 #include "level_zero/tools/test/unit_tests/sources/sysman/linux/mock_sysfs_access_fixture.h"
 
@@ -51,12 +52,12 @@ class SysmanDeviceFixture : public DeviceFixture, public ::testing::Test {
   public:
     Mock<LinuxSysfsAccess> *pSysfsAccess = nullptr;
     Mock<LinuxProcfsAccess> *pProcfsAccess = nullptr;
-    MockLinuxFwUtilInterface *pFwUtilInterface = nullptr;
+    MockFwUtilInterface *pFwUtilInterface = nullptr;
     void SetUp() override {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        DeviceFixture::SetUp();
+        DeviceFixture::setUp();
         neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->osInterface = std::make_unique<NEO::OSInterface>();
         auto &osInterface = device->getOsInterface();
         osInterface.setDriverModel(std::make_unique<SysmanMockDrm>(const_cast<NEO::RootDeviceEnvironment &>(neoDevice->getRootDeviceEnvironment())));
@@ -67,7 +68,7 @@ class SysmanDeviceFixture : public DeviceFixture, public ::testing::Test {
         pOsSysman = pSysmanDeviceImp->pOsSysman;
         pLinuxSysmanImp = static_cast<PublicLinuxSysmanImp *>(pOsSysman);
 
-        pFwUtilInterface = new MockLinuxFwUtilInterface();
+        pFwUtilInterface = new MockFwUtilInterface();
         pSysfsAccess = new NiceMock<Mock<LinuxSysfsAccess>>;
         pProcfsAccess = new NiceMock<Mock<LinuxProcfsAccess>>;
         pLinuxSysmanImp->pFwUtilInterface = pFwUtilInterface;
@@ -85,7 +86,8 @@ class SysmanDeviceFixture : public DeviceFixture, public ::testing::Test {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        DeviceFixture::TearDown();
+
+        DeviceFixture::tearDown();
         unsetenv("ZES_ENABLE_SYSMAN");
     }
 
@@ -99,12 +101,12 @@ class SysmanMultiDeviceFixture : public MultiDeviceFixture, public ::testing::Te
   public:
     Mock<LinuxSysfsAccess> *pSysfsAccess = nullptr;
     Mock<LinuxProcfsAccess> *pProcfsAccess = nullptr;
-    MockLinuxFwUtilInterface *pFwUtilInterface = nullptr;
+    MockFwUtilInterface *pFwUtilInterface = nullptr;
     void SetUp() override {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        MultiDeviceFixture::SetUp();
+        MultiDeviceFixture::setUp();
         device = driverHandle->devices[0];
         neoDevice = device->getNEODevice();
         neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->osInterface = std::make_unique<NEO::OSInterface>();
@@ -121,7 +123,7 @@ class SysmanMultiDeviceFixture : public MultiDeviceFixture, public ::testing::Te
         pOsSysman = pSysmanDeviceImp->pOsSysman;
         pLinuxSysmanImp = static_cast<PublicLinuxSysmanImp *>(pOsSysman);
 
-        pFwUtilInterface = new MockLinuxFwUtilInterface();
+        pFwUtilInterface = new MockFwUtilInterface();
         pSysfsAccess = new NiceMock<Mock<LinuxSysfsAccess>>;
         pProcfsAccess = new NiceMock<Mock<LinuxProcfsAccess>>;
         pLinuxSysmanImp->pFwUtilInterface = pFwUtilInterface;
@@ -141,7 +143,7 @@ class SysmanMultiDeviceFixture : public MultiDeviceFixture, public ::testing::Te
             GTEST_SKIP();
         }
         unsetenv("ZES_ENABLE_SYSMAN");
-        MultiDeviceFixture::TearDown();
+        MultiDeviceFixture::tearDown();
     }
 
     SysmanDevice *pSysmanDevice = nullptr;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,6 @@
 #pragma once
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/heap_helper.h"
-#include "shared/source/helpers/non_copyable_or_moveable.h"
 
 #include <memory>
 #include <mutex>
@@ -16,8 +15,6 @@
 #include <vector>
 
 namespace NEO {
-
-constexpr size_t ssAligment = MemoryConstants::cacheLineSize;
 
 class IndirectHeap;
 class GraphicsAllocation;
@@ -39,6 +36,10 @@ class BindlessHeapsHelper {
     };
     BindlessHeapsHelper(MemoryManager *memManager, bool isMultiOsContextCapable, const uint32_t rootDeviceIndex, DeviceBitfield deviceBitfield);
     ~BindlessHeapsHelper();
+
+    BindlessHeapsHelper(const BindlessHeapsHelper &) = delete;
+    BindlessHeapsHelper &operator=(const BindlessHeapsHelper &) = delete;
+
     GraphicsAllocation *getHeapAllocation(size_t heapSize, size_t alignment, bool allocInFrontWindow);
 
     SurfaceStateInHeapInfo allocateSSInHeap(size_t ssSize, GraphicsAllocation *surfaceAllocation, BindlesHeapType heapType);

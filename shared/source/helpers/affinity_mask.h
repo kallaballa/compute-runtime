@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,19 +7,17 @@
 
 #pragma once
 
-#include "shared/source/helpers/constants.h"
-#include "shared/source/helpers/debug_helpers.h"
+#include "shared/source/helpers/common_types.h"
 
-#include <array>
 #include <bitset>
-#include <string>
+#include <limits>
 #include <vector>
 
 namespace NEO {
 
 class AffinityMaskHelper {
   public:
-    using AffinityMaskContainer = std::vector<std::bitset<32>>;
+    using AffinityMaskContainer = std::vector<std::bitset<4>>;
 
     AffinityMaskHelper(bool allSubdevicesActive) {
         if (!allSubdevicesActive) {

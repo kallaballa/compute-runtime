@@ -20,6 +20,10 @@ GmmResourceInfo *GmmResourceInfo::create(GmmClientContext *clientContext, GMM_RE
     return new MockGmmResourceInfo(inputGmmResourceInfo);
 }
 
+GmmResourceInfo *GmmResourceInfo::create(GmmClientContext *clientContext, GMM_RESOURCE_INFO *inputGmmResourceInfo, bool openingHandle) {
+    return new MockGmmResourceInfo(inputGmmResourceInfo);
+}
+
 MockGmmResourceInfo::MockGmmResourceInfo(GMM_RESCREATE_PARAMS *resourceCreateParams) {
     mockResourceCreateParams = *resourceCreateParams;
     setupDefaultActions();
@@ -70,12 +74,8 @@ GMM_STATUS MockGmmResourceInfo::getOffset(GMM_REQ_OFFSET_INFO &reqOffsetInfo) {
 }
 
 void MockGmmResourceInfo::computeRowPitch() {
-    if (mockResourceCreateParams.OverridePitch) {
-        rowPitch = mockResourceCreateParams.OverridePitch;
-    } else {
-        rowPitch = static_cast<size_t>(mockResourceCreateParams.BaseWidth64 * (surfaceFormatInfo->ImageElementSizeInBytes));
-        rowPitch = alignUp(rowPitch, 64);
-    }
+    rowPitch = static_cast<size_t>(mockResourceCreateParams.BaseWidth64 * (surfaceFormatInfo->ImageElementSizeInBytes));
+    rowPitch = alignUp(rowPitch, 64);
 }
 
 uint32_t MockGmmResourceInfo::getBitsPerPixel() {

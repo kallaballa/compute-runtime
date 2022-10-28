@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -65,8 +65,12 @@ TEST_F(PatchedKernelTest, givenKernelWithoutAllArgsSetWhenIsPatchedIsCalledThenR
 }
 
 TEST_F(PatchedKernelTest, givenArgSvmAllocWhenArgIsSetThenArgIsPatched) {
+    const ClDeviceInfo &devInfo = device->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
     EXPECT_FALSE(kernel->getKernelArguments()[0].isPatched);
-    kernel->setArgSvmAlloc(0, nullptr, nullptr);
+    kernel->setArgSvmAlloc(0, nullptr, nullptr, 0u);
     EXPECT_TRUE(kernel->getKernelArguments()[0].isPatched);
 }
 

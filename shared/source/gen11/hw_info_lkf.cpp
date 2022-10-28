@@ -15,13 +15,6 @@ namespace NEO {
 
 const char *HwMapper<IGFX_LAKEFIELD>::abbreviation = "lkf";
 
-bool isSimulationLKF(unsigned short deviceId) {
-    switch (deviceId) {
-    case ILKF_1x8x8_DESK_DEVICE_F0_ID:
-        return true;
-    }
-    return false;
-};
 const PLATFORM LKF::platform = {
     IGFX_LAKEFIELD,
     PCH_UNKNOWN,
@@ -42,7 +35,6 @@ const RuntimeCapabilityTable LKF::capabilityTable{
     0,                                             // sharedSystemMemCapabilities
     83.333,                                        // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                     // requiredPreemptionSurfaceSize
-    &isSimulationLKF,                              // isSimulation
     "lp",                                          // platformType
     "",                                            // deviceName
     PreemptionMode::MidThread,                     // defaultPreemptionMode
@@ -82,7 +74,8 @@ const RuntimeCapabilityTable LKF::capabilityTable{
     true,                                          // supportsMediaBlock
     false,                                         // p2pAccessSupported
     false,                                         // p2pAtomicAccessSupported
-    false                                          // fusedEuEnabled
+    false,                                         // fusedEuEnabled
+    false                                          // l0DebuggerSupported;
 };
 
 WorkaroundTable LKF::workaroundTable = {};
@@ -123,21 +116,9 @@ void LKF::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->flags.waReportPerfCountUseGlobalContextID = true;
 };
 
-const HardwareInfo LKF_1x8x8::hwInfo = {
-    &LKF::platform,
-    &LKF::featureTable,
-    &LKF::workaroundTable,
-    &LKF_1x8x8::gtSystemInfo,
-    LKF::capabilityTable,
-};
-GT_SYSTEM_INFO LKF_1x8x8::gtSystemInfo = {0};
-void LKF_1x8x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+void LKF::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * LKF::threadsPerEu;
-    gtSysInfo->SliceCount = 1;
-    gtSysInfo->L3CacheSizeInKb = 2560;
-    gtSysInfo->L3BankCount = 8;
-    gtSysInfo->MaxFillRate = 16;
     gtSysInfo->TotalVsThreads = 448;
     gtSysInfo->TotalHsThreads = 448;
     gtSysInfo->TotalDsThreads = 448;
@@ -149,20 +130,40 @@ void LKF_1x8x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAn
     gtSysInfo->MaxSubSlicesSupported = LKF::maxSubslicesSupported;
     gtSysInfo->IsL3HashModeEnabled = false;
     gtSysInfo->IsDynamicallyPopulated = false;
+
     if (setupFeatureTableAndWorkaroundTable) {
         setupFeatureAndWorkaroundTable(hwInfo);
     }
+}
+
+const HardwareInfo LkfHw1x8x8::hwInfo = {
+    &LKF::platform,
+    &LKF::featureTable,
+    &LKF::workaroundTable,
+    &LkfHw1x8x8::gtSystemInfo,
+    LKF::capabilityTable,
+};
+GT_SYSTEM_INFO LkfHw1x8x8::gtSystemInfo = {0};
+void LkfHw1x8x8::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    LKF::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
+
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * LKF::threadsPerEu;
+    gtSysInfo->SliceCount = 1;
+    gtSysInfo->L3CacheSizeInKb = 2560;
+    gtSysInfo->L3BankCount = 8;
+    gtSysInfo->MaxFillRate = 16;
 };
 
-const HardwareInfo LKF::hwInfo = LKF_1x8x8::hwInfo;
+const HardwareInfo LKF::hwInfo = LkfHw1x8x8::hwInfo;
 const uint64_t LKF::defaultHardwareInfoConfig = 0x100080008;
 
 void setupLKFHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
     if (hwInfoConfig == 0x100080008) {
-        LKF_1x8x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        LkfHw1x8x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else if (hwInfoConfig == 0x0) {
         // Default config
-        LKF_1x8x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+        LkfHw1x8x8::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else {
         UNRECOVERABLE_IF(true);
     }

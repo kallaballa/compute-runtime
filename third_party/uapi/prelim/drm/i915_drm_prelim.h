@@ -6,7 +6,7 @@
 #ifndef __I915_DRM_PRELIM_H__
 #define __I915_DRM_PRELIM_H__
 
-#include "drm.h"
+#include "i915_drm.h"
 
 /*
  * Modifications to structs/values defined here are subject to
@@ -72,7 +72,7 @@ struct prelim_drm_i915_gem_context_create_ext_clone {
  *         the pile that is changing this number.
  */
 #define PRELIM_UAPI_MAJOR	2
-#define PRELIM_UAPI_MINOR	0
+#define PRELIM_UAPI_MINOR	1
 
 /*
  * Top 8 bits of every non-engine counter are GT id.
@@ -248,6 +248,10 @@ struct prelim_drm_i915_gem_context_create_ext_clone {
 
 /* Recoverable pagefault support */
 #define PRELIM_I915_PARAM_HAS_PAGE_FAULT	(PRELIM_I915_PARAM | 7)
+
+/* Implicit scale support */
+#define PRELIM_I915_PARAM_HAS_SET_PAIR	(PRELIM_I915_PARAM | 8)
+
 /* End getparam */
 
 struct prelim_drm_i915_gem_create_ext {
@@ -265,9 +269,12 @@ struct prelim_drm_i915_gem_create_ext {
 	 */
 	__u32 handle;
 	__u32 pad;
+
 #define PRELIM_I915_GEM_CREATE_EXT_SETPARAM	(PRELIM_I915_USER_EXT | 1)
-#define PRELIM_I915_GEM_CREATE_EXT_FLAGS_UNKNOWN \
-	(~PRELIM_I915_GEM_CREATE_EXT_SETPARAM)
+#define PRELIM_I915_GEM_CREATE_EXT_VM_PRIVATE	(PRELIM_I915_USER_EXT | 3)
+#define PRELIM_I915_GEM_CREATE_EXT_FLAGS_UNKNOWN			\
+	(~(PRELIM_I915_GEM_CREATE_EXT_SETPARAM |			\
+	   PRELIM_I915_GEM_CREATE_EXT_VM_PRIVATE))
 	__u64 extensions;
 };
 
@@ -298,6 +305,7 @@ struct prelim_drm_i915_gem_object_param {
  *	.param = PRELIM_I915_OBJECT_PARAM | PRELIM_I915_PARAM_MEMORY_REGIONS
  */
 #define PRELIM_I915_PARAM_MEMORY_REGIONS ((1 << 16) | 0x1)
+#define PRELIM_I915_PARAM_SET_PAIR ((1 << 17) | 0x1)
 	__u64 param;
 
 	/* Data value or pointer */
@@ -307,6 +315,13 @@ struct prelim_drm_i915_gem_object_param {
 struct prelim_drm_i915_gem_create_ext_setparam {
 	struct i915_user_extension base;
 	struct prelim_drm_i915_gem_object_param param;
+};
+
+struct prelim_drm_i915_gem_create_ext_vm_private {
+	/** @base: Extension link. See struct i915_user_extension. */
+	struct i915_user_extension base;
+	/** @vm_id: Id of the VM to which Object is private */
+	__u32 vm_id;
 };
 
 #define PRELIM_PERF_VERSION	(1000)
@@ -371,6 +386,15 @@ enum prelim_drm_i915_eu_stall_property_id {
 
 	PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE,
 
+	/**
+	 * This field specifies the minimum number of
+	 * EU stall data rows to be present in the kernel
+	 * buffer for poll() to set POLLIN (data present).
+	 * A default value of 1 is used by the driver if this
+	 * field is not specified.
+	 */
+	PRELIM_DRM_I915_EU_STALL_PROP_EVENT_REPORT_COUNT,
+
 	PRELIM_DRM_I915_EU_STALL_PROP_MAX
 };
 
@@ -405,34 +429,37 @@ struct prelim_drm_i915_query_item {
 	 * query's item.data_ptr directly if the allocated length is big enough
 	 * For details about table format and content see intel_hwconfig_types.h
 	 */
-#define PRELIM_DRM_I915_QUERY_HWCONFIG_TABLE	(PRELIM_DRM_I915_QUERY | 6)
-#define PRELIM_DRM_I915_QUERY_GEOMETRY_SLICES	(PRELIM_DRM_I915_QUERY | 7)
-#define PRELIM_DRM_I915_QUERY_COMPUTE_SLICES	(PRELIM_DRM_I915_QUERY | 8)
+#define PRELIM_DRM_I915_QUERY_HWCONFIG_TABLE		(PRELIM_DRM_I915_QUERY | 6)
+	/**
+	 * Query Geometry Subslices: returns the items found in query_topology info
+	 * with a mask for geometry_subslice_mask applied
+	 *
+	 * @flags:
+	 *
+	 * bits 0:7 must be a valid engine class and bits 8:15 must be a valid engine
+	 * instance.
+	 */
+#define PRELIM_DRM_I915_QUERY_GEOMETRY_SUBSLICES	(PRELIM_DRM_I915_QUERY | 7)
+#define PRELIM_DRM_I915_QUERY_GEOMETRY_SLICES		PRELIM_DRM_I915_QUERY_GEOMETRY_SUBSLICES
+	/**
+	 * Query Compute Subslices: returns the items found in query_topology info
+	 * with a mask for compute_subslice_mask applied
+	 *
+	 * @flags:
+	 *
+	 * bits 0:7 must be a valid engine class and bits 8:15 must be a valid engine
+	 * instance.
+	 */
+#define PRELIM_DRM_I915_QUERY_COMPUTE_SUBSLICES		(PRELIM_DRM_I915_QUERY | 8)
+#define PRELIM_DRM_I915_QUERY_COMPUTE_SLICES		PRELIM_DRM_I915_QUERY_COMPUTE_SUBSLICES
 	/**
 	 * Query Command Streamer timestamp register.
 	 */
-#define PRELIM_DRM_I915_QUERY_CS_CYCLES		(PRELIM_DRM_I915_QUERY | 9)
-
-#define PRELIM_DRM_I915_QUERY_FABRIC_INFO	(PRELIM_DRM_I915_QUERY | 11)
-
-#define PRELIM_DRM_I915_QUERY_ENGINE_INFO	(PRELIM_DRM_I915_QUERY | 13)
-#define PRELIM_DRM_I915_QUERY_L3_BANK_COUNT	(PRELIM_DRM_I915_QUERY | 14)
+#define PRELIM_DRM_I915_QUERY_CS_CYCLES			(PRELIM_DRM_I915_QUERY | 9)
+#define PRELIM_DRM_I915_QUERY_FABRIC_INFO		(PRELIM_DRM_I915_QUERY | 11)
+#define PRELIM_DRM_I915_QUERY_ENGINE_INFO		(PRELIM_DRM_I915_QUERY | 13)
+#define PRELIM_DRM_I915_QUERY_L3_BANK_COUNT		(PRELIM_DRM_I915_QUERY | 14)
 };
-
-/*
- * Number of BB in execbuf2 IOCTL - 1, used to submit more than BB in a single
- * execbuf2 IOCTL.
- *
- * Return -EINVAL if more than 1 BB (value 0) is specified if
- * PRELIM_I915_CONTEXT_ENGINES_EXT_PARALLEL_SUBMIT hasn't been called on the gem
- * context first. Also returns -EINVAL if gem context has been setup with
- * I915_PARALLEL_BB_PREEMPT_BOUNDARY and the number BBs not equal to the total
- * number hardware contexts in the gem context.
- */
-#define PRELIM_I915_EXEC_NUMBER_BB_LSB		(48)
-#define PRELIM_I915_EXEC_NUMBER_BB_MASK		(0x3full << PRELIM_I915_EXEC_NUMBER_BB_LSB)
-#define PRELIM_I915_EXEC_NUMBER_BB_MSB		(54)
-#define PRELIM_I915_EXEC_NUMBER_BB_MASK_MSB	(1ull << PRELIM_I915_EXEC_NUMBER_BB_MSB)
 
 /*
  * In XEHPSDV total number of engines can be more than the maximum supported
@@ -488,7 +515,7 @@ enum prelim_drm_i915_oa_format {
 	PRELIM_I915_OAC_FORMAT_A24u64_B8_C8,
 	PRELIM_I915_OA_FORMAT_A38u64_R2u64_B8_C8,
 	PRELIM_I915_OAM_FORMAT_A2u64_R2u64_B8_C8,
-	PRELIM_I915_OAC_FORMAT_A24u22_B8_C8,
+	PRELIM_I915_OAC_FORMAT_A22u32_R2u32_B8_C8,
 
 	PRELIM_I915_OA_FORMAT_MAX	/* non-ABI */
 };
@@ -573,9 +600,11 @@ struct prelim_drm_i915_gem_context_param {
 };
 
 struct prelim_drm_i915_gem_context_create_ext {
+/* Depricated in favor of PRELIM_I915_CONTEXT_CREATE_FLAGS_LONG_RUNNING */
 #define PRELIM_I915_CONTEXT_CREATE_FLAGS_ULLS		(1u << 31)
-#define PRELIM_I915_CONTEXT_CREATE_FLAGS_UNKNOWN \
-	(~(PRELIM_I915_CONTEXT_CREATE_FLAGS_ULLS | ~I915_CONTEXT_CREATE_FLAGS_UNKNOWN))
+#define PRELIM_I915_CONTEXT_CREATE_FLAGS_LONG_RUNNING	(1u << 31)
+#define PRELIM_I915_CONTEXT_CREATE_FLAGS_UNKNOWN			\
+	(~(PRELIM_I915_CONTEXT_CREATE_FLAGS_LONG_RUNNING | ~I915_CONTEXT_CREATE_FLAGS_UNKNOWN))
 };
 
 /*
@@ -1069,7 +1098,7 @@ struct prelim_drm_i915_gem_vm_bind {
 
 	/** BO handle or file descriptor. Set 'fd' to -1 for system pages **/
 	union {
-		__u32 handle;
+		__u32 handle; /* For unbind, it is reserved and must be 0 */
 		__s32 fd;
 	};
 
@@ -1221,11 +1250,27 @@ struct prelim_drm_i915_gem_execbuffer_ext_user_fence {
 	__u64 rsvd;
 };
 
+/* Deprecated in favor of prelim_drm_i915_vm_bind_ext_user_fence */
 struct prelim_drm_i915_vm_bind_ext_sync_fence {
 #define PRELIM_I915_VM_BIND_EXT_SYNC_FENCE     (PRELIM_I915_USER_EXT | 0)
 	struct i915_user_extension base;
 	__u64 addr;
 	__u64 val;
+};
+
+struct prelim_drm_i915_vm_bind_ext_user_fence {
+#define PRELIM_I915_VM_BIND_EXT_USER_FENCE     (PRELIM_I915_USER_EXT | 3)
+	struct i915_user_extension base;
+	__u64 addr;
+	__u64 val;
+	__u64 rsvd;
+};
+
+struct prelim_drm_i915_gem_vm_control {
+#define PRELIM_I915_VM_CREATE_FLAGS_DISABLE_SCRATCH	(1 << 16)
+#define PRELIM_I915_VM_CREATE_FLAGS_ENABLE_PAGE_FAULT	(1 << 17)
+#define PRELIM_I915_VM_CREATE_FLAGS_USE_VM_BIND		(1 << 18)
+#define PRELIM_I915_VM_CREATE_FLAGS_UNKNOWN		(~(GENMASK(18, 16)))
 };
 
 struct prelim_drm_i915_gem_vm_region_ext {
@@ -1234,12 +1279,6 @@ struct prelim_drm_i915_gem_vm_region_ext {
 	/* memory region: to find gt to create vm on */
 	struct prelim_drm_i915_gem_memory_class_instance region;
 	__u32 pad;
-};
-
-struct prelim_drm_i915_gem_vm_control {
-#define PRELIM_I915_VM_CREATE_FLAGS_DISABLE_SCRATCH	(1 << 16)
-#define PRELIM_I915_VM_CREATE_FLAGS_ENABLE_PAGE_FAULT	(1 << 17)
-#define PRELIM_I915_VM_CREATE_FLAGS_UNKNOWN		(~(GENMASK(17, 16)))
 };
 
 struct prelim_drm_i915_vm_bind_ext_set_pat {
@@ -1293,7 +1332,7 @@ struct prelim_drm_i915_gem_clos_free {
  */
 struct prelim_drm_i915_gem_cache_reserve {
 	__u16 clos_index;
-	__u16 cache_level; // e.g. 3 for L3
+	__u16 cache_level; /* e.g. 3 for L3 */
 	__u16 num_ways;
 	__u16 pad16;
 };

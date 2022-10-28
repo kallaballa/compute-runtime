@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/helpers/compiler_hw_info_config.h"
 #include "shared/source/helpers/pause_on_gpu_properties.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
@@ -19,6 +20,7 @@
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
 #include "opencl/test/unit_test/helpers/cl_hw_parse.h"
+#include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
 using namespace NEO;
@@ -503,7 +505,7 @@ HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenTaskLevelIsIncremented) {
 }
 
 HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenCsrTaskLevelIsIncremented) {
-    //this test case assumes IOQ
+    // this test case assumes IOQ
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.taskCount = pCmdQ->taskCount + 100;
     csr.taskLevel = pCmdQ->taskLevel + 50;
@@ -520,7 +522,41 @@ HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenCommandsAreAdded) {
     EXPECT_NE(usedCmdBufferBefore, pCS->getUsed());
 }
 
+HWTEST_F(EnqueueKernelTest, GivenGpuHangAndBlockingCallWhenEnqueingKernelThenOutOfResourcesIsReported) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.MakeEachEnqueueBlocking.set(true);
+
+    std::unique_ptr<ClDevice> device(new MockClDevice{MockClDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)});
+    cl_queue_properties props = {};
+
+    MockCommandQueueHw<FamilyType> mockCommandQueueHw(context, device.get(), &props);
+    mockCommandQueueHw.waitForAllEnginesReturnValue = WaitStatus::GpuHang;
+
+    cl_uint workDim = 1;
+    size_t globalWorkOffset[3] = {0, 0, 0};
+    size_t globalWorkSize[3] = {1, 1, 1};
+    size_t localWorkSize[3] = {1, 1, 1};
+
+    cl_event *eventWaitList = nullptr;
+    cl_int waitListSize = 0;
+
+    const auto enqueueResult = mockCommandQueueHw.enqueueKernel(
+        pKernel,
+        workDim,
+        globalWorkOffset,
+        globalWorkSize,
+        localWorkSize,
+        waitListSize,
+        eventWaitList,
+        nullptr);
+
+    EXPECT_EQ(CL_OUT_OF_RESOURCES, enqueueResult);
+    EXPECT_EQ(1, mockCommandQueueHw.waitForAllEnginesCalledCount);
+}
+
 HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenIndirectDataIsAdded) {
+    const auto &compilerHwInfoConfig = *CompilerHwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
+
     auto dshBefore = pDSH->getUsed();
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
@@ -528,7 +564,7 @@ HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenIndirectDataIsAdded) {
     callOneWorkItemNDRKernel();
     EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), &pKernel->getKernelInfo().kernelDescriptor, rootDeviceIndex));
     EXPECT_NE(iohBefore, pIOH->getUsed());
-    if (pKernel->usesBindfulAddressingForBuffers() || pKernel->getKernelInfo().kernelDescriptor.kernelAttributes.flags.usesImages) {
+    if ((pKernel->usesBindfulAddressingForBuffers() || pKernel->getKernelInfo().kernelDescriptor.kernelAttributes.flags.usesImages) && compilerHwInfoConfig.isStatelessToStatefulBufferOffsetSupported()) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
     }
 }
@@ -702,6 +738,24 @@ HWTEST_F(EnqueueKernelTest, givenEnqueueWithGlobalWorkSizeWhenZeroValueIsPassedI
     EXPECT_EQ(CL_SUCCESS, ret);
 }
 
+HWTEST_F(EnqueueKernelTest, givenGpuHangAndBlockingCallAndEnqueueWithGlobalWorkSizeWhenZeroValueIsPassedInDimensionThenOutOfResourcesIsReturned) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.MakeEachEnqueueBlocking.set(true);
+
+    std::unique_ptr<ClDevice> device(new MockClDevice{MockClDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)});
+    cl_queue_properties props = {};
+
+    MockCommandQueueHw<FamilyType> mockCommandQueueHw(context, device.get(), &props);
+    mockCommandQueueHw.waitForAllEnginesReturnValue = WaitStatus::GpuHang;
+
+    size_t gws[3] = {0, 0, 0};
+    MockKernelWithInternals mockKernel(*pClDevice);
+
+    const auto enqueueResult = mockCommandQueueHw.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_OUT_OF_RESOURCES, enqueueResult);
+    EXPECT_EQ(1, mockCommandQueueHw.waitForAllEnginesCalledCount);
+}
+
 HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenEnqueueKernelIsCalledThenKernelIsRecorded) {
     auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     mockCsr->useNewResourceImplicitFlush = false;
@@ -720,8 +774,10 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenEnqueueK
 
     auto cmdBuffer = mockedSubmissionsAggregator->peekCmdBufferList().peekHead();
 
-    //Three more surfaces from preemptionAllocation, SipKernel and clearColorAllocation
+    // Three more surfaces from preemptionAllocation, SipKernel and clearColorAllocation
     size_t csrSurfaceCount = (pDevice->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
+    csrSurfaceCount -= pDevice->getHardwareInfo().capabilityTable.supportsImages ? 0 : 1;
+    csrSurfaceCount += mockCsr->getKernelArgsBufferAllocation() ? 1 : 0;
     size_t timestampPacketSurfacesCount = mockCsr->peekTimestampPacketWriteEnabled() ? 1 : 0;
     size_t fenceSurfaceCount = mockCsr->globalFenceAllocation ? 1 : 0;
     size_t clearColorSize = mockCsr->clearColorAllocation ? 1 : 0;
@@ -874,7 +930,7 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenKernelIs
 
     MockKernelWithInternals mockKernel(*pClDevice, context);
     size_t gws[3] = {1, 0, 0};
-    //make sure csr emits something
+    // make sure csr emits something
     mockCsrmockCsr.mediaVfeStateDirty = true;
     pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     mockCsrmockCsr.mediaVfeStateDirty = true;
@@ -1029,15 +1085,18 @@ HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenCommandIsFlushedThenFlushS
 
     auto status = clWaitForEvents(1, &event);
 
+    EXPECT_EQ(CL_SUCCESS, status);
     EXPECT_EQ(1, neoEvent->getRefInternalCount());
     EXPECT_EQ(1u, mockCsr->flushStamp->peekStamp());
     EXPECT_EQ(1u, neoEvent->flushStamp->peekStamp());
     EXPECT_EQ(1u, pCmdQ->flushStamp->peekStamp());
 
     status = clFinish(pCmdQ);
+    EXPECT_EQ(CL_SUCCESS, status);
     EXPECT_EQ(1u, pCmdQ->flushStamp->peekStamp());
 
     status = clReleaseEvent(event);
+    EXPECT_EQ(CL_SUCCESS, status);
 }
 
 HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenNonBlockingMapFollowsNdrCallThenFlushStampIsUpdatedProperly) {
@@ -1081,15 +1140,18 @@ HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenCommandWithEventIsFollowed
 
     auto status = clWaitForEvents(1, &event);
 
+    EXPECT_EQ(CL_SUCCESS, status);
     EXPECT_EQ(1, neoEvent->getRefInternalCount());
     EXPECT_EQ(1u, mockCsr->flushStamp->peekStamp());
     EXPECT_EQ(1u, neoEvent->flushStamp->peekStamp());
     EXPECT_EQ(1u, pCmdQ->flushStamp->peekStamp());
 
     status = clFinish(pCmdQ);
+    EXPECT_EQ(CL_SUCCESS, status);
     EXPECT_EQ(1u, pCmdQ->flushStamp->peekStamp());
 
     status = clReleaseEvent(event);
+    EXPECT_EQ(CL_SUCCESS, status);
 }
 
 HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenClFlushIsCalledThenQueueFlushStampIsUpdated) {
@@ -1440,6 +1502,38 @@ TEST_F(EnqueueKernelTest, givenEnqueueCommandWithWorkDimLargerThanAllowedWhenEnq
     EXPECT_EQ(CL_INVALID_WORK_DIMENSION, status);
 }
 
+TEST_F(EnqueueKernelTest, givenEnqueueCommandWithWorkDimsResultingInMoreThan32BitMaxGroupsWhenEnqueueNDRangeKernelIsCalledThenInvalidGlobalSizeIsReturned) {
+
+    if (sizeof(size_t) < 8) {
+        GTEST_SKIP();
+    }
+
+    size_t max32Bit = std::numeric_limits<uint32_t>::max();
+    size_t globalWorkSize[3] = {max32Bit * 4, 4, 4};
+    size_t localWorkSize[3] = {4, 4, 4};
+    MockKernelWithInternals mockKernel(*pClDevice);
+    auto testedWorkDim = 3;
+
+    auto status = clEnqueueNDRangeKernel(pCmdQ, mockKernel.mockMultiDeviceKernel, testedWorkDim, nullptr, globalWorkSize, localWorkSize, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, status);
+
+    globalWorkSize[0] = max32Bit * 4 + 4;
+    status = clEnqueueNDRangeKernel(pCmdQ, mockKernel.mockMultiDeviceKernel, testedWorkDim, nullptr, globalWorkSize, localWorkSize, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_INVALID_GLOBAL_WORK_SIZE, status);
+
+    globalWorkSize[0] = 4;
+    globalWorkSize[1] = max32Bit * 4 + 4;
+
+    status = clEnqueueNDRangeKernel(pCmdQ, mockKernel.mockMultiDeviceKernel, testedWorkDim, nullptr, globalWorkSize, localWorkSize, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_INVALID_GLOBAL_WORK_SIZE, status);
+
+    globalWorkSize[1] = 4;
+    globalWorkSize[2] = max32Bit * 4 + 4;
+
+    status = clEnqueueNDRangeKernel(pCmdQ, mockKernel.mockMultiDeviceKernel, testedWorkDim, nullptr, globalWorkSize, localWorkSize, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_INVALID_GLOBAL_WORK_SIZE, status);
+}
+
 HWTEST_F(EnqueueKernelTest, givenVMEKernelWhenEnqueueKernelThenDispatchFlagsHaveMediaSamplerRequired) {
     auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
@@ -1486,10 +1580,10 @@ HWTEST_F(EnqueueKernelTest, givenContextWithSeveralDevicesWhenEnqueueKernelThenD
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockMultiDeviceKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_FALSE(mockCsr->passedDispatchFlags.areMultipleSubDevicesInContext);
 
-    context->deviceBitfields[rootDeviceIndex].set(7, true);
+    context->deviceBitfields[rootDeviceIndex].set(3, true);
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockMultiDeviceKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_TRUE(mockCsr->passedDispatchFlags.areMultipleSubDevicesInContext);
-    context->deviceBitfields[rootDeviceIndex].set(7, false);
+    context->deviceBitfields[rootDeviceIndex].set(3, false);
 }
 
 HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsDoesntHaveMediaSamplerRequired) {

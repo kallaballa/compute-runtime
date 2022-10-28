@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,16 +32,16 @@ struct MockReferenceTrackedObject : ReferenceTrackedObject<MockReferenceTrackedO
         flagInsideCustomDeleter = true;
         while (flagAfterBgDecRefCount == false) {
         }
-        const_cast<MockReferenceTrackedObject *>(this)->SetMarker(marker);
+        const_cast<MockReferenceTrackedObject *>(this)->setMarker(marker);
 
         return nullptr;
     }
 
-    virtual void SetMarker(std::atomic<int> &marker) {
-        marker = GetMarker();
+    virtual void setMarker(std::atomic<int> &marker) {
+        marker = getMarker();
     }
 
-    static int GetMarker() {
+    static int getMarker() {
         return 1;
     }
 
@@ -54,16 +54,16 @@ struct MockReferenceTrackedObject : ReferenceTrackedObject<MockReferenceTrackedO
 struct MockReferenceTrackedObjectDerivative : MockReferenceTrackedObject {
     using MockReferenceTrackedObject::MockReferenceTrackedObject;
 
-    void SetMarker(std::atomic<int> &marker) override {
-        marker = GetMarker();
+    void setMarker(std::atomic<int> &marker) override {
+        marker = getMarker();
     }
 
-    static int GetMarker() {
+    static int getMarker() {
         return 2;
     }
 };
 
-void DecRefCount(MockReferenceTrackedObject *obj, bool useInternalRefCount, std::atomic<bool> *flagInsideCustomDeleter, std::atomic<bool> *flagUseCustomDeleter, std::atomic<bool> *flagAfterBgDecRefCount) {
+void decRefCount(MockReferenceTrackedObject *obj, bool useInternalRefCount, std::atomic<bool> *flagInsideCustomDeleter, std::atomic<bool> *flagUseCustomDeleter, std::atomic<bool> *flagAfterBgDecRefCount) {
     while (*flagInsideCustomDeleter == false) {
     }
 
@@ -78,7 +78,7 @@ void DecRefCount(MockReferenceTrackedObject *obj, bool useInternalRefCount, std:
 }
 
 TEST(ReferenceTrackedObject, whenDecreasingApiRefcountSimultaneouslyThenRetrieveProperCustomDeleterWhileObjectIsStillAlive) {
-    ASSERT_NE(MockReferenceTrackedObjectDerivative::GetMarker(), MockReferenceTrackedObject::GetMarker());
+    ASSERT_NE(MockReferenceTrackedObjectDerivative::getMarker(), MockReferenceTrackedObject::getMarker());
 
     std::atomic<int> marker;
     std::atomic<bool> flagInsideCustomDeleter;
@@ -97,15 +97,15 @@ TEST(ReferenceTrackedObject, whenDecreasingApiRefcountSimultaneouslyThenRetrieve
     ASSERT_EQ(2, obj->getRefInternalCount());
     ASSERT_EQ(0, marker);
 
-    std::thread bgThread(DecRefCount, obj, false, &flagInsideCustomDeleter, &flagUseCustomDeleter, &flagAfterBgDecRefCount);
+    std::thread bgThread(decRefCount, obj, false, &flagInsideCustomDeleter, &flagUseCustomDeleter, &flagAfterBgDecRefCount);
     obj->decRefApi();
     bgThread.join();
 
-    EXPECT_EQ(MockReferenceTrackedObjectDerivative::GetMarker(), marker);
+    EXPECT_EQ(MockReferenceTrackedObjectDerivative::getMarker(), marker);
 }
 
 TEST(ReferenceTrackedObject, whenDecreasingInternalRefcountSimultaneouslyThenRetrieveProperCustomDeleterWhileObjectIsStillAlive) {
-    ASSERT_NE(MockReferenceTrackedObjectDerivative::GetMarker(), MockReferenceTrackedObject::GetMarker());
+    ASSERT_NE(MockReferenceTrackedObjectDerivative::getMarker(), MockReferenceTrackedObject::getMarker());
 
     std::atomic<int> marker;
     std::atomic<bool> flagInsideCustomDeleter;
@@ -124,10 +124,10 @@ TEST(ReferenceTrackedObject, whenDecreasingInternalRefcountSimultaneouslyThenRet
     ASSERT_EQ(0, obj->getRefApiCount());
     ASSERT_EQ(0, marker);
 
-    std::thread bgThread(DecRefCount, obj, true, &flagInsideCustomDeleter, &flagUseCustomDeleter, &flagAfterBgDecRefCount);
+    std::thread bgThread(decRefCount, obj, true, &flagInsideCustomDeleter, &flagUseCustomDeleter, &flagAfterBgDecRefCount);
     obj->decRefInternal();
     bgThread.join();
 
-    EXPECT_EQ(MockReferenceTrackedObjectDerivative::GetMarker(), marker);
+    EXPECT_EQ(MockReferenceTrackedObjectDerivative::getMarker(), marker);
 }
 } // namespace NEO

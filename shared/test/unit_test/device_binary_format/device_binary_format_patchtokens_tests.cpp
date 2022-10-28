@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,8 @@
 
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/program/program_info.h"
+#include "shared/test/common/device_binary_format/patchtokens_tests.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
 
 TEST(IsDeviceBinaryFormatPatchtokens, GivenValidBinaryThenReturnTrue) {
     PatchTokensTestData::ValidProgramWithKernel programTokens;
@@ -75,7 +75,7 @@ TEST(UnpackSingleDeviceBinaryPatchtokens, WhenValidBinaryForDifferentCoreFamilyD
     EXPECT_TRUE(unpackResult.debugData.empty());
     EXPECT_TRUE(unpackResult.intermediateRepresentation.empty());
     EXPECT_TRUE(unpackResult.buildOptions.empty());
-    EXPECT_TRUE(unpackWarnings.empty());
+    EXPECT_EQ("Binary kernel recompilation due to incompatible device", unpackWarnings);
     EXPECT_FALSE(unpackErrors.empty());
     EXPECT_STREQ("Unhandled target device", unpackErrors.c_str());
 }
@@ -99,7 +99,7 @@ TEST(UnpackSingleDeviceBinaryPatchtokens, WhenValidBinaryWithUnsupportedPatchTok
     EXPECT_TRUE(unpackResult.debugData.empty());
     EXPECT_TRUE(unpackResult.intermediateRepresentation.empty());
     EXPECT_TRUE(unpackResult.buildOptions.empty());
-    EXPECT_TRUE(unpackWarnings.empty());
+    EXPECT_EQ("Binary kernel recompilation due to incompatible device", unpackWarnings);
     EXPECT_FALSE(unpackErrors.empty());
     EXPECT_STREQ("Unhandled target device", unpackErrors.c_str());
 }
@@ -123,7 +123,7 @@ TEST(UnpackSingleDeviceBinaryPatchtokens, WhenValidBinaryWithUnsupportedPointerS
     EXPECT_TRUE(unpackResult.debugData.empty());
     EXPECT_TRUE(unpackResult.intermediateRepresentation.empty());
     EXPECT_TRUE(unpackResult.buildOptions.empty());
-    EXPECT_TRUE(unpackWarnings.empty());
+    EXPECT_EQ("Binary kernel recompilation due to incompatible device", unpackWarnings);
     EXPECT_FALSE(unpackErrors.empty());
     EXPECT_STREQ("Unhandled target device", unpackErrors.c_str());
 }
@@ -145,6 +145,7 @@ TEST(DecodeSingleDeviceBinaryPatchtokens, GivenValidBinaryThenOutputIsProperlyPo
     NEO::ProgramInfo programInfo;
     NEO::SingleDeviceBinary singleBinary;
     singleBinary.deviceBinary = programTokens.storage;
+    singleBinary.targetDevice.coreFamily = static_cast<GFXCORE_FAMILY>(programTokens.header->Device);
     std::string decodeErrors;
     std::string decodeWarnings;
     auto error = NEO::decodeSingleDeviceBinary<NEO::DeviceBinaryFormat::Patchtokens>(programInfo, singleBinary, decodeErrors, decodeWarnings);

@@ -62,7 +62,7 @@ struct BlitProperties {
                                                    CommandStreamReceiver &gpguCsr, CommandStreamReceiver &bcsCsr);
 
     TagNodeBase *outputTimestampPacket = nullptr;
-    BlitterConstants::BlitDirection blitDirection;
+    BlitterConstants::BlitDirection blitDirection = BlitterConstants::BlitDirection::BufferToHostPtr;
     CsrDependencies csrDependencies;
     AuxTranslationDirection auxTranslationDirection = AuxTranslationDirection::None;
 
@@ -83,12 +83,21 @@ struct BlitProperties {
     Vec3<size_t> dstSize = 0;
     Vec3<size_t> srcSize = 0;
     size_t bytesPerPixel = 1;
+    GMM_YUV_PLANE_ENUM dstPlane = GMM_YUV_PLANE_ENUM::GMM_NO_PLANE;
+    GMM_YUV_PLANE_ENUM srcPlane = GMM_YUV_PLANE_ENUM::GMM_NO_PLANE;
+
+    bool isImageOperation() const {
+        return blitDirection == BlitterConstants::BlitDirection::HostPtrToImage ||
+               blitDirection == BlitterConstants::BlitDirection::ImageToHostPtr ||
+               blitDirection == BlitterConstants::BlitDirection::ImageToImage;
+    }
 };
 
 enum class BlitOperationResult {
     Unsupported,
     Fail,
-    Success
+    Success,
+    GpuHang
 };
 
 namespace BlitHelperFunctions {
@@ -118,8 +127,8 @@ struct BlitCommandsHelper {
     static size_t estimatePreBlitCommandSize();
     static void dispatchPostBlitCommand(LinearStream &linearStream, const HardwareInfo &hwInfo);
     static size_t estimatePostBlitCommandSize();
-    static size_t estimateBlitCommandsSize(const Vec3<size_t> &copySize, const CsrDependencies &csrDependencies, bool updateTimestampPacket,
-                                           bool profilingEnabled, const RootDeviceEnvironment &rootDeviceEnvironment);
+    static size_t estimateBlitCommandSize(const Vec3<size_t> &copySize, const CsrDependencies &csrDependencies, bool updateTimestampPacket,
+                                          bool profilingEnabled, bool isImage, const RootDeviceEnvironment &rootDeviceEnvironment);
     static size_t estimateBlitCommandsSize(const BlitPropertiesContainer &blitPropertiesContainer, bool profilingEnabled,
                                            bool debugPauseEnabled, bool blitterDirectSubmission, const RootDeviceEnvironment &rootDeviceEnvironment);
     static size_t getNumberOfBlitsForCopyRegion(const Vec3<size_t> &copySize, const RootDeviceEnvironment &rootDeviceEnvironment);
@@ -150,7 +159,10 @@ struct BlitCommandsHelper {
     static void appendTilingEnable(typename GfxFamily::XY_COLOR_BLT &blitCmd);
     static void appendTilingType(const GMM_TILE_TYPE srcTilingType, const GMM_TILE_TYPE dstTilingType, typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd);
     static void appendSliceOffsets(const BlitProperties &blitProperties, typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd, uint32_t sliceIndex, const RootDeviceEnvironment &rootDeviceEnvironment, uint32_t srcSlicePitch, uint32_t dstSlicePitch);
-    static void getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch, GMM_TILE_TYPE &tileType, uint32_t &mipTailLod, uint32_t &compressionDetails, const RootDeviceEnvironment &rootDeviceEnvironment);
+    static void appendBaseAddressOffset(const BlitProperties &blitProperties, typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd, const uint32_t originalSliceIndex, const bool isSource);
+    static void getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch, GMM_TILE_TYPE &tileType,
+                                            uint32_t &mipTailLod, uint32_t &compressionDetails, uint32_t &compressionType,
+                                            const RootDeviceEnvironment &rootDeviceEnvironment, GMM_YUV_PLANE_ENUM plane);
     static void dispatchDebugPauseCommands(LinearStream &commandStream, uint64_t debugPauseStateGPUAddress, DebugPauseState confirmationTrigger,
                                            DebugPauseState waitCondition, const HardwareInfo &hwInfo);
     static size_t getSizeForDebugPauseCommands();
@@ -161,9 +173,13 @@ struct BlitCommandsHelper {
     static bool miArbCheckWaRequired();
     static bool preBlitCommandWARequired();
     static void appendClearColor(const BlitProperties &blitProperties, typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd);
+    static void printImageBlitBlockCopyCommand(const typename GfxFamily::XY_BLOCK_COPY_BLT &blitCmd, const uint32_t sliceIndex);
 
     static void encodeProfilingStartMmios(LinearStream &cmdStream, const TagNodeBase &timestampPacketNode);
     static void encodeProfilingEndMmios(LinearStream &cmdStream, const TagNodeBase &timestampPacketNode);
     static size_t getProfilingMmioCmdsSize();
+
+    static void encodeWa(LinearStream &cmdStream, const BlitProperties &blitProperties, uint32_t &latestSentBcsWaValue);
+    static size_t getWaCmdsSize(const BlitPropertiesContainer &blitPropertiesContainer);
 };
 } // namespace NEO

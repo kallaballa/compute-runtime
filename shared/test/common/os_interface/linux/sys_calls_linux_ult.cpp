@@ -6,10 +6,13 @@
  */
 
 #include "shared/source/helpers/string.h"
+#include "shared/source/os_interface/linux/drm_wrappers.h"
+#include "shared/source/os_interface/linux/i915.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
 
-#include "drm/i915_drm.h"
+#include "test_files_setup.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -28,25 +31,26 @@ int closeFuncArgPassed = 0;
 int closeFuncRetVal = 0;
 int dlOpenFlags = 0;
 bool dlOpenCalled = 0;
+bool getNumThreadsCalled = false;
 constexpr int fakeFileDescriptor = 123;
-uint32_t vmId = 0;
 bool makeFakeDevicePath = false;
 bool allowFakeDevicePath = false;
-uint32_t ioctlVmCreateCalled = 0u;
-int ioctlVmCreateReturned = 0u;
-uint32_t vmFlags = 0u;
-uint64_t ioctlVmCreateExtensionArg = 0ull;
 constexpr unsigned long int invalidIoctl = static_cast<unsigned long int>(-1);
 int setErrno = 0;
 int fstatFuncRetVal = 0;
 uint32_t preadFuncCalled = 0u;
+uint32_t pwriteFuncCalled = 0u;
 uint32_t mmapFuncCalled = 0u;
 uint32_t munmapFuncCalled = 0u;
 bool isInvalidAILTest = false;
+const char *drmVersion = "i915";
 
 int (*sysCallsOpen)(const char *pathname, int flags) = nullptr;
 ssize_t (*sysCallsPread)(int fd, void *buf, size_t count, off_t offset) = nullptr;
 int (*sysCallsReadlink)(const char *path, char *buf, size_t bufsize) = nullptr;
+int (*sysCallsIoctl)(int fileDescriptor, unsigned long int request, void *arg) = nullptr;
+int (*sysCallsPoll)(struct pollfd *pollFd, unsigned long int numberOfFds, int timeout) = nullptr;
+ssize_t (*sysCallsRead)(int fd, void *buf, size_t count) = nullptr;
 
 int close(int fileDescriptor) {
     closeFuncCalled++;
@@ -63,7 +67,7 @@ int open(const char *file, int flags) {
     if (strcmp(file, "/dev/dri/by-path/pci-0000:invalid-render") == 0) {
         return 0;
     }
-    if (strcmp(file, "./test_files/linux/by-path/pci-0000:00:02.0-render") == 0) {
+    if (strcmp(file, NEO_SHARED_TEST_FILES_DIR "/linux/by-path/pci-0000:00:02.0-render") == 0) {
         return fakeFileDescriptor;
     }
 
@@ -77,25 +81,16 @@ void *dlopen(const char *filename, int flag) {
 }
 
 int ioctl(int fileDescriptor, unsigned long int request, void *arg) {
+
+    if (sysCallsIoctl != nullptr) {
+        return sysCallsIoctl(fileDescriptor, request, arg);
+    }
+
     if (fileDescriptor == fakeFileDescriptor) {
         if (request == DRM_IOCTL_VERSION) {
-            auto pVersion = static_cast<drm_version_t *>(arg);
-            snprintf(pVersion->name, pVersion->name_len, "i915");
+            auto pVersion = static_cast<DrmVersion *>(arg);
+            memcpy_s(pVersion->name, pVersion->nameLen, drmVersion, std::min(pVersion->nameLen, strlen(drmVersion) + 1));
         }
-    }
-    if (request == DRM_IOCTL_I915_GEM_VM_CREATE) {
-        ioctlVmCreateCalled++;
-        auto control = static_cast<drm_i915_gem_vm_control *>(arg);
-        ioctlVmCreateExtensionArg = control->extensions;
-        control->vm_id = ++vmId;
-        vmFlags |= control->flags;
-        return ioctlVmCreateReturned;
-    }
-    if (request == DRM_IOCTL_I915_GEM_VM_DESTROY) {
-        auto control = static_cast<drm_i915_gem_vm_control *>(arg);
-        vmId--;
-        vmFlags = 0;
-        return (control->vm_id > 0) ? 0 : -1;
     }
     if (request == invalidIoctl) {
         errno = 0;
@@ -110,6 +105,11 @@ int ioctl(int fileDescriptor, unsigned long int request, void *arg) {
 
 unsigned int getProcessId() {
     return 0xABCEDF;
+}
+
+unsigned long getNumThreads() {
+    getNumThreadsCalled = true;
+    return 1;
 }
 
 int access(const char *pathName, int mode) {
@@ -157,6 +157,9 @@ int getDevicePath(int deviceFd, char *buf, size_t &bufSize) {
 }
 
 int poll(struct pollfd *pollFd, unsigned long int numberOfFds, int timeout) {
+    if (sysCallsPoll != nullptr) {
+        return sysCallsPoll(pollFd, numberOfFds, timeout);
+    }
     return 0;
 }
 
@@ -173,6 +176,7 @@ ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
 }
 
 ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
+    pwriteFuncCalled++;
     return 0;
 }
 
@@ -183,6 +187,13 @@ void *mmap(void *addr, size_t size, int prot, int flags, int fd, off_t off) {
 
 int munmap(void *addr, size_t size) {
     munmapFuncCalled++;
+    return 0;
+}
+
+ssize_t read(int fd, void *buf, size_t count) {
+    if (sysCallsRead != nullptr) {
+        return sysCallsRead(fd, buf, count);
+    }
     return 0;
 }
 

@@ -112,15 +112,21 @@ size_t HardwareCommandsHelper<GfxFamily>::sendCrossThreadData(
     uint32_t &sizeCrossThreadData) {
     indirectHeap.align(WALKER_TYPE::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
 
-    auto offsetCrossThreadData = indirectHeap.getUsed();
-    char *pDest = nullptr;
-
     auto pImplicitArgs = kernel.getImplicitArgs();
     if (pImplicitArgs) {
-        auto implicitArgsSize = static_cast<uint32_t>(sizeof(ImplicitArgs));
-        pDest = static_cast<char *>(indirectHeap.getSpace(implicitArgsSize));
-        memcpy_s(pDest, implicitArgsSize, pImplicitArgs, implicitArgsSize);
+        const auto &kernelDescriptor = kernel.getDescriptor();
+        const auto &hwInfo = kernel.getHardwareInfo();
+        auto sizeForImplicitArgsProgramming = ImplicitArgsHelper::getSizeForImplicitArgsPatching(pImplicitArgs, kernelDescriptor, hwInfo);
+
+        auto implicitArgsGpuVA = indirectHeap.getGraphicsAllocation()->getGpuAddress() + indirectHeap.getUsed();
+        auto ptrToPatchImplicitArgs = indirectHeap.getSpace(sizeForImplicitArgsProgramming);
+        ImplicitArgsHelper::patchImplicitArgs(ptrToPatchImplicitArgs, *pImplicitArgs, kernelDescriptor, hwInfo, {});
+
+        auto implicitArgsCrossThreadPtr = ptrOffset(reinterpret_cast<uint64_t *>(kernel.getCrossThreadData()), kernelDescriptor.payloadMappings.implicitArgs.implicitArgsBuffer);
+        *implicitArgsCrossThreadPtr = implicitArgsGpuVA;
     }
+    auto offsetCrossThreadData = indirectHeap.getUsed();
+    char *pDest = nullptr;
 
     pDest = static_cast<char *>(indirectHeap.getSpace(sizeCrossThreadData));
     memcpy_s(pDest, sizeCrossThreadData, kernel.getCrossThreadData(), sizeCrossThreadData);
@@ -130,11 +136,6 @@ size_t HardwareCommandsHelper<GfxFamily>::sendCrossThreadData(
     }
 
     return offsetCrossThreadData + static_cast<size_t>(indirectHeap.getHeapGpuStartOffset());
-}
-
-template <typename GfxFamily>
-bool HardwareCommandsHelper<GfxFamily>::resetBindingTablePrefetch() {
-    return !EncodeSurfaceState<GfxFamily>::doBindingTablePrefetch();
 }
 
 template <typename GfxFamily>
@@ -150,7 +151,7 @@ void HardwareCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(Line
     const auto &hwInfo = commandQueue.getDevice().getHardwareInfo();
     PipeControlArgs args;
     args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
-    MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandStream, args);
+    MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(*commandStream, args);
 }
 
 } // namespace NEO

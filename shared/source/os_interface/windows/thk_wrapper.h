@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/helpers/options.h"
 #include "shared/source/os_interface/windows/d3dkmthk_wrapper.h"
+#include "shared/source/os_interface/windows/gdi_interface_logging.h"
 #include "shared/source/os_interface/windows/windows_wrapper.h"
 #include "shared/source/utilities/api_intercept.h"
 
@@ -71,6 +72,7 @@ GET_ID(D3DKMT_CREATEHWQUEUE *, SYSTIMER_ID_CREATEHWQUEUE)
 GET_ID(CONST D3DKMT_DESTROYHWQUEUE *, SYSTIMER_ID_DESTROYHWQUEUE)
 GET_ID(CONST D3DKMT_SUBMITCOMMANDTOHWQUEUE *, SYSTIMER_ID_SUBMITCOMMANDTOHWQUEUE)
 GET_ID(CONST D3DKMT_SETALLOCATIONPRIORITY *, SYSTIMER_ID_SETALLOCATIONPRIORITY)
+GET_ID(CONST D3DKMT_SETCONTEXTSCHEDULINGPRIORITY *, SYSTIMER_ID_SETCONTEXTSCHEDULINGPRIORITY)
 
 template <typename Param>
 class ThkWrapper {
@@ -82,10 +84,16 @@ class ThkWrapper {
     inline NTSTATUS operator()(Param param) const {
         if (KMD_PROFILING) {
             SYSTEM_ENTER()
-            NTSTATUS Status;
-            Status = mFunc(param);
+            NTSTATUS status;
+            status = mFunc(param);
             SYSTEM_LEAVE(getId<Param>());
-            return Status;
+            return status;
+        } else if constexpr (GdiLogging::gdiLoggingSupport) {
+            NTSTATUS status;
+            GdiLogging::logEnter<Param>(param);
+            status = mFunc(param);
+            GdiLogging::logExit<Param>(status, param);
+            return status;
         } else {
             return mFunc(param);
         }

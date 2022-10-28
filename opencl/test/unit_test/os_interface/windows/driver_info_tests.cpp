@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -83,7 +83,7 @@ class MockDriverInfoWindows : public DriverInfoWindows {
 
     static MockDriverInfoWindows *create(std::string path) {
 
-        auto result = new MockDriverInfoWindows("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue));
+        auto result = new MockDriverInfoWindows("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue));
         result->reader = new TestedRegistryReader(path);
         result->registryReader.reset(result->reader);
 
@@ -152,7 +152,7 @@ struct DriverInfoWindowsTest : public ::testing::Test {
         DriverInfoWindows::createRegistryReaderFunc = [](const std::string &) -> std::unique_ptr<SettingsReader> {
             return std::make_unique<MockRegistryReader>();
         };
-        driverInfo = std::make_unique<MockDriverInfoWindows>("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue));
+        driverInfo = std::make_unique<MockDriverInfoWindows>("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue));
     }
 
     VariableBackup<decltype(DriverInfoWindows::createRegistryReaderFunc)> createFuncBackup{&DriverInfoWindows::createRegistryReaderFunc};
@@ -177,36 +177,18 @@ TEST_F(DriverInfoWindowsTest, GivenDriverInfoWhenThenReturnNonNullptr) {
     EXPECT_TRUE(registryReaderMock->properVersionKey);
 };
 
-TEST(DriverInfo, givenDriverInfoWhenGetStringReturnNotMeaningEmptyStringThenEnableSharingSupport) {
-    MockDriverInfoWindows driverInfo("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue));
-    MockRegistryReader *registryReaderMock = new MockRegistryReader();
-
-    driverInfo.registryReader.reset(registryReaderMock);
+TEST(DriverInfo, givenDriverInfoWhenGetMediaSharingSupportThenTrueIsReturned) {
+    MockDriverInfoWindows driverInfo("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue));
     auto enable = driverInfo.getMediaSharingSupport();
 
     EXPECT_TRUE(enable);
-    EXPECT_EQ(is64bit, registryReaderMock->using64bit);
-    EXPECT_TRUE(registryReaderMock->properMediaSharingExtensions);
-};
-
-TEST(DriverInfo, givenDriverInfoWhenGetStringReturnMeaningEmptyStringThenDisableSharingSupport) {
-    MockDriverInfoWindows driverInfo("", PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue));
-    MockRegistryReader *registryReaderMock = new MockRegistryReader();
-    registryReaderMock->returnString = "<>";
-    driverInfo.registryReader.reset(registryReaderMock);
-
-    auto enable = driverInfo.getMediaSharingSupport();
-
-    EXPECT_FALSE(enable);
-    EXPECT_EQ(is64bit, registryReaderMock->using64bit);
-    EXPECT_TRUE(registryReaderMock->properMediaSharingExtensions);
 };
 
 TEST(DriverInfo, givenFullPathToRegistryWhenCreatingDriverInfoWindowsThenTheRegistryPathIsTrimmed) {
     std::string registryPath = "Path\\In\\Registry";
     std::string fullRegistryPath = "\\REGISTRY\\MACHINE\\" + registryPath;
     std::string expectedTrimmedRegistryPath = registryPath;
-    MockDriverInfoWindows driverInfo(std::move(fullRegistryPath), PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue));
+    MockDriverInfoWindows driverInfo(std::move(fullRegistryPath), PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue, PhysicalDevicePciBusInfo::invalidValue));
 
     EXPECT_STREQ(expectedTrimmedRegistryPath.c_str(), driverInfo.path.c_str());
 };
@@ -260,18 +242,6 @@ TEST_F(DriverInfoWindowsTest, whenCurrentLibraryIsLoadedFromDifferentDriverStore
     currentLibraryPathBackup = L"driverStore\\different_driverStore\\myLib.dll";
 
     EXPECT_FALSE(driverInfo->isCompatibleDriverStore());
-}
-
-TEST_F(DriverInfoWindowsTest, givenDriverInfoWindowsWhenGetImageSupportIsCalledThenReturnTrue) {
-    MockExecutionEnvironment executionEnvironment;
-    RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
-    std::unique_ptr<OSInterface> osInterface(new OSInterface());
-    osInterface->setDriverModel(std::unique_ptr<DriverModel>(Wddm::createWddm(nullptr, rootDeviceEnvironment)));
-    EXPECT_NE(nullptr, osInterface->getDriverModel()->as<Wddm>());
-
-    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(nullptr, osInterface.get()));
-
-    EXPECT_TRUE(driverInfo->getImageSupport());
 }
 
 } // namespace NEO

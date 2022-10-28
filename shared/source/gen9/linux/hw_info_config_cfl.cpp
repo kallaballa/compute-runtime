@@ -1,19 +1,22 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/gen9/hw_cmds_cfl.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/hw_info_config.inl"
 #include "shared/source/os_interface/hw_info_config_bdw_and_later.inl"
 
-namespace NEO {
+constexpr static auto gfxProduct = IGFX_COFFEELAKE;
+#include "shared/source/gen9/cfl/os_agnostic_hw_info_config_cfl.inl"
 
+namespace NEO {
 template <>
-int HwInfoConfigHw<IGFX_COFFEELAKE>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
+int HwInfoConfigHw<gfxProduct>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
     if (nullptr == osIface) {
         return 0;
     }
@@ -44,5 +47,5 @@ int HwInfoConfigHw<IGFX_COFFEELAKE>::configureHardwareCustom(HardwareInfo *hwInf
     return 0;
 }
 
-template class HwInfoConfigHw<IGFX_COFFEELAKE>;
+template class HwInfoConfigHw<gfxProduct>;
 } // namespace NEO

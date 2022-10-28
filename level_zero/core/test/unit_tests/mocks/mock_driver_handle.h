@@ -1,16 +1,16 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
+#include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
 
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/test/unit_tests/mock.h"
-#include "level_zero/core/test/unit_tests/mocks/mock_device.h"
 #include "level_zero/core/test/unit_tests/white_box.h"
 
 namespace L0 {
@@ -19,6 +19,7 @@ namespace ult {
 template <>
 struct WhiteBox<::L0::DriverHandle> : public ::L0::DriverHandleImp {
     using ::L0::DriverHandleImp::enableProgramDebugging;
+    using ::L0::DriverHandleImp::svmAllocsManager;
 };
 
 using DriverHandle = WhiteBox<::L0::DriverHandle>;
@@ -34,9 +35,6 @@ struct Mock<DriverHandle> : public DriverHandleImp {
     ADDMETHOD_NOBASE(releaseImportedPointer, ze_result_t, ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, (void *ptr))
     ADDMETHOD_NOBASE(getHostPointerBaseAddress, ze_result_t, ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, (void *ptr, void **baseAddress))
     ADDMETHOD_NOBASE(findHostPointerAllocation, NEO::GraphicsAllocation *, nullptr, (void *ptr, size_t size, uint32_t rootDeviceIndex))
-
-    uint32_t num_devices = 1;
-    Mock<Device> device;
 
     void setupDevices(std::vector<std::unique_ptr<NEO::Device>> devices);
 

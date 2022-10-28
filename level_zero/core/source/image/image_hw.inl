@@ -7,14 +7,15 @@
 
 #pragma once
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/gmm_helper/gmm.h"
-#include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/helpers/surface_format_info.h"
 #include "shared/source/image/image_surface_state.h"
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/memory_manager/memory_manager.h"
 
+#include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/helpers/properties_parser.h"
 #include "level_zero/core/source/hw_helpers/l0_hw_helper.h"
 #include "level_zero/core/source/image/image_formats.h"
@@ -87,6 +88,7 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
                     return ZE_RESULT_ERROR_INVALID_ARGUMENT;
                 }
                 allocation = device->getNEODevice()->getMemoryManager()->createGraphicsAllocationFromNTHandle(lookupTable.sharedHandleType.ntHnadle, device->getNEODevice()->getRootDeviceIndex(), NEO::AllocationType::SHARED_IMAGE);
+                allocation->getDefaultGmm()->queryImageParams(imgInfo);
             }
         } else {
             NEO::AllocationProperties properties(device->getRootDeviceIndex(), true, imgInfo, NEO::AllocationType::IMAGE, device->getNEODevice()->getDeviceBitfield());

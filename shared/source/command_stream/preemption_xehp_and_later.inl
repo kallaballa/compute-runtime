@@ -1,16 +1,16 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 template <>
-void PreemptionHelper::programCsrBaseAddress<GfxFamily>(LinearStream &preambleCmdStream, Device &device, const GraphicsAllocation *preemptionCsr) {
+void PreemptionHelper::programCsrBaseAddress<GfxFamily>(LinearStream &preambleCmdStream, Device &device, const GraphicsAllocation *preemptionCsr, LogicalStateHelper *logicalStateHelper) {
 }
 
 template <>
-void PreemptionHelper::programStateSip<GfxFamily>(LinearStream &preambleCmdStream, Device &device) {
+void PreemptionHelper::programStateSip<GfxFamily>(LinearStream &preambleCmdStream, Device &device, LogicalStateHelper *logicalStateHelper) {
     using STATE_SIP = typename GfxFamily::STATE_SIP;
     using MI_LOAD_REGISTER_IMM = typename GfxFamily::MI_LOAD_REGISTER_IMM;
 
@@ -52,7 +52,7 @@ void PreemptionHelper::programStateSipEndWa<GfxFamily>(LinearStream &cmdStream, 
         if (hwHelper.isSipWANeeded(device.getHardwareInfo())) {
 
             NEO::PipeControlArgs args;
-            NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControl(cmdStream, args);
+            NEO::MemorySynchronizationCommands<GfxFamily>::addSingleBarrier(cmdStream, args);
 
             auto mmio = reinterpret_cast<MI_LOAD_REGISTER_IMM *>(cmdStream.getSpace(sizeof(MI_LOAD_REGISTER_IMM)));
             MI_LOAD_REGISTER_IMM cmd = GfxFamily::cmdInitLoadRegisterImm;
@@ -79,12 +79,15 @@ size_t PreemptionHelper::getRequiredStateSipCmdSize<GfxFamily>(Device &device, b
         HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
         if (hwHelper.isSipWANeeded(hwInfo)) {
-            size += sizeof(typename GfxFamily::PIPE_CONTROL);
+            size += MemorySynchronizationCommands<GfxFamily>::getSizeForSingleBarrier(false);
             size += 2 * sizeof(typename GfxFamily::MI_LOAD_REGISTER_IMM);
         } else {
             auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
-            if (hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs)) {
-                size += sizeof(typename GfxFamily::PIPE_CONTROL);
+            const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs);
+            const auto isWARequired = isBasicWARequired || isExtendedWARequired;
+
+            if (isWARequired) {
+                size += MemorySynchronizationCommands<GfxFamily>::getSizeForSingleBarrier(false);
             }
             size += sizeof(typename GfxFamily::STATE_SIP);
         }

@@ -15,7 +15,6 @@
 #include "opencl/test/unit_test/mocks/mock_context.h"
 
 #include "CL/cl.h"
-#include "gtest/gtest.h"
 
 namespace NEO {
 class Device;
@@ -40,10 +39,10 @@ struct CommandQueueHwFixture {
 
     static void forceMapBufferOnGpu(Buffer &buffer);
 
-    virtual void SetUp();
-    virtual void SetUp(ClDevice *pDevice, cl_command_queue_properties properties);
+    void setUp();
+    void setUp(ClDevice *pDevice, cl_command_queue_properties properties);
 
-    virtual void TearDown();
+    void tearDown();
 
     CommandQueue *pCmdQ = nullptr;
     MockClDevice *device = nullptr;
@@ -54,19 +53,15 @@ struct CommandQueueHwFixture {
 struct OOQueueFixture : public CommandQueueHwFixture {
     typedef CommandQueueHwFixture BaseClass;
 
-    void SetUp(ClDevice *pDevice, cl_command_queue_properties properties) override {
-        ASSERT_NE(nullptr, pDevice);
-        BaseClass::pCmdQ = BaseClass::createCommandQueue(pDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
-        ASSERT_NE(nullptr, BaseClass::pCmdQ);
-    }
+    void setUp(ClDevice *pDevice, cl_command_queue_properties properties);
 };
 
 struct CommandQueueFixture {
-    virtual void SetUp(
+    void setUp(
         Context *context,
         ClDevice *device,
         cl_command_queue_properties properties);
-    virtual void TearDown();
+    void tearDown();
 
     CommandQueue *createCommandQueue(
         Context *context,
@@ -93,7 +88,7 @@ static const cl_command_queue_properties DefaultCommandQueueProperties[] = {
 
 template <bool ooq>
 struct CommandQueueHwBlitTest : ClDeviceFixture, ContextFixture, CommandQueueHwFixture, ::testing::Test {
-    using ContextFixture::SetUp;
+    using ContextFixture::setUp;
 
     void SetUp() override {
         hwInfo = *::defaultHwInfo;
@@ -103,17 +98,17 @@ struct CommandQueueHwBlitTest : ClDeviceFixture, ContextFixture, CommandQueueHwF
         DebugManager.flags.EnableBlitterOperationsSupport.set(1);
         DebugManager.flags.EnableTimestampPacket.set(1);
         DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
-        ClDeviceFixture::SetUpImpl(&hwInfo);
+        ClDeviceFixture::setUpImpl(&hwInfo);
         cl_device_id device = pClDevice;
-        ContextFixture::SetUp(1, &device);
+        ContextFixture::setUp(1, &device);
         cl_command_queue_properties queueProperties = ooq ? CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE : 0;
-        CommandQueueHwFixture::SetUp(pClDevice, queueProperties);
+        CommandQueueHwFixture::setUp(pClDevice, queueProperties);
     }
 
     void TearDown() override {
-        CommandQueueHwFixture::TearDown();
-        ContextFixture::TearDown();
-        ClDeviceFixture::TearDown();
+        CommandQueueHwFixture::tearDown();
+        ContextFixture::tearDown();
+        ClDeviceFixture::tearDown();
     }
 
     HardwareInfo hwInfo{};
@@ -122,5 +117,38 @@ struct CommandQueueHwBlitTest : ClDeviceFixture, ContextFixture, CommandQueueHwF
 
 using IoqCommandQueueHwBlitTest = CommandQueueHwBlitTest<false>;
 using OoqCommandQueueHwBlitTest = CommandQueueHwBlitTest<true>;
+
+struct CommandQueueHwTest
+    : public ClDeviceFixture,
+      public ContextFixture,
+      public CommandQueueHwFixture,
+      ::testing::Test {
+
+    using ContextFixture::setUp;
+
+    void SetUp() override;
+
+    void TearDown() override;
+
+    cl_command_queue_properties properties;
+    const HardwareInfo *pHwInfo = nullptr;
+};
+
+struct OOQueueHwTest : public ClDeviceFixture,
+                       public ContextFixture,
+                       public OOQueueFixture,
+                       ::testing::Test {
+    using ContextFixture::setUp;
+
+    OOQueueHwTest() {
+    }
+
+    void SetUp() override;
+
+    void setUp(ClDevice *pDevice, cl_command_queue_properties properties) {
+    }
+
+    void TearDown() override;
+};
 
 } // namespace NEO

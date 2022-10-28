@@ -5,13 +5,14 @@
  *
  */
 
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
 #include "shared/test/common/helpers/kernel_binary_helper.h"
 #include "shared/test/common/helpers/kernel_filename_helper.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
+#include "shared/test/common/test_macros/hw_test.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
-#include "shared/test/common/test_macros/test.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/program/program.h"
@@ -20,8 +21,6 @@
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/program/program_from_binary.h"
-
-#include "compiler_options.h"
 
 using namespace NEO;
 using namespace ::testing;
@@ -32,7 +31,7 @@ class EnqueueDebugKernelTest : public ProgramSimpleFixture,
                                public ::testing::Test {
   public:
     void SetUp() override {
-        ProgramSimpleFixture::SetUp();
+        ProgramSimpleFixture::setUp();
         device = pClDevice;
         pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->debugger.reset(new SourceLevelDebugger(nullptr));
 
@@ -46,7 +45,7 @@ class EnqueueDebugKernelTest : public ProgramSimpleFixture,
             KernelFilenameHelper::getKernelFilenameFromInternalOption(kernelOption, filename);
 
             kbHelper = new KernelBinaryHelper(filename, false);
-            CreateProgramWithSource(
+            createProgramWithSource(
                 pContext,
                 "copybuffer.cl");
             pProgram->enableKernelDebug();
@@ -82,7 +81,7 @@ class EnqueueDebugKernelTest : public ProgramSimpleFixture,
             delete kbHelper;
             pMultiDeviceKernel->release();
         }
-        ProgramSimpleFixture::TearDown();
+        ProgramSimpleFixture::tearDown();
     }
     cl_device_id device;
     Kernel *debugKernel = nullptr;
@@ -175,7 +174,9 @@ HWTEST_F(EnqueueDebugKernelSimpleTest, givenKernelFromProgramWithDebugEnabledWhe
     std::unique_ptr<MockDebugKernel> kernel(MockKernel::create<MockDebugKernel>(*pDevice, &program));
     kernel->initialize();
     std::unique_ptr<MockCommandQueueHwSetupDebugSurface<FamilyType>> mockCmdQ(new MockCommandQueueHwSetupDebugSurface<FamilyType>(context, pClDevice, 0));
-    mockCmdQ->getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    mockCmdQ->getGpgpuCommandStreamReceiver().allocateDebugSurface(hwHelper.getSipKernelMaxDbgSurfaceSize(hwInfo));
     mockCmdQ->setupDebugSurfaceParamsPassed.clear();
 
     EXPECT_TRUE(isValidOffset(kernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful));

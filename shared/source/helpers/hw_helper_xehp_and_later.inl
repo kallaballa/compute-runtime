@@ -56,7 +56,17 @@ bool HwHelperHw<GfxFamily>::timestampPacketWriteSupported() const {
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isTimestampWaitSupported() const {
+bool HwHelperHw<GfxFamily>::isTimestampWaitSupportedForQueues() const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isTimestampWaitSupportedForEvents(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isUpdateTaskCountFromWaitSupported() const {
     return false;
 }
 
@@ -119,17 +129,18 @@ uint32_t HwHelperHw<GfxFamily>::getMocsIndex(const GmmHelper &gmmHelper, bool l3
 }
 
 template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::calculateAvailableThreadCount(PRODUCT_FAMILY family, uint32_t grfCount, uint32_t euCount,
-                                                              uint32_t threadsPerEu) {
+uint32_t HwHelperHw<GfxFamily>::calculateAvailableThreadCount(const HardwareInfo &hwInfo, uint32_t grfCount) {
     if (grfCount > GrfConfig::DefaultGrfNumber) {
-        return threadsPerEu / 2u * euCount;
+        return hwInfo.gtSystemInfo.ThreadCount / 2u;
     }
-    return threadsPerEu * euCount;
+    return hwInfo.gtSystemInfo.ThreadCount;
 }
 
 template <typename GfxFamily>
 uint64_t HwHelperHw<GfxFamily>::getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const {
-    return static_cast<uint64_t>((timeStamp & 0xffff'ffff) * frequency);
+    constexpr uint64_t mask = static_cast<uint64_t>(std::numeric_limits<typename GfxFamily::TimestampPacketType>::max());
+
+    return static_cast<uint64_t>((timeStamp & mask) * frequency);
 }
 
 constexpr uint32_t planarYuvMaxHeight = 16128;
@@ -140,8 +151,8 @@ uint32_t HwHelperHw<GfxFamily>::getPlanarYuvMaxHeight() const {
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isAssignEngineRoundRobinSupported() const {
-    return true;
+bool HwHelperHw<GfxFamily>::isAssignEngineRoundRobinSupported(const HardwareInfo &hwInfo) const {
+    return false;
 }
 
 template <typename GfxFamily>
@@ -165,7 +176,7 @@ aub_stream::MMIOList HwHelperHw<GfxFamily>::getExtraMmioList(const HardwareInfo 
 }
 
 template <typename GfxFamily>
-bool MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(const HardwareInfo &hwInfo) {
+bool MemorySynchronizationCommands<GfxFamily>::isBarrierWaRequired(const HardwareInfo &hwInfo) {
     if (DebugManager.flags.DisablePipeControlPrecedingPostSyncCommand.get() == 1) {
         return hwInfo.featureTable.flags.ftrLocalMemory;
     }
@@ -200,8 +211,23 @@ inline bool HwHelperHw<GfxFamily>::platformSupportsImplicitScaling(const NEO::Ha
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::isLinuxCompletionFenceSupported() const {
-    return false;
+inline bool HwHelperHw<GfxFamily>::preferInternalBcsEngine() const {
+    auto preferInternalBcsEngine = true;
+    if (DebugManager.flags.PreferInternalBcsEngine.get() != -1) {
+        preferInternalBcsEngine = static_cast<bool>(DebugManager.flags.PreferInternalBcsEngine.get());
+    }
+
+    return preferInternalBcsEngine;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getMinimalScratchSpaceSize() const {
+    return 64U;
+}
+
+template <>
+bool HwHelperHw<Family>::isChipsetUniqueUUIDSupported() const {
+    return true;
 }
 
 } // namespace NEO

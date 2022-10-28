@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "shared/source/gmm_helper/gmm_helper.h"
 
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/gmm_helper/client_context/gmm_client_context.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -19,8 +20,6 @@
 
 namespace NEO {
 
-uint32_t GmmHelper::addressWidth = 48;
-
 GmmClientContext *GmmHelper::getClientContext() const {
     return gmmClientContext.get();
 }
@@ -30,7 +29,7 @@ const HardwareInfo *GmmHelper::getHardwareInfo() {
 }
 
 uint32_t GmmHelper::getMOCS(uint32_t type) const {
-    if (l3CacheForDebugDisabled) {
+    if (allResourcesUncached || (DebugManager.flags.ForceAllResourcesUncached.get() == true)) {
         type = GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED;
     }
 
@@ -39,17 +38,31 @@ uint32_t GmmHelper::getMOCS(uint32_t type) const {
     return static_cast<uint32_t>(mocs.DwordValue);
 }
 
+void GmmHelper::applyMocsEncryptionBit(uint32_t &index) {
+    if (DebugManager.flags.ForceStatelessMocsEncryptionBit.get() == 1) {
+        index |= 1;
+    }
+}
+
 GmmHelper::GmmHelper(OSInterface *osInterface, const HardwareInfo *pHwInfo) : hwInfo(pHwInfo) {
     auto hwInfoAddressWidth = Math::log2(hwInfo->capabilityTable.gpuAddressSpace + 1);
-    GmmHelper::addressWidth = std::max(hwInfoAddressWidth, static_cast<uint32_t>(48));
+    addressWidth = std::max(hwInfoAddressWidth, 48u);
 
     gmmClientContext = GmmHelper::createGmmContextWrapperFunc(osInterface, const_cast<HardwareInfo *>(pHwInfo));
     UNRECOVERABLE_IF(!gmmClientContext);
 }
 
+uint64_t GmmHelper::canonize(uint64_t address) {
+    return static_cast<int64_t>(address << (64 - addressWidth)) >> (64 - addressWidth);
+}
+
+uint64_t GmmHelper::decanonize(uint64_t address) {
+    return (address & maxNBitValue(addressWidth));
+}
+
 bool GmmHelper::isValidCanonicalGpuAddress(uint64_t address) {
-    auto decanonizedAddress = NEO::GmmHelper::decanonize(address);
-    auto canonizedAddress = NEO::GmmHelper::canonize(decanonizedAddress);
+    auto decanonizedAddress = this->decanonize(address);
+    auto canonizedAddress = this->canonize(decanonizedAddress);
 
     if (address == canonizedAddress) {
         return true;

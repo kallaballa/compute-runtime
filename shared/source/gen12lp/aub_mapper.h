@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,15 +7,16 @@
 
 #pragma once
 #include "shared/source/aub/aub_mapper_base.h"
+#include "shared/source/gen12lp/hw_cmds.h"
 #include "shared/source/helpers/constants.h"
 
 #include "engine_node.h"
 
 namespace NEO {
-struct TGLLPFamily;
+struct Gen12LpFamily;
 
 template <>
-struct AUBFamilyMapper<TGLLPFamily> {
+struct AUBFamilyMapper<Gen12LpFamily> {
     enum { device = AubMemDump::DeviceValues::Tgllp };
 
     using AubTraits = AubMemDump::Traits<device, MemoryConstants::GfxAddressBits>;

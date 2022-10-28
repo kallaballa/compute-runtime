@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,7 +17,7 @@
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "reg_configs_common.h"
 #include <gtest/gtest.h>
@@ -75,10 +75,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, givenMidThreadPreemptionWhenPreambleIs
         uintptr_t minCsrAlignment = 2 * 256 * MemoryConstants::kiloByte;
         MockGraphicsAllocation csrSurface(reinterpret_cast<void *>(minCsrAlignment), 1024);
 
-        PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U,
-                                                    ThreadArbitrationPolicy::RoundRobin, &csrSurface);
+        PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U, &csrSurface, nullptr);
 
-        PreemptionHelper::programStateSip<FamilyType>(preemptionStream, *mockDevice);
+        PreemptionHelper::programStateSip<FamilyType>(preemptionStream, *mockDevice, nullptr);
 
         HardwareParse hwParserPreamble;
         hwParserPreamble.parseCommands<FamilyType>(preambleStream, 0);
@@ -145,8 +144,7 @@ HWTEST_F(PreambleTest, givenKernelDebuggingActiveWhenPreambleIsProgrammedThenPro
     StackVec<char, 8192> preambleBuffer(8192);
     LinearStream preambleStream(&*preambleBuffer.begin(), preambleBuffer.size());
 
-    PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U,
-                                                ThreadArbitrationPolicy::RoundRobin, nullptr);
+    PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U, nullptr, nullptr);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(preambleStream);
@@ -159,8 +157,7 @@ HWTEST_F(PreambleTest, givenKernelDebuggingActiveWhenPreambleIsProgrammedThenPro
 
     StackVec<char, 8192> preambleBuffer2(8192);
     preambleStream.replaceBuffer(&*preambleBuffer2.begin(), preambleBuffer2.size());
-    PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U,
-                                                ThreadArbitrationPolicy::RoundRobin, preemptionAllocation);
+    PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U, preemptionAllocation, nullptr);
     HardwareParse hwParser2;
     hwParser2.parseCommands<FamilyType>(preambleStream);
     cmdList = hwParser2.getCommandsList<MI_LOAD_REGISTER_IMM>();
@@ -227,7 +224,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, WhenProgramVFEStateIsCalledThenCorrect
 
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&preambleStream, *defaultHwInfo, EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 1024u, addressToPatch, 10u, emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, *defaultHwInfo, 1024u, addressToPatch, 10u, emptyProperties, nullptr);
     EXPECT_GE(reinterpret_cast<uintptr_t>(pVfeCmd), reinterpret_cast<uintptr_t>(preambleStream.getCpuBase()));
     EXPECT_LT(reinterpret_cast<uintptr_t>(pVfeCmd), reinterpret_cast<uintptr_t>(preambleStream.getCpuBase()) + preambleStream.getUsed());
 
@@ -250,7 +247,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, WhenGetScratchSpaceAddressOffsetForVfe
 
     auto pVfeCmd = PreambleHelper<FamilyType>::getSpaceForVfeState(&preambleStream, mockDevice->getHardwareInfo(), EngineGroupType::RenderCompute);
     StreamProperties emptyProperties{};
-    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, mockDevice->getHardwareInfo(), 1024u, addressToPatch, 10u, emptyProperties);
+    PreambleHelper<FamilyType>::programVfeState(pVfeCmd, mockDevice->getHardwareInfo(), 1024u, addressToPatch, 10u, emptyProperties, nullptr);
 
     auto offset = PreambleHelper<FamilyType>::getScratchSpaceAddressOffsetForVfeState(&preambleStream, pVfeCmd);
     EXPECT_NE(0u, offset);
@@ -261,14 +258,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, WhenGetScratchSpaceAddressOffsetForVfe
 HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, WhenIsSystolicModeConfigurableThenReturnFalse) {
     auto result = PreambleHelper<FamilyType>::isSystolicModeConfigurable(*defaultHwInfo);
     EXPECT_FALSE(result);
-}
-
-HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, WhenAppendProgramPipelineSelectThenNothingChanged) {
-    using PIPELINE_SELECT = typename FamilyType::PIPELINE_SELECT;
-    PIPELINE_SELECT cmd = FamilyType::cmdInitPipelineSelect;
-    cmd.setMaskBits(pipelineSelectEnablePipelineSelectMaskBits);
-    PreambleHelper<FamilyType>::appendProgramPipelineSelect(&cmd, true, *defaultHwInfo);
-    EXPECT_EQ(pipelineSelectEnablePipelineSelectMaskBits, cmd.getMaskBits());
 }
 
 HWTEST_F(PreambleTest, givenSetForceSemaphoreDelayBetweenWaitsWhenProgramSemaphoreDelayThenSemaWaitPollRegisterIsProgrammed) {

@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/command_stream_receiver_hw.h"
 #include "shared/source/command_stream/device_command_stream.h"
 #include "shared/source/helpers/ray_tracing_helper.h"
@@ -16,22 +17,17 @@ using _3DSTATE_BTD = typename Family::_3DSTATE_BTD;
 using _3DSTATE_BTD_BODY = typename Family::_3DSTATE_BTD_BODY;
 using PIPE_CONTROL = typename Family::PIPE_CONTROL;
 
-template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::setPipeControlPriorToNonPipelinedStateCommandExtraProperties(PipeControlArgs &args) {
-    args.unTypedDataPortCacheFlush = true;
-}
-
 template <>
 void CommandStreamReceiverHw<Family>::programPerDssBackedBuffer(LinearStream &commandStream, Device &device, DispatchFlags &dispatchFlags) {
     if (dispatchFlags.usePerDssBackedBuffer && !isPerDssBackedBufferSent) {
         DEBUG_BREAK_IF(perDssBackedBuffer == nullptr);
 
-        auto _3dStateBtd = commandStream.getSpaceForCmd<_3DSTATE_BTD>();
+        auto cmd3dStateBtd = commandStream.getSpaceForCmd<_3DSTATE_BTD>();
 
         _3DSTATE_BTD cmd = Family::cmd3dStateBtd;
         cmd.getBtdStateBody().setPerDssMemoryBackedBufferSize(static_cast<_3DSTATE_BTD_BODY::PER_DSS_MEMORY_BACKED_BUFFER_SIZE>(RayTracingHelper::getMemoryBackedFifoSizeToPatch()));
         cmd.getBtdStateBody().setMemoryBackedBufferBasePointer(perDssBackedBuffer->getGpuAddress());
-        *_3dStateBtd = cmd;
+        *cmd3dStateBtd = cmd;
         isPerDssBackedBufferSent = true;
     }
 }
@@ -41,8 +37,11 @@ size_t CommandStreamReceiverHw<Family>::getCmdSizeForPerDssBackedBuffer(const Ha
     size_t size = sizeof(_3DSTATE_BTD);
 
     auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
-    if (hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs())) {
-        size += sizeof(typename Family::PIPE_CONTROL);
+    const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs());
+    std::ignore = isBasicWARequired;
+
+    if (isExtendedWARequired) {
+        size += MemorySynchronizationCommands<Family>::getSizeForSingleBarrier(false);
     }
 
     return size;
@@ -50,15 +49,25 @@ size_t CommandStreamReceiverHw<Family>::getCmdSizeForPerDssBackedBuffer(const Ha
 
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlBefore3dState(LinearStream &commandStream, DispatchFlags &dispatchFlags) {
+    if (!dispatchFlags.usePerDssBackedBuffer) {
+        return;
+    }
+
+    if (isPerDssBackedBufferSent) {
+        return;
+    }
+
     auto &hwInfo = peekHwInfo();
     auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    const auto &[isBasicWARequired, isExtendedWARequired] = hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs());
+    std::ignore = isBasicWARequired;
+
     PipeControlArgs args;
-    args.dcFlushEnable = MemorySynchronizationCommands<GfxFamily>::getDcFlushEnable(true, hwInfo);
+    args.dcFlushEnable = this->dcFlushSupport;
 
-    if (hwInfoConfig->isPipeControlPriorToNonPipelinedStateCommandsWARequired(hwInfo, isRcs()) && dispatchFlags.usePerDssBackedBuffer && !isPerDssBackedBufferSent) {
+    if (isExtendedWARequired) {
         DEBUG_BREAK_IF(perDssBackedBuffer == nullptr);
-
-        addPipeControlPriorToNonPipelinedStateCommand(commandStream, args);
+        NEO::EncodeWA<GfxFamily>::addPipeControlPriorToNonPipelinedStateCommand(commandStream, args, hwInfo, isRcs());
     }
 }
 

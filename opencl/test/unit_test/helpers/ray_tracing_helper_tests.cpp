@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,41 +28,53 @@ TEST(RayTracingHelperTests, whenMemoryBackedFifoSizeIsRequestedThenCorrectValueI
     MockDevice device;
 
     size_t size = RayTracingHelper::getTotalMemoryBackedFifoSize(device);
-    size_t expectedSize = device.getHardwareInfo().gtSystemInfo.DualSubSliceCount * RayTracingHelper::memoryBackedFifoSizePerDss;
+    size_t expectedSize = device.getHardwareInfo().gtSystemInfo.MaxDualSubSlicesSupported * RayTracingHelper::memoryBackedFifoSizePerDss;
     EXPECT_EQ(expectedSize, size);
 }
 
 TEST(RayTracingHelperTests, whenGlobalDispatchSizeIsRequestedThenCorrectValueIsReturned) {
+    size_t expectedSize = alignUp(sizeof(RTDispatchGlobals), MemoryConstants::cacheLineSize);
+    size_t size = RayTracingHelper::getDispatchGlobalSize();
+    EXPECT_EQ(expectedSize, size);
+}
+
+TEST(RayTracingHelperTests, whenRTStackSizeIsRequestedThenCorrectValueIsReturned) {
     MockClDevice device{new MockDevice};
     MockContext context(&device);
 
     uint32_t maxBvhLevel = 2;
-    uint32_t extraBytesPerThread = 20;
+    uint32_t extraBytesLocal = 20;
     uint32_t extraBytesGlobal = 100;
+    uint32_t tiles = 2;
 
-    size_t expectedSize = alignUp(RayTracingHelper::getRtGlobalsSize(), MemoryConstants::cacheLineSize) +
-                          alignUp((RayTracingHelper::hitInfoSize +
-                                   RayTracingHelper::bvhStackSize * maxBvhLevel +
-                                   extraBytesPerThread),
-                                  MemoryConstants::cacheLineSize) *
-                              context.getDevice(0)->getHardwareInfo().gtSystemInfo.DualSubSliceCount * RayTracingHelper::stackDssMultiplier +
-                          extraBytesGlobal;
-    EXPECT_EQ(expectedSize, RayTracingHelper::getDispatchGlobalSize(device.getDevice(), maxBvhLevel, extraBytesPerThread, extraBytesGlobal));
+    size_t expectedSize = RayTracingHelper::getStackSizePerRay(maxBvhLevel, extraBytesLocal) * (RayTracingHelper::getNumRtStacks(device.getDevice()) / tiles) + extraBytesGlobal;
+    size_t size = RayTracingHelper::getRTStackSizePerTile(device.getDevice(), tiles, maxBvhLevel, extraBytesLocal, extraBytesGlobal);
+    EXPECT_EQ(expectedSize, size);
 }
 
 TEST(RayTracingHelperTests, whenNumRtStacksPerDssIsRequestedThenCorrectValueIsReturned) {
     MockDevice device;
 
     uint32_t numDssRtStacks = RayTracingHelper::getNumRtStacksPerDss(device);
-    uint32_t expectedValue = device.getHardwareInfo().gtSystemInfo.DualSubSliceCount
-                                 ? static_cast<uint32_t>(RayTracingHelper::getNumRtStacks(device) / device.getHardwareInfo().gtSystemInfo.DualSubSliceCount + 0.5)
+    uint32_t expectedValue = device.getHardwareInfo().gtSystemInfo.MaxDualSubSlicesSupported
+                                 ? static_cast<uint32_t>(RayTracingHelper::getNumRtStacks(device) / device.getHardwareInfo().gtSystemInfo.MaxDualSubSlicesSupported + 0.5)
                                  : RayTracingHelper::stackDssMultiplier;
     EXPECT_EQ(expectedValue, numDssRtStacks);
 }
 
+TEST(RayTracingHelperTests, whenNumRtStacksIsQueriedThenItIsEqualToNumRtStacksPerDssMultipliedByDualSubsliceCount) {
+    MockDevice device;
+
+    uint32_t numDssRtStacksPerDss = RayTracingHelper::getNumRtStacksPerDss(device);
+    uint32_t numDssRtStacks = RayTracingHelper::getNumRtStacks(device);
+    uint32_t subsliceCount = device.getHardwareInfo().gtSystemInfo.MaxDualSubSlicesSupported;
+
+    EXPECT_EQ(numDssRtStacks, numDssRtStacksPerDss * subsliceCount);
+}
+
 TEST(RayTracingHelperTests, whenNumDssIsRequestedThenCorrectValueIsReturned) {
     MockDevice device;
-    EXPECT_EQ(device.getHardwareInfo().gtSystemInfo.DualSubSliceCount, RayTracingHelper::getNumDss(device));
+    EXPECT_EQ(device.getHardwareInfo().gtSystemInfo.MaxDualSubSlicesSupported, RayTracingHelper::getNumDss(device));
 }
 
 TEST(RayTracingHelperTests, whenStackSizePerRayIsRequestedThenCorrectValueIsReturned) {
@@ -72,9 +84,7 @@ TEST(RayTracingHelperTests, whenStackSizePerRayIsRequestedThenCorrectValueIsRetu
     uint32_t maxBvhLevel = 1234;
     uint32_t extraBytesLocal = 5678;
 
-    uint32_t expectedValue = alignUp((RayTracingHelper::hitInfoSize + RayTracingHelper::bvhStackSize * maxBvhLevel +
-                                      extraBytesLocal),
-                                     MemoryConstants::cacheLineSize);
+    uint32_t expectedValue = RayTracingHelper::hitInfoSize + RayTracingHelper::bvhStackSize * maxBvhLevel + extraBytesLocal;
     EXPECT_EQ(RayTracingHelper::getStackSizePerRay(maxBvhLevel, extraBytesLocal), expectedValue);
 }
 

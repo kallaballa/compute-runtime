@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -138,7 +138,7 @@ struct AubFileStream : public AubStream {
     MOCKABLE_VIRTUAL void expectMemory(uint64_t physAddress, const void *memory, size_t size,
                                        uint32_t addressSpace, uint32_t compareOperation);
     MOCKABLE_VIRTUAL bool addComment(const char *message);
-    MOCKABLE_VIRTUAL std::unique_lock<std::mutex> lockStream();
+    [[nodiscard]] MOCKABLE_VIRTUAL std::unique_lock<std::mutex> lockStream();
 
     std::ofstream fileHandle;
     std::string fileName;
@@ -309,7 +309,7 @@ struct LrcaHelper {
     int aubHintCommandBuffer = DataTypeHintValues::TraceCommandBuffer;
     int aubHintBatchBuffer = DataTypeHintValues::TraceBatchBuffer;
 
-    const char *name = "XCS";
+    std::string name = "XCS";
     uint32_t mmioBase = 0;
 
     size_t sizeLRCA = 0x2000;
@@ -400,8 +400,7 @@ struct LrcaHelperCcs : public LrcaHelper {
 
 struct LrcaHelperLinkBcs : public LrcaHelperBcs {
     LrcaHelperLinkBcs(uint32_t base, uint32_t engineId) : LrcaHelperBcs(base) {
-        std::string nameStr("BCS" + std::to_string(engineId));
-        name = nameStr.c_str();
+        name = "BCS" + std::to_string(engineId);
     }
 };
 

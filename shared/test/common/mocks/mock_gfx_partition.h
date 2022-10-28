@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/source/memory_manager/gfx_partition.h"
+#pragma once
 
-#include "gmock/gmock.h"
+#include "shared/source/memory_manager/gfx_partition.h"
 
 using namespace NEO;
 
@@ -42,11 +42,29 @@ class MockGfxPartition : public GfxPartition {
         return mockGpuVa;
     }
 
+    uint64_t heapAllocateWithCustomAlignment(HeapIndex heapIndex, size_t &size, size_t alignment) override {
+        if (callHeapAllocate) {
+            return getHeap(heapIndex).allocateWithCustomAlignment(size, alignment);
+        }
+        heapAllocateIndex = heapIndex;
+        return mockGpuVa;
+    }
+
     void heapFree(HeapIndex heapIndex, uint64_t ptr, size_t size) override {
         if (callHeapAllocate) {
             getHeap(heapIndex).free(ptr, size);
         }
     }
+
+    void freeGpuAddressRange(uint64_t gpuAddress, size_t size) override {
+        freeGpuAddressRangeCalled++;
+        if (callBasefreeGpuAddressRange) {
+            GfxPartition::freeGpuAddressRange(gpuAddress, size);
+        }
+    }
+
+    uint32_t freeGpuAddressRangeCalled = 0u;
+    bool callBasefreeGpuAddressRange = false;
 
     static std::array<HeapIndex, static_cast<uint32_t>(HeapIndex::TOTAL_HEAPS)> allHeapNames;
 
@@ -54,11 +72,6 @@ class MockGfxPartition : public GfxPartition {
     bool callHeapAllocate = true;
     HeapIndex heapAllocateIndex = HeapIndex::TOTAL_HEAPS;
     const uint64_t mockGpuVa = std::numeric_limits<uint64_t>::max();
-};
-
-struct GmockGfxPartition : MockGfxPartition {
-    using MockGfxPartition::MockGfxPartition;
-    MOCK_METHOD(void, freeGpuAddressRange, (uint64_t gpuAddress, size_t size), (override));
 };
 
 class MockGfxPartitionBasic : public GfxPartition {
@@ -70,7 +83,7 @@ class MockGfxPartitionBasic : public GfxPartition {
 
 class FailedInitGfxPartition : public MockGfxPartition {
   public:
-    virtual bool init(uint64_t gpuAddressSpace, size_t cpuAddressRangeSizeToReserve, uint32_t rootDeviceIndex, size_t numRootDevices, bool useFrontWindowPool) override {
+    bool init(uint64_t gpuAddressSpace, size_t cpuAddressRangeSizeToReserve, uint32_t rootDeviceIndex, size_t numRootDevices, bool useFrontWindowPool) override {
         return false;
     }
 };

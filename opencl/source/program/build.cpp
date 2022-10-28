@@ -6,23 +6,22 @@
  */
 
 #include "shared/source/compiler_interface/compiler_interface.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/compiler_interface/compiler_warnings/compiler_warnings.h"
 #include "shared/source/device/device.h"
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/helpers/addressing_mode_helper.h"
 #include "shared/source/helpers/compiler_options_parser.h"
 #include "shared/source/program/kernel_info.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
 #include "shared/source/utilities/logger.h"
-#include "shared/source/utilities/time_measure_wrapper.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/gtpin/gtpin_notify.h"
 #include "opencl/source/helpers/cl_validators.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/program.h"
-
-#include "compiler_options.h"
 
 #include <cstring>
 #include <iterator>
@@ -40,14 +39,6 @@ cl_int Program::build(
     UNRECOVERABLE_IF(defaultClDevice == nullptr);
     auto &defaultDevice = defaultClDevice->getDevice();
 
-    enum class BuildPhase {
-        Init,
-        SourceCodeNotification,
-        BinaryCreation,
-        BinaryProcessing,
-        DebugDataNotification
-    };
-
     std::unordered_map<uint32_t, BuildPhase> phaseReached;
     for (const auto &clDevice : deviceVector) {
         phaseReached[clDevice->getRootDeviceIndex()] = BuildPhase::Init;
@@ -64,15 +55,17 @@ cl_int Program::build(
                 deviceBuildInfos[device].buildStatus = CL_BUILD_IN_PROGRESS;
             }
 
-            if (nullptr != buildOptions) {
-                options = buildOptions;
-            } else if (this->createdFrom != CreatedFrom::BINARY) {
-                options = "";
+            if (false == requiresRebuild) {
+                if (nullptr != buildOptions) {
+                    options = buildOptions;
+                } else if (this->createdFrom != CreatedFrom::BINARY) {
+                    options = "";
+                }
             }
 
             const bool shouldSuppressRebuildWarning{CompilerOptions::extract(CompilerOptions::noRecompiledFromIr, options)};
             extractInternalOptions(options, internalOptions);
-            applyAdditionalOptions(internalOptions);
+            CompilerOptions::applyAdditionalOptions(internalOptions);
 
             CompilerInterface *pCompilerInterface = defaultDevice.getCompilerInterface();
             if (!pCompilerInterface) {
@@ -130,7 +123,7 @@ cl_int Program::build(
             NEO::TranslationOutput compilerOuput = {};
 
             for (const auto &clDevice : deviceVector) {
-                if (shouldWarnAboutRebuild && !shouldSuppressRebuildWarning) {
+                if (requiresRebuild && !shouldSuppressRebuildWarning) {
                     this->updateBuildLog(clDevice->getRootDeviceIndex(), CompilerWarnings::recompiledFromIr.data(), CompilerWarnings::recompiledFromIr.length());
                 }
                 auto compilerErr = pCompilerInterface->build(clDevice->getDevice(), inputArgs, compilerOuput);
@@ -159,20 +152,17 @@ cl_int Program::build(
         }
         updateNonUniformFlag();
 
-        for (auto &clDevice : deviceVector) {
-            if (BuildPhase::BinaryProcessing == phaseReached[clDevice->getRootDeviceIndex()]) {
-                continue;
-            }
-            if (DebugManager.flags.PrintProgramBinaryProcessingTime.get()) {
-                retVal = TimeMeasureWrapper::functionExecution(*this, &Program::processGenBinary, *clDevice);
-            } else {
-                retVal = processGenBinary(*clDevice);
-            }
+        retVal = processGenBinaries(deviceVector, phaseReached);
 
-            if (retVal != CL_SUCCESS) {
-                break;
-            }
-            phaseReached[clDevice->getRootDeviceIndex()] = BuildPhase::BinaryProcessing;
+        auto containsStatefulAccess = AddressingModeHelper::containsStatefulAccess(buildInfos[clDevices[0]->getRootDeviceIndex()].kernelInfoArray);
+        auto isUserKernel = !isBuiltIn;
+
+        auto failBuildProgram = (containsStatefulAccess &&
+                                 isUserKernel &&
+                                 AddressingModeHelper::failBuildProgramWithStatefulAccess(clDevices[0]->getHardwareInfo()));
+
+        if (failBuildProgram) {
+            retVal = CL_BUILD_PROGRAM_FAILURE;
         }
 
         if (retVal != CL_SUCCESS) {
@@ -180,23 +170,7 @@ cl_int Program::build(
         }
 
         if (isKernelDebugEnabled() || gtpinIsGTPinInitialized()) {
-
-            for (auto &clDevice : deviceVector) {
-                auto rootDeviceIndex = clDevice->getRootDeviceIndex();
-                if (BuildPhase::DebugDataNotification == phaseReached[rootDeviceIndex]) {
-                    continue;
-                }
-                createDebugData(clDevice->getRootDeviceIndex());
-                if (clDevice->getSourceLevelDebugger()) {
-                    for (auto kernelInfo : buildInfos[rootDeviceIndex].kernelInfoArray) {
-                        clDevice->getSourceLevelDebugger()->notifyKernelDebugData(&kernelInfo->debugData,
-                                                                                  kernelInfo->kernelDescriptor.kernelMetadata.kernelName,
-                                                                                  kernelInfo->heapInfo.pKernelHeap,
-                                                                                  kernelInfo->heapInfo.KernelHeapSize);
-                    }
-                }
-                phaseReached[rootDeviceIndex] = BuildPhase::DebugDataNotification;
-            }
+            debugNotify(deviceVector, phaseReached);
         }
     } while (false);
 
@@ -261,6 +235,17 @@ void Program::extractInternalOptions(const std::string &options, std::string &in
             CompilerOptions::concatenateAppend(internalOptions, optionString);
             CompilerOptions::concatenateAppend(internalOptions, *(element + 1));
         }
+    }
+}
+
+void Program::debugNotify(const ClDeviceVector &deviceVector, std::unordered_map<uint32_t, BuildPhase> &phasesReached) {
+    for (auto &clDevice : deviceVector) {
+        auto rootDeviceIndex = clDevice->getRootDeviceIndex();
+        if (BuildPhase::DebugDataNotification == phasesReached[rootDeviceIndex]) {
+            continue;
+        }
+        notifyDebuggerWithDebugData(clDevice);
+        phasesReached[rootDeviceIndex] = BuildPhase::DebugDataNotification;
     }
 }
 

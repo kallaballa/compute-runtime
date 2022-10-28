@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/compiler_interface/compiler_interface.h"
+#include "shared/source/compiler_interface/compiler_options.h"
 #include "shared/source/device/device.h"
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/device_binary_format/elf/elf.h"
@@ -13,7 +14,6 @@
 #include "shared/source/device_binary_format/elf/ocl_elf.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/program/kernel_info.h"
-#include "shared/source/source_level_debugger/source_level_debugger.h"
 #include "shared/source/utilities/stackvec.h"
 
 #include "opencl/source/cl_device/cl_device.h"
@@ -21,8 +21,6 @@
 #include "opencl/source/helpers/cl_validators.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/program.h"
-
-#include "compiler_options.h"
 
 #include <cstring>
 
@@ -171,13 +169,7 @@ cl_int Program::link(
                     if (kernelDebugDataNotified[rootDeviceIndex]) {
                         continue;
                     }
-                    createDebugData(rootDeviceIndex);
-                    for (auto kernelInfo : buildInfos[rootDeviceIndex].kernelInfoArray) {
-                        device->getSourceLevelDebugger()->notifyKernelDebugData(&kernelInfo->debugData,
-                                                                                kernelInfo->kernelDescriptor.kernelMetadata.kernelName,
-                                                                                kernelInfo->heapInfo.pKernelHeap,
-                                                                                kernelInfo->heapInfo.KernelHeapSize);
-                    }
+                    notifyDebuggerWithDebugData(device);
                     kernelDebugDataNotified[device->getRootDeviceIndex()] = true;
                 }
             }

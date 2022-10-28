@@ -5,6 +5,8 @@
  *
  */
 
+#pragma once
+
 #include <level_zero/ze_api.h>
 
 #include <cstring>
@@ -14,6 +16,9 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#define QTR(a) #a
+#define TOSTR(b) QTR(b)
 
 extern bool verbose;
 
@@ -41,125 +46,45 @@ inline void validate(ResulT result, const char *message) {
 #define SUCCESS_OR_WARNING(CALL) validate<false>(CALL, #CALL)
 #define SUCCESS_OR_WARNING_BOOL(FLAG) validate<false>(!(FLAG), #FLAG)
 
-inline bool isParamEnabled(int argc, char *argv[], const char *shortName, const char *longName) {
-    char **arg = &argv[1];
-    char **argE = &argv[argc];
+bool isParamEnabled(int argc, char *argv[], const char *shortName, const char *longName);
 
-    for (; arg != argE; ++arg) {
-        if ((0 == strcmp(*arg, shortName)) || (0 == strcmp(*arg, longName))) {
-            return true;
-        }
-    }
+int getParamValue(int argc, char *argv[], const char *shortName, const char *longName, int defaultValue);
 
-    return false;
-}
+const char *getParamValue(int argc, char *argv[], const char *shortName, const char *longName, const char *defaultString);
 
-inline int getParamValue(int argc, char *argv[], const char *shortName, const char *longName, int defaultValue) {
-    char **arg = &argv[1];
-    char **argE = &argv[argc];
+bool isCircularDepTest(int argc, char *argv[]);
 
-    for (; arg != argE; ++arg) {
-        if ((0 == strcmp(*arg, shortName)) || (0 == strcmp(*arg, longName))) {
-            arg++;
-            return atoi(*arg);
-        }
-    }
+bool isVerbose(int argc, char *argv[]);
 
-    return defaultValue;
-}
+bool isSyncQueueEnabled(int argc, char *argv[]);
 
-inline bool isVerbose(int argc, char *argv[]) {
-    bool enabled = isParamEnabled(argc, argv, "-v", "--verbose");
-    if (enabled == false) {
-        return false;
-    }
+bool isAsyncQueueEnabled(int argc, char *argv[]);
 
-    std::cerr << "Verbose mode detected" << std::endl;
+bool isAubMode(int argc, char *argv[]);
 
-    return true;
-}
+bool isCommandListShared(int argc, char *argv[]);
 
-inline bool isSyncQueueEnabled(int argc, char *argv[]) {
-    bool enabled = isParamEnabled(argc, argv, "-s", "--sync");
-    if (enabled == false) {
-        std::cerr << "Async Queue detected" << std::endl;
-        return false;
-    }
+bool getAllocationFlag(int argc, char *argv[], int defaultValue);
 
-    std::cerr << "Sync Queue detected" << std::endl;
+void selectQueueMode(ze_command_queue_desc_t &desc, bool useSync);
 
-    return true;
-}
+uint32_t getBufferLength(int argc, char *argv[], uint32_t defaultLength);
 
-uint32_t getCommandQueueOrdinal(ze_device_handle_t &device) {
-    uint32_t numQueueGroups = 0;
-    SUCCESS_OR_TERMINATE(zeDeviceGetCommandQueueGroupProperties(device, &numQueueGroups, nullptr));
-    if (numQueueGroups == 0) {
-        std::cout << "No queue groups found!\n";
-        std::terminate();
-    }
-    std::vector<ze_command_queue_group_properties_t> queueProperties(numQueueGroups);
-    SUCCESS_OR_TERMINATE(zeDeviceGetCommandQueueGroupProperties(device, &numQueueGroups,
-                                                                queueProperties.data()));
-    uint32_t computeQueueGroupOrdinal = numQueueGroups;
-    for (uint32_t i = 0; i < numQueueGroups; i++) {
-        if (queueProperties[i].flags & ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE) {
-            computeQueueGroupOrdinal = i;
-            break;
-        }
-    }
-    return computeQueueGroupOrdinal;
-}
+void printResult(bool aubMode, bool outputValidationSuccessful, const std::string &blackBoxName, const std::string &currentTest);
 
-int32_t getCopyOnlyCommandQueueOrdinal(ze_device_handle_t &device) {
-    uint32_t numQueueGroups = 0;
-    SUCCESS_OR_TERMINATE(zeDeviceGetCommandQueueGroupProperties(device, &numQueueGroups, nullptr));
-    if (numQueueGroups == 0) {
-        std::cout << "No queue groups found!\n";
-        std::terminate();
-    }
-    std::vector<ze_command_queue_group_properties_t> queueProperties(numQueueGroups);
-    SUCCESS_OR_TERMINATE(zeDeviceGetCommandQueueGroupProperties(device, &numQueueGroups,
-                                                                queueProperties.data()));
-    int32_t copyOnlyQueueGroupOrdinal = -1;
-    for (uint32_t i = 0; i < numQueueGroups; i++) {
-        if (!(queueProperties[i].flags & ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE) && (queueProperties[i].flags & ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COPY)) {
-            copyOnlyQueueGroupOrdinal = i;
-            break;
-        }
-    }
-    return copyOnlyQueueGroupOrdinal;
-}
+void printResult(bool aubMode, bool outputValidationSuccessful, const std::string &blackBoxName);
 
-ze_command_queue_handle_t createCommandQueue(ze_context_handle_t &context, ze_device_handle_t &device, uint32_t *ordinal) {
-    ze_command_queue_handle_t cmdQueue;
-    ze_command_queue_desc_t descriptor = {};
-    descriptor.stype = ZE_STRUCTURE_TYPE_COMMAND_QUEUE_DESC;
+uint32_t getCommandQueueOrdinal(ze_device_handle_t &device);
 
-    descriptor.pNext = nullptr;
-    descriptor.flags = 0;
-    descriptor.mode = ZE_COMMAND_QUEUE_MODE_DEFAULT;
-    descriptor.priority = ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
+int32_t getCopyOnlyCommandQueueOrdinal(ze_device_handle_t &device);
 
-    descriptor.ordinal = getCommandQueueOrdinal(device);
-    descriptor.index = 0;
-    SUCCESS_OR_TERMINATE(zeCommandQueueCreate(context, device, &descriptor, &cmdQueue));
-    if (ordinal != nullptr) {
-        *ordinal = descriptor.ordinal;
-    }
-    return cmdQueue;
-}
+ze_command_queue_handle_t createCommandQueue(ze_context_handle_t &context, ze_device_handle_t &device,
+                                             uint32_t *ordinal, ze_command_queue_mode_t mode,
+                                             ze_command_queue_priority_t priority);
 
-ze_result_t createCommandList(ze_context_handle_t &context, ze_device_handle_t &device, ze_command_list_handle_t &cmdList) {
-    ze_command_list_desc_t descriptor = {};
-    descriptor.stype = ZE_STRUCTURE_TYPE_COMMAND_LIST_DESC;
+ze_command_queue_handle_t createCommandQueue(ze_context_handle_t &context, ze_device_handle_t &device, uint32_t *ordinal);
 
-    descriptor.pNext = nullptr;
-    descriptor.flags = 0;
-    descriptor.commandQueueGroupOrdinal = getCommandQueueOrdinal(device);
-
-    return zeCommandListCreate(context, device, &descriptor, &cmdList);
-}
+ze_result_t createCommandList(ze_context_handle_t &context, ze_device_handle_t &device, ze_command_list_handle_t &cmdList);
 
 void createEventPoolAndEvents(ze_context_handle_t &context,
                               ze_device_handle_t &device,
@@ -168,60 +93,107 @@ void createEventPoolAndEvents(ze_context_handle_t &context,
                               uint32_t poolSize,
                               ze_event_handle_t *events,
                               ze_event_scope_flag_t signalScope,
-                              ze_event_scope_flag_t waitScope) {
-    ze_event_pool_desc_t eventPoolDesc{ZE_STRUCTURE_TYPE_EVENT_POOL_DESC};
-    ze_event_desc_t eventDesc = {ZE_STRUCTURE_TYPE_EVENT_DESC};
-    eventPoolDesc.count = poolSize;
-    eventPoolDesc.flags = poolFlag;
-    SUCCESS_OR_TERMINATE(zeEventPoolCreate(context, &eventPoolDesc, 1, &device, &eventPool));
+                              ze_event_scope_flag_t waitScope);
 
-    for (uint32_t i = 0; i < poolSize; i++) {
-        eventDesc.index = i;
-        eventDesc.signal = signalScope;
-        eventDesc.wait = waitScope;
-        SUCCESS_OR_TERMINATE(zeEventCreate(eventPool, &eventDesc, events + i));
+std::vector<ze_device_handle_t> zelloGetSubDevices(ze_device_handle_t &device, int &subDevCount);
+
+std::vector<ze_device_handle_t> zelloInitContextAndGetDevices(ze_context_handle_t &context, ze_driver_handle_t &driverHandle);
+
+std::vector<ze_device_handle_t> zelloInitContextAndGetDevices(ze_context_handle_t &context);
+
+void initialize(ze_driver_handle_t &driver, ze_context_handle_t &context, ze_device_handle_t &device, ze_command_queue_handle_t &cmdQueue, uint32_t &ordinal);
+
+void teardown(ze_context_handle_t context, ze_command_queue_handle_t cmdQueue);
+
+void printDeviceProperties(const ze_device_properties_t &props);
+
+void printCacheProperties(uint32_t index, const ze_device_cache_properties_t &props);
+
+void printP2PProperties(const ze_device_p2p_properties_t &props, bool canAccessPeer, uint32_t device0Index, uint32_t device1Index);
+
+void printKernelProperties(const ze_kernel_properties_t &props, const char *kernelName);
+
+const std::vector<const char *> &getResourcesSearchLocations();
+
+// read binary file into a non-NULL-terminated string
+template <typename SizeT>
+inline std::unique_ptr<char[]> readBinaryFile(const std::string &name, SizeT &outSize) {
+    for (const char *base : getResourcesSearchLocations()) {
+        std::string s(base);
+        std::ifstream file(s + name, std::ios_base::in | std::ios_base::binary);
+        if (false == file.good()) {
+            continue;
+        }
+
+        size_t length;
+        file.seekg(0, file.end);
+        length = static_cast<size_t>(file.tellg());
+        file.seekg(0, file.beg);
+
+        auto storage = std::make_unique<char[]>(length);
+        file.read(storage.get(), length);
+
+        outSize = static_cast<SizeT>(length);
+        return storage;
     }
+    outSize = 0;
+    return nullptr;
 }
 
-std::vector<ze_device_handle_t> zelloInitContextAndGetDevices(ze_context_handle_t &context, ze_driver_handle_t &driverHandle) {
-    SUCCESS_OR_TERMINATE(zeInit(ZE_INIT_FLAG_GPU_ONLY));
+// read text file into a NULL-terminated string
+template <typename SizeT>
+inline std::unique_ptr<char[]> readTextFile(const std::string &name, SizeT &outSize) {
+    for (const char *base : getResourcesSearchLocations()) {
+        std::string s(base);
+        std::ifstream file(s + name, std::ios_base::in);
+        if (false == file.good()) {
+            continue;
+        }
 
-    uint32_t driverCount = 0;
-    SUCCESS_OR_TERMINATE(zeDriverGet(&driverCount, nullptr));
-    if (driverCount == 0) {
-        std::cout << "No driver handle found!\n";
-        std::terminate();
+        size_t length;
+        file.seekg(0, file.end);
+        length = static_cast<size_t>(file.tellg());
+        file.seekg(0, file.beg);
+
+        auto storage = std::make_unique<char[]>(length + 1);
+        file.read(storage.get(), length);
+        storage[length] = '\0';
+
+        outSize = static_cast<SizeT>(length);
+        return storage;
+    }
+    outSize = 0;
+    return nullptr;
+}
+
+template <typename T = uint8_t>
+inline bool validate(const void *expected, const void *tested, size_t len) {
+    bool resultsAreOk = true;
+    size_t offset = 0;
+
+    const T *expectedT = reinterpret_cast<const T *>(expected);
+    const T *testedT = reinterpret_cast<const T *>(tested);
+    uint32_t errorsCount = 0;
+    constexpr uint32_t errorsMax = 20;
+    while (offset < len) {
+        if (expectedT[offset] != testedT[offset]) {
+            resultsAreOk = false;
+            if (verbose == false) {
+                break;
+            }
+
+            std::cerr << "Data mismatch expectedU8[" << offset << "] != testedU8[" << offset
+                      << "]   ->    " << +expectedT[offset] << " != " << +testedT[offset]
+                      << std::endl;
+            ++errorsCount;
+            if (errorsCount >= errorsMax) {
+                std::cerr << "Found " << errorsCount
+                          << " data mismatches - skipping further comparison " << std::endl;
+                break;
+            }
+        }
+        ++offset;
     }
 
-    SUCCESS_OR_TERMINATE(zeDriverGet(&driverCount, &driverHandle));
-    ze_context_desc_t context_desc = {ZE_STRUCTURE_TYPE_CONTEXT_DESC, nullptr, 0};
-    SUCCESS_OR_TERMINATE(zeContextCreate(driverHandle, &context_desc, &context));
-
-    uint32_t deviceCount = 0;
-    SUCCESS_OR_TERMINATE(zeDeviceGet(driverHandle, &deviceCount, nullptr));
-    if (deviceCount == 0) {
-        std::cout << "No device found!\n";
-        std::terminate();
-    }
-    std::vector<ze_device_handle_t> devices(deviceCount, nullptr);
-    SUCCESS_OR_TERMINATE(zeDeviceGet(driverHandle, &deviceCount, devices.data()));
-    return devices;
-}
-
-std::vector<ze_device_handle_t> zelloInitContextAndGetDevices(ze_context_handle_t &context) {
-    ze_driver_handle_t driverHandle;
-    return zelloInitContextAndGetDevices(context, driverHandle);
-}
-
-void initialize(ze_driver_handle_t &driver, ze_context_handle_t &context, ze_device_handle_t &device, ze_command_queue_handle_t &cmdQueue, uint32_t &ordinal) {
-    std::vector<ze_device_handle_t> devices;
-
-    devices = zelloInitContextAndGetDevices(context, driver);
-    device = devices[0];
-    cmdQueue = createCommandQueue(context, device, &ordinal);
-}
-
-static inline void teardown(ze_context_handle_t context, ze_command_queue_handle_t cmdQueue) {
-    SUCCESS_OR_TERMINATE(zeCommandQueueDestroy(cmdQueue));
-    SUCCESS_OR_TERMINATE(zeContextDestroy(context));
+    return resultsAreOk;
 }

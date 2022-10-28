@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -20,6 +20,7 @@ class VASharingFunctionsMock : public VASharingFunctions {
     using VASharingFunctions::mutex;
     using VASharingFunctions::supported2PlaneFormats;
     using VASharingFunctions::supported3PlaneFormats;
+    using VASharingFunctions::supportedPackedFormats;
 
     VAImage mockVaImage = {};
     int32_t derivedImageFormatFourCC = VA_FOURCC_NV12;
@@ -27,6 +28,8 @@ class VASharingFunctionsMock : public VASharingFunctions {
     uint16_t derivedImageHeight = 256;
     uint16_t derivedImageWidth = 256;
     VAStatus queryImageFormatsReturnStatus = VA_STATUS_SUCCESS;
+    VAStatus syncSurfaceReturnStatus = VA_STATUS_SUCCESS;
+    VAStatus deriveImageReturnStatus = VA_STATUS_SUCCESS;
 
     bool isValidDisplayCalled = false;
     bool deriveImageCalled = false;
@@ -34,7 +37,7 @@ class VASharingFunctionsMock : public VASharingFunctions {
     bool syncSurfaceCalled = false;
     bool extGetSurfaceHandleCalled = false;
     bool exportSurfaceHandleCalled = false;
-
+    VASurfaceID syncedSurfaceID = 0;
     osHandle acquiredVaHandle = 0;
 
     bool haveExportSurfaceHandle = false;
@@ -60,6 +63,9 @@ class VASharingFunctionsMock : public VASharingFunctions {
     VASharingFunctionsMock() : VASharingFunctionsMock(nullptr){};
 
     VAStatus deriveImage(VASurfaceID vaSurface, VAImage *vaImage) override {
+        if (deriveImageReturnStatus != VA_STATUS_SUCCESS) {
+            return deriveImageReturnStatus;
+        }
         deriveImageCalled = true;
         uint32_t pitch;
         vaImage->height = derivedImageHeight;
@@ -109,7 +115,8 @@ class VASharingFunctionsMock : public VASharingFunctions {
 
     VAStatus syncSurface(VASurfaceID vaSurface) override {
         syncSurfaceCalled = true;
-        return VA_STATUS_SUCCESS;
+        syncedSurfaceID = vaSurface;
+        return syncSurfaceReturnStatus;
     }
 
     VAStatus queryImageFormats(VADisplay vaDisplay, VAImageFormat *formatList, int *numFormats) override {
@@ -117,7 +124,7 @@ class VASharingFunctionsMock : public VASharingFunctions {
             return queryImageFormatsReturnStatus;
         }
         if (numFormats) {
-            *numFormats = 4;
+            *numFormats = 6;
         }
 
         if (formatList) {
@@ -136,12 +143,20 @@ class VASharingFunctionsMock : public VASharingFunctions {
             formatList[3].fourcc = VA_FOURCC_RGBP;
             formatList[3].bits_per_pixel = 8;
             formatList[3].byte_order = VA_LSB_FIRST;
+
+            formatList[4].fourcc = VA_FOURCC_YUY2;
+            formatList[4].bits_per_pixel = 16;
+            formatList[4].byte_order = VA_LSB_FIRST;
+
+            formatList[5].fourcc = VA_FOURCC_Y210;
+            formatList[5].bits_per_pixel = 32;
+            formatList[5].byte_order = VA_LSB_FIRST;
         }
         return VA_STATUS_SUCCESS;
     }
 
     int maxNumImageFormats(VADisplay vaDisplay) override {
-        return 4;
+        return 6;
     }
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,9 +13,11 @@
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/compiler_interface/default_cache_config.h"
 #include "shared/source/debugger/debugger.h"
+#include "shared/source/debugger/debugger_l0.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
+#include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
@@ -46,6 +48,20 @@ void RootDeviceEnvironment::initDebugger() {
     debugger = Debugger::create(hwInfo.get());
 }
 
+void RootDeviceEnvironment::initDebuggerL0(Device *neoDevice) {
+    if (this->debugger.get() != nullptr) {
+        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr,
+                              "%s", "Source Level Debugger cannot be used with Environment Variable enabling program debugging.\n");
+        UNRECOVERABLE_IF(this->debugger.get() != nullptr);
+    }
+
+    this->getMutableHardwareInfo()->capabilityTable.fusedEuEnabled = false;
+    this->getMutableHardwareInfo()->capabilityTable.ftrRenderCompressedBuffers = false;
+    this->getMutableHardwareInfo()->capabilityTable.ftrRenderCompressedImages = false;
+
+    this->debugger = DebuggerL0::create(neoDevice);
+}
+
 const HardwareInfo *RootDeviceEnvironment::getHardwareInfo() const {
     return hwInfo.get();
 }
@@ -67,6 +83,12 @@ GmmHelper *RootDeviceEnvironment::getGmmHelper() const {
 }
 GmmClientContext *RootDeviceEnvironment::getGmmClientContext() const {
     return gmmHelper->getClientContext();
+}
+
+void RootDeviceEnvironment::prepareForCleanup() const {
+    if (osInterface && osInterface->getDriverModel()) {
+        osInterface->getDriverModel()->isDriverAvaliable();
+    }
 }
 
 bool RootDeviceEnvironment::initAilConfiguration() {
@@ -111,7 +133,7 @@ CompilerInterface *RootDeviceEnvironment::getCompilerInterface() {
         std::lock_guard<std::mutex> autolock(this->mtx);
         if (this->compilerInterface.get() == nullptr) {
             auto cache = std::make_unique<CompilerCache>(getDefaultCompilerCacheConfig());
-            this->compilerInterface.reset(CompilerInterface::createInstance(std::move(cache), true));
+            this->compilerInterface.reset(CompilerInterface::createInstance(std::move(cache), ApiSpecificConfig::getApiType() == ApiSpecificConfig::ApiType::OCL));
         }
     }
     return this->compilerInterface.get();
@@ -125,5 +147,15 @@ BuiltIns *RootDeviceEnvironment::getBuiltIns() {
         }
     }
     return this->builtins.get();
+}
+
+void RootDeviceEnvironment::limitNumberOfCcs(uint32_t numberOfCcs) {
+
+    hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled = std::min(hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled, numberOfCcs);
+    limitedNumberOfCcs = true;
+}
+
+bool RootDeviceEnvironment::isNumberOfCcsLimited() const {
+    return limitedNumberOfCcs;
 }
 } // namespace NEO

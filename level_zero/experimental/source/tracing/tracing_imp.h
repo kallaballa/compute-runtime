@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -65,8 +65,8 @@ struct APITracerImp : APITracer {
     ze_result_t setEpilogues(zet_core_callbacks_t *pCoreCbs) override;
     ze_result_t enableTracer(ze_bool_t enable) override;
 
-    tracer_array_entry_t tracerFunctions;
-    tracingState_t tracingState;
+    tracer_array_entry_t tracerFunctions{};
+    tracingState_t tracingState = disabledState;
 
   private:
 };
@@ -186,21 +186,21 @@ class APITracerCallbackDataImp {
     }
 
 template <typename TFunction_pointer, typename TParams, typename TTracer, typename TTracerPrologCallbacks, typename TTracerEpilogCallbacks, typename... Args>
-ze_result_t APITracerWrapperImp(TFunction_pointer zeApiPtr,
+ze_result_t apiTracerWrapperImp(TFunction_pointer zeApiPtr,
                                 TParams paramsStruct,
                                 TTracer apiOrdinal,
                                 TTracerPrologCallbacks prologCallbacks,
                                 TTracerEpilogCallbacks epilogCallbacks,
                                 Args &&...args) {
     ze_result_t ret = ZE_RESULT_SUCCESS;
-    std::vector<APITracerCallbackStateImp<TTracer>> *callbacks_prologs = &prologCallbacks;
+    std::vector<APITracerCallbackStateImp<TTracer>> *callbacksPrologs = &prologCallbacks;
 
     std::vector<void *> ppTracerInstanceUserData;
-    ppTracerInstanceUserData.resize(callbacks_prologs->size());
+    ppTracerInstanceUserData.resize(callbacksPrologs->size());
 
-    for (size_t i = 0; i < callbacks_prologs->size(); i++) {
-        if (callbacks_prologs->at(i).current_api_callback != nullptr)
-            callbacks_prologs->at(i).current_api_callback(paramsStruct, ret, callbacks_prologs->at(i).pUserData, &ppTracerInstanceUserData[i]);
+    for (size_t i = 0; i < callbacksPrologs->size(); i++) {
+        if (callbacksPrologs->at(i).current_api_callback != nullptr)
+            callbacksPrologs->at(i).current_api_callback(paramsStruct, ret, callbacksPrologs->at(i).pUserData, &ppTracerInstanceUserData[i]);
     }
     ret = zeApiPtr(args...);
     std::vector<APITracerCallbackStateImp<TTracer>> *callbacksEpilogs = &epilogCallbacks;

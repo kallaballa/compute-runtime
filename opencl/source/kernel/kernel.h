@@ -62,14 +62,17 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     };
 
     struct SimpleKernelArgInfo {
-        kernelArgType type;
+        cl_mem_flags svmFlags;
         void *object;
         const void *value;
         size_t size;
-        GraphicsAllocation *pSvmAlloc;
-        cl_mem_flags svmFlags;
+        GraphicsAllocation *svmAllocation;
+        kernelArgType type;
+        uint32_t allocId;
+        uint32_t allocIdMemoryManagerCounter;
         bool isPatched = false;
         bool isStatelessUncacheable = false;
+        bool isSetToNullptr = false;
     };
 
     enum class TunningStatus {
@@ -101,14 +104,22 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
             pKernel = nullptr;
         }
 
+        auto localMemSize = static_cast<uint32_t>(clDevice.getDevice().getDeviceInfo().localMemSize);
+        auto slmInlineSize = kernelInfo.kernelDescriptor.kernelAttributes.slmInlineSize;
+
+        if (slmInlineSize > 0 && localMemSize < slmInlineSize) {
+            PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "Size of SLM (%u) larger than available (%u)\n", slmInlineSize, localMemSize);
+            retVal = CL_OUT_OF_RESOURCES;
+        }
+
         if (errcodeRet) {
             *errcodeRet = retVal;
         }
 
-        if (FileLoggerInstance().enabled()) {
+        if (fileLoggerInstance().enabled()) {
             std::string source;
             program->getSource(source);
-            FileLoggerInstance().dumpKernel(kernelInfo.kernelDescriptor.kernelMetadata.kernelName, source);
+            fileLoggerInstance().dumpKernel(kernelInfo.kernelDescriptor.kernelMetadata.kernelName, source);
         }
 
         return pKernel;
@@ -117,7 +128,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     Kernel &operator=(const Kernel &) = delete;
     Kernel(const Kernel &) = delete;
 
-    virtual ~Kernel();
+    ~Kernel() override;
 
     static bool isMemObj(kernelArgType kernelArg) {
         return kernelArg == BUFFER_OBJ || kernelArg == IMAGE_OBJ || kernelArg == PIPE_OBJ;
@@ -149,15 +160,13 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     // API entry points
     cl_int setArgument(uint32_t argIndex, size_t argSize, const void *argVal) { return setArg(argIndex, argSize, argVal); }
     cl_int setArgSvm(uint32_t argIndex, size_t svmAllocSize, void *svmPtr, GraphicsAllocation *svmAlloc, cl_mem_flags svmFlags);
-    cl_int setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocation *svmAlloc);
+    MOCKABLE_VIRTUAL cl_int setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocation *svmAlloc, uint32_t allocId);
 
     void setSvmKernelExecInfo(GraphicsAllocation *argValue);
     void clearSvmKernelExecInfo();
 
     cl_int getInfo(cl_kernel_info paramName, size_t paramValueSize,
                    void *paramValue, size_t *paramValueSizeRet) const;
-    void getAdditionalInfo(cl_kernel_info paramName, const void *&paramValue, size_t &paramValueSizeRet) const;
-    void getAdditionalWorkGroupInfo(cl_kernel_work_group_info paramName, const void *&paramValue, size_t &paramValueSizeRet) const;
 
     cl_int getArgInfo(cl_uint argIndx, cl_kernel_arg_info paramName,
                       size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
@@ -279,17 +288,19 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
                         size_t argSize,
                         GraphicsAllocation *argSvmAlloc = nullptr,
                         cl_mem_flags argSvmFlags = 0);
+    void storeKernelArgAllocIdMemoryManagerCounter(uint32_t argIndex, uint32_t allocIdMemoryManagerCounter);
     const void *getKernelArg(uint32_t argIndex) const;
     const SimpleKernelArgInfo &getKernelArgInfo(uint32_t argIndex) const;
 
     bool getAllowNonUniform() const { return program->getAllowNonUniform(); }
     bool isVmeKernel() const { return kernelInfo.kernelDescriptor.kernelAttributes.flags.usesVme; }
-    bool requiresSpecialPipelineSelectMode() const { return specialPipelineSelectMode; }
+    bool requiresSystolicPipelineSelectMode() const { return systolicPipelineSelectMode; }
 
     void performKernelTuning(CommandStreamReceiver &commandStreamReceiver, const Vec3<size_t> &lws, const Vec3<size_t> &gws, const Vec3<size_t> &offsets, TimestampPacketContainer *timestampContainer);
     MOCKABLE_VIRTUAL bool isSingleSubdevicePreferred() const;
+    void setInlineSamplers();
 
-    //residency for kernel surfaces
+    // residency for kernel surfaces
     MOCKABLE_VIRTUAL void makeResident(CommandStreamReceiver &commandStreamReceiver);
     MOCKABLE_VIRTUAL void getResidency(std::vector<Surface *> &dst);
     bool requiresCoherency();
@@ -309,9 +320,6 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     bool isBuiltIn = false;
 
-    uint32_t getThreadArbitrationPolicy() const {
-        return threadArbitrationPolicy;
-    }
     KernelExecutionType getExecutionType() const {
         return executionType;
     }
@@ -332,7 +340,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         return usingImagesOnly;
     }
 
-    void fillWithKernelObjsForAuxTranslation(KernelObjsForAuxTranslation &kernelObjsForAuxTranslation);
+    std::unique_ptr<KernelObjsForAuxTranslation> fillWithKernelObjsForAuxTranslation();
 
     MOCKABLE_VIRTUAL bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const;
 
@@ -352,25 +360,18 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     bool areStatelessWritesUsed() { return containsStatelessWrites; }
     int setKernelThreadArbitrationPolicy(uint32_t propertyValue);
     cl_int setKernelExecutionType(cl_execution_info_kernel_type_intel executionType);
-    void setThreadArbitrationPolicy(uint32_t policy) {
-        this->threadArbitrationPolicy = policy;
-    }
     void getSuggestedLocalWorkSize(const cl_uint workDim, const size_t *globalWorkSize, const size_t *globalWorkOffset,
                                    size_t *localWorkSize);
     uint32_t getMaxWorkGroupCount(const cl_uint workDim, const size_t *localWorkSize, const CommandQueue *commandQueue) const;
 
-    uint64_t getKernelStartOffset(
-        const bool localIdsGenerationByRuntime,
-        const bool kernelUsesLocalIds,
-        const bool isCssUsed) const;
+    uint64_t getKernelStartAddress(const bool localIdsGenerationByRuntime, const bool kernelUsesLocalIds, const bool isCssUsed, const bool returnFullAddress) const;
 
     bool isKernelDebugEnabled() const { return debugEnabled; }
-    int32_t setAdditionalKernelExecInfoWithParam(uint32_t paramName, size_t paramValueSize, const void *paramValue);
     void setAdditionalKernelExecInfo(uint32_t additionalKernelExecInfo);
     uint32_t getAdditionalKernelExecInfo() const;
     MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization() const;
 
-    //dispatch traits
+    // dispatch traits
     void setGlobalWorkOffsetValues(uint32_t globalWorkOffsetX, uint32_t globalWorkOffsetY, uint32_t globalWorkOffsetZ);
     void setGlobalWorkSizeValues(uint32_t globalWorkSizeX, uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ);
     void setLocalWorkSizeValues(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
@@ -406,97 +407,20 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     bool requiresMemoryMigration() const { return migratableArgsMap.size() > 0; }
     const std::map<uint32_t, MemObj *> &getMemObjectsToMigrate() const { return migratableArgsMap; }
     ImplicitArgs *getImplicitArgs() const { return pImplicitArgs.get(); }
+    const HardwareInfo &getHardwareInfo() const;
+    bool isAnyKernelArgumentUsingSystemMemory() const {
+        return anyKernelArgumentUsingSystemMemory;
+    }
+
+    static bool graphicsAllocationTypeUseSystemMemory(AllocationType type);
+    void setDestinationAllocationInSystemMemory(bool value) {
+        isDestinationAllocationInSystemMemory = value;
+    }
+    bool getDestinationAllocationInSystemMemory() const {
+        return isDestinationAllocationInSystemMemory;
+    }
 
   protected:
-    struct ObjectCounts {
-        uint32_t imageCount;
-        uint32_t samplerCount;
-    };
-
-    void
-    makeArgsResident(CommandStreamReceiver &commandStreamReceiver);
-
-    void *patchBufferOffset(const ArgDescPointer &argAsPtr, void *svmPtr, GraphicsAllocation *svmAlloc);
-
-    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const ArgDescPointer &arg);
-
-    void getParentObjectCounts(ObjectCounts &objectCount);
-    Kernel(Program *programArg, const KernelInfo &kernelInfo, ClDevice &clDevice);
-    void provideInitializationHints();
-
-    void markArgPatchedAndResolveArgs(uint32_t argIndex);
-    void resolveArgs();
-
-    void reconfigureKernel();
-    bool hasDirectStatelessAccessToSharedBuffer() const;
-    bool hasDirectStatelessAccessToHostMemory() const;
-    bool hasIndirectStatelessAccessToHostMemory() const;
-
-    void addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation);
-    bool allocationForCacheFlush(GraphicsAllocation *argAllocation) const;
-
-    const HardwareInfo &getHardwareInfo() const;
-
-    const ClDevice &getDevice() const {
-        return clDevice;
-    }
-    cl_int patchPrivateSurface();
-
-    bool containsStatelessWrites = true;
-    const ExecutionEnvironment &executionEnvironment;
-    Program *program;
-    ClDevice &clDevice;
-    const KernelInfo &kernelInfo;
-
-    std::vector<SimpleKernelArgInfo> kernelArguments;
-    std::vector<KernelArgHandler> kernelArgHandlers;
-    std::vector<GraphicsAllocation *> kernelSvmGfxAllocations;
-    std::vector<GraphicsAllocation *> kernelUnifiedMemoryGfxAllocations;
-
-    AuxTranslationDirection auxTranslationDirection = AuxTranslationDirection::None;
-
-    bool usingSharedObjArgs = false;
-    bool usingImages = false;
-    bool usingImagesOnly = false;
-    bool auxTranslationRequired = false;
-    uint32_t patchedArgumentsNum = 0;
-    uint32_t startOffset = 0;
-    uint32_t statelessUncacheableArgsCount = 0;
-    uint32_t threadArbitrationPolicy = ThreadArbitrationPolicy::NotPresent;
-    KernelExecutionType executionType = KernelExecutionType::Default;
-
-    std::vector<PatchInfoData> patchInfoDataList;
-    std::unique_ptr<ImageTransformer> imageTransformer;
-    std::map<uint32_t, MemObj *> migratableArgsMap{};
-
-    bool specialPipelineSelectMode = false;
-    bool svmAllocationsRequireCacheFlush = false;
-    std::vector<GraphicsAllocation *> kernelArgRequiresCacheFlush;
-    UnifiedMemoryControls unifiedMemoryControls{};
-    bool isUnifiedMemorySyncRequired = true;
-    bool debugEnabled = false;
-    uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::DisableOverdispatch;
-
-    uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
-    uint32_t maxKernelWorkGroupSize = 0;
-    uint32_t *dataParameterSimdSize = &Kernel::dummyPatchLocation;
-    uint32_t *parentEventOffset = &Kernel::dummyPatchLocation;
-    uint32_t *preferredWkgMultipleOffset = &Kernel::dummyPatchLocation;
-
-    size_t numberOfBindingTableStates = 0u;
-    size_t localBindingTableOffset = 0u;
-
-    std::vector<size_t> slmSizes;
-    uint32_t slmTotalSize = 0u;
-
-    std::unique_ptr<char[]> pSshLocal;
-    uint32_t sshLocalSize = 0u;
-    char *crossThreadData = nullptr;
-    uint32_t crossThreadDataSize = 0u;
-
-    GraphicsAllocation *privateSurface = nullptr;
-    uint64_t privateSurfaceSize = 0u;
-
     struct KernelConfig {
         Vec3<size_t> gws;
         Vec3<size_t> lws;
@@ -532,15 +456,96 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         bool singleSubdevicePreferred = false;
     };
 
+    Kernel(Program *programArg, const KernelInfo &kernelInfo, ClDevice &clDevice);
+
+    void makeArgsResident(CommandStreamReceiver &commandStreamReceiver);
+
+    void *patchBufferOffset(const ArgDescPointer &argAsPtr, void *svmPtr, GraphicsAllocation *svmAlloc);
+
+    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const ArgDescPointer &arg);
+
+    void provideInitializationHints();
+
+    void markArgPatchedAndResolveArgs(uint32_t argIndex);
+    void resolveArgs();
+
+    void reconfigureKernel();
+    bool hasDirectStatelessAccessToSharedBuffer() const;
+    bool hasDirectStatelessAccessToHostMemory() const;
+    bool hasIndirectStatelessAccessToHostMemory() const;
+
+    void addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation);
+    bool allocationForCacheFlush(GraphicsAllocation *argAllocation) const;
+
+    const ClDevice &getDevice() const {
+        return clDevice;
+    }
+    cl_int patchPrivateSurface();
+
     bool hasTunningFinished(KernelSubmissionData &submissionData);
     bool hasRunFinished(TimestampPacketContainer *timestampContainer);
 
-    std::unordered_map<KernelConfig, KernelSubmissionData, KernelConfigHash> kernelSubmissionMap;
-    bool singleSubdevicePreferredInCurrentEnqueue = false;
+    UnifiedMemoryControls unifiedMemoryControls{};
 
-    bool kernelHasIndirectAccess = true;
-    MultiDeviceKernel *pMultiDeviceKernel = nullptr;
+    std::map<uint32_t, MemObj *> migratableArgsMap{};
+
+    std::unordered_map<KernelConfig, KernelSubmissionData, KernelConfigHash> kernelSubmissionMap;
+
+    std::vector<SimpleKernelArgInfo> kernelArguments;
+    std::vector<KernelArgHandler> kernelArgHandlers;
+    std::vector<GraphicsAllocation *> kernelSvmGfxAllocations;
+    std::vector<GraphicsAllocation *> kernelUnifiedMemoryGfxAllocations;
+    std::vector<PatchInfoData> patchInfoDataList;
+    std::vector<GraphicsAllocation *> kernelArgRequiresCacheFlush;
+    std::vector<size_t> slmSizes;
+
+    std::unique_ptr<ImageTransformer> imageTransformer;
+    std::unique_ptr<char[]> pSshLocal;
     std::unique_ptr<ImplicitArgs> pImplicitArgs = nullptr;
+
+    uint64_t privateSurfaceSize = 0u;
+
+    size_t numberOfBindingTableStates = 0u;
+    size_t localBindingTableOffset = 0u;
+
+    const ExecutionEnvironment &executionEnvironment;
+    Program *program;
+    ClDevice &clDevice;
+    const KernelInfo &kernelInfo;
+    GraphicsAllocation *privateSurface = nullptr;
+    MultiDeviceKernel *pMultiDeviceKernel = nullptr;
+
+    uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
+    uint32_t *dataParameterSimdSize = &Kernel::dummyPatchLocation;
+    uint32_t *parentEventOffset = &Kernel::dummyPatchLocation;
+    uint32_t *preferredWkgMultipleOffset = &Kernel::dummyPatchLocation;
+    char *crossThreadData = nullptr;
+
+    AuxTranslationDirection auxTranslationDirection = AuxTranslationDirection::None;
+    KernelExecutionType executionType = KernelExecutionType::Default;
+
+    uint32_t patchedArgumentsNum = 0;
+    uint32_t startOffset = 0;
+    uint32_t statelessUncacheableArgsCount = 0;
+    uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::DisableOverdispatch;
+    uint32_t maxKernelWorkGroupSize = 0;
+    uint32_t slmTotalSize = 0u;
+    uint32_t sshLocalSize = 0u;
+    uint32_t crossThreadDataSize = 0u;
+
+    bool containsStatelessWrites = true;
+    bool usingSharedObjArgs = false;
+    bool usingImages = false;
+    bool usingImagesOnly = false;
+    bool auxTranslationRequired = false;
+    bool systolicPipelineSelectMode = false;
+    bool svmAllocationsRequireCacheFlush = false;
+    bool isUnifiedMemorySyncRequired = true;
+    bool debugEnabled = false;
+    bool singleSubdevicePreferredInCurrentEnqueue = false;
+    bool kernelHasIndirectAccess = true;
+    bool anyKernelArgumentUsingSystemMemory = false;
+    bool isDestinationAllocationInSystemMemory = false;
 };
 
 } // namespace NEO

@@ -1,14 +1,16 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#pragma once
+
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/test_macros/hw_test.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -36,7 +38,7 @@ class ImageCompressionTests : public ::testing::Test {
         mockExecutionEnvironment->memoryManager.reset(myMemoryManager);
 
         mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithExecutionEnvironment<MockDevice>(nullptr, mockExecutionEnvironment, 0u));
-        mockContext = make_releaseable<MockContext>(mockDevice.get());
+        mockContext = makeReleaseable<MockContext>(mockDevice.get());
     }
 
     MockExecutionEnvironment *mockExecutionEnvironment;

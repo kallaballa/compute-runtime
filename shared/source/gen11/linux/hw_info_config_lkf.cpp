@@ -1,19 +1,25 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/gen11/hw_cmds_lkf.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/hw_info_config.inl"
 #include "shared/source/os_interface/hw_info_config_bdw_and_later.inl"
 
+#include "platforms.h"
+
 namespace NEO {
+constexpr static auto gfxProduct = IGFX_LAKEFIELD;
+
+#include "shared/source/gen11/lkf/os_agnostic_hw_info_config_lkf.inl"
 
 template <>
-int HwInfoConfigHw<IGFX_LAKEFIELD>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
+int HwInfoConfigHw<gfxProduct>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
     if (nullptr == osIface) {
         return 0;
     }
@@ -25,5 +31,5 @@ int HwInfoConfigHw<IGFX_LAKEFIELD>::configureHardwareCustom(HardwareInfo *hwInfo
     return 0;
 }
 
-template class HwInfoConfigHw<IGFX_LAKEFIELD>;
+template class HwInfoConfigHw<gfxProduct>;
 } // namespace NEO

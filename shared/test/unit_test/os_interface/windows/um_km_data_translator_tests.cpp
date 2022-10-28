@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/source/os_interface/windows/gdi_interface.h"
 #include "shared/source/os_interface/windows/wddm/um_km_data_translator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 #include "shared/test/unit_test/os_interface/windows/adapter_info_tests.h"
 #include "shared/wsl_compute_helper/source/gmm_resource_info_accessor.h"
 #include "shared/wsl_compute_helper/source/wsl_compute_helper.h"
@@ -258,6 +258,34 @@ TEST(WslUmKmDataTranslator, whenQueryingForTranslationThenQueryIsForwardedToWslC
     gmmHandleAllocator->destroyHandle(gmmResourceInfoHandle);
 }
 
+TEST(WslUmKmDataTranslator, whenOpeningExistingHandleThenResourceInfoIsCopiedBasedOnTranslationResult) {
+    DebugManagerStateRestore debugSettingsRestore;
+
+    NEO::DebugManager.flags.UseUmKmDataTranslator.set(true);
+    NEO::wslComputeHelperLibNameToLoad = "";
+    NEO::Gdi gdi;
+    auto handle = validHandle;
+    gdi.queryAdapterInfo.mFunc = QueryAdapterInfoMock::queryadapterinfo;
+
+    auto translator = NEO::createUmKmDataTranslator(gdi, handle);
+    auto gmmHandleAllocator = translator->createGmmHandleAllocator();
+    const auto handleSize = gmmHandleAllocator->getHandleSize();
+
+    UmKmDataTempStorage<GMM_RESOURCE_INFO> gmmResInfo(handleSize);
+    auto gmmResourceInfoHandle = gmmHandleAllocator->createHandle(reinterpret_cast<GMM_RESOURCE_INFO *>(gmmResInfo.data()));
+    EXPECT_EQ(mockTokToStrDriverBuildNumber, reinterpret_cast<GmmResourceInfoWinStruct *>(gmmResourceInfoHandle)->GmmResourceInfoCommon.pPrivateData);
+
+    UmKmDataTempStorage<GMM_RESOURCE_INFO> gmmResInfoDst(handleSize);
+    gmmHandleAllocator->openHandle(gmmResourceInfoHandle, reinterpret_cast<GMM_RESOURCE_INFO *>(gmmResInfoDst.data()), handleSize);
+    EXPECT_EQ(mockStrToTokDriverBuildNumber, reinterpret_cast<uint64_t>(reinterpret_cast<GMM_RESOURCE_INFO *>(gmmResInfoDst.data())->GetPrivateData()));
+
+    UmKmDataTempStorage<GMM_RESOURCE_INFO> gmmResInfoDst2(handleSize);
+    gmmHandleAllocator->openHandle(gmmResourceInfoHandle, reinterpret_cast<GMM_RESOURCE_INFO *>(gmmResInfoDst2.data()), sizeof(TOK_S_GMM_RESOURCE_INFO_WIN_STRUCT) + 4);
+    EXPECT_EQ(0u, reinterpret_cast<uint64_t>(reinterpret_cast<GMM_RESOURCE_INFO *>(gmmResInfoDst2.data())->GetPrivateData()));
+
+    gmmHandleAllocator->destroyHandle(gmmResourceInfoHandle);
+}
+
 TEST(WslUmKmDataTranslator, whenTranslatingGraphicsPartitionThenResultIsBasedOnWslComputeHelperVersion) {
     DebugManagerStateRestore debugSettingsRestore;
 
@@ -281,13 +309,13 @@ TEST(WslUmKmDataTranslator, whenTranslatingGraphicsPartitionThenResultIsBasedOnW
     dst.Heap32->Base = 0;
     auto ret = translatorV0->translateGmmGfxPartitioningToInternalRepresentation(&dst, sizeof(GMM_GFX_PARTITIONING), src);
     EXPECT_TRUE(ret);
-    EXPECT_EQ(7, dst.Heap32->Base);
+    EXPECT_EQ(7u, dst.Heap32->Base);
 
     src.Heap32->Base = 7;
     dst.Heap32->Base = 0;
     ret = translatorV1->translateGmmGfxPartitioningToInternalRepresentation(&dst, sizeof(GMM_GFX_PARTITIONING), src);
     EXPECT_FALSE(ret);
-    EXPECT_EQ(0, dst.Heap32->Base);
+    EXPECT_EQ(0u, dst.Heap32->Base);
 
     src.Heap32->Base = 7;
     dst.Heap32->Base = 0;
@@ -299,13 +327,13 @@ TEST(WslUmKmDataTranslator, whenTranslatingGraphicsPartitionThenResultIsBasedOnW
     dst.Heap32->Base = 0;
     ret = translatorV0->translateGmmGfxPartitioningFromInternalRepresentation(dst, &src, sizeof(GMM_GFX_PARTITIONING));
     EXPECT_TRUE(ret);
-    EXPECT_EQ(7, dst.Heap32->Base);
+    EXPECT_EQ(7u, dst.Heap32->Base);
 
     src.Heap32->Base = 7;
     dst.Heap32->Base = 0;
     ret = translatorV1->translateGmmGfxPartitioningFromInternalRepresentation(dst, &src, sizeof(GMM_GFX_PARTITIONING));
     EXPECT_FALSE(ret);
-    EXPECT_EQ(0, dst.Heap32->Base);
+    EXPECT_EQ(0u, dst.Heap32->Base);
 
     src.Heap32->Base = 7;
     dst.Heap32->Base = 0;

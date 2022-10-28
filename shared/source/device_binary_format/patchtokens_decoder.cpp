@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,6 +11,7 @@
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hash.h"
 #include "shared/source/helpers/ptr_math.h"
+#include "shared/source/utilities/logger.h"
 
 #include <algorithm>
 
@@ -203,11 +204,6 @@ inline void decodeKernelDataParameterToken(const SPatchDataParameterBuffer *toke
     case DATA_PARAMETER_LOCAL_MEMORY_STATELESS_WINDOW_START_ADDRESS:
         crossthread.localMemoryStatelessWindowStartAddress = token;
         break;
-
-    case DATA_PARAMETER_OBJECT_ID:
-        getKernelArg(out, argNum, ArgObjectType::None).objectId = token;
-        break;
-
     case DATA_PARAMETER_SUM_OF_LOCAL_MEMORY_OBJECT_ARGUMENT_SIZES: {
         auto &kernelArg = getKernelArg(out, argNum, ArgObjectType::Slm);
         kernelArg.byValMap.push_back(token);
@@ -284,11 +280,11 @@ inline void decodeKernelDataParameterToken(const SPatchDataParameterBuffer *toke
     case DATA_PARAMETER_PARENT_EVENT:
         crossthread.parentEvent = token;
         break;
-    case DATA_PARAMETER_CHILD_BLOCK_SIMD_SIZE:
-        crossthread.childBlockSimdSize.push_back(token);
-        break;
     case DATA_PARAMETER_PREFERRED_WORKGROUP_MULTIPLE:
         crossthread.preferredWorkgroupMultiple = token;
+        break;
+    case DATA_PARAMETER_IMPL_ARG_BUFFER:
+        out.tokens.crossThreadPayloadArgs.implicitArgsBufferOffset = token;
         break;
 
     case DATA_PARAMETER_NUM_HARDWARE_THREADS:
@@ -300,6 +296,8 @@ inline void decodeKernelDataParameterToken(const SPatchDataParameterBuffer *toke
     case DATA_PARAMETER_EXECUTION_MASK:
     case DATA_PARAMETER_VME_IMAGE_TYPE:
     case DATA_PARAMETER_VME_MB_SKIP_BLOCK_TYPE:
+    case DATA_PARAMETER_CHILD_BLOCK_SIMD_SIZE:
+    case DATA_PARAMETER_OBJECT_ID:
         // ignored intentionally
         break;
     }
@@ -313,6 +311,9 @@ inline bool decodeToken(const SPatchItemHeader *token, KernelFromPatchtokens &ou
         out.unhandledTokens.push_back(token);
         break;
     }
+    case PATCH_TOKEN_INTERFACE_DESCRIPTOR_DATA:
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "Ignored kernel-scope Patch Token: %d\n", token->Token);
+        break;
     case PATCH_TOKEN_SAMPLER_STATE_ARRAY:
         assignToken(out.tokens.samplerStateArray, token);
         break;
@@ -330,9 +331,6 @@ inline bool decodeToken(const SPatchItemHeader *token, KernelFromPatchtokens &ou
         break;
     case PATCH_TOKEN_MEDIA_INTERFACE_DESCRIPTOR_LOAD:
         assignToken(out.tokens.mediaInterfaceDescriptorLoad, token);
-        break;
-    case PATCH_TOKEN_INTERFACE_DESCRIPTOR_DATA:
-        assignToken(out.tokens.interfaceDescriptorData, token);
         break;
     case PATCH_TOKEN_THREAD_PAYLOAD:
         assignToken(out.tokens.threadPayload, token);
@@ -389,6 +387,9 @@ inline bool decodeToken(const SPatchItemHeader *token, KernelFromPatchtokens &ou
     case PATCH_TOKEN_KERNEL_ARGUMENT_INFO:
         assignArgInfo(out, token);
         break;
+    case PATCH_TOKEN_GLOBAL_HOST_ACCESS_TABLE:
+        assignToken(out.tokens.hostAccessTable, token);
+        break;
 
     case PATCH_TOKEN_SAMPLER_KERNEL_ARGUMENT:
     case PATCH_TOKEN_IMAGE_MEMORY_OBJECT_KERNEL_ARGUMENT:
@@ -410,6 +411,10 @@ inline bool decodeToken(const SPatchItemHeader *token, KernelFromPatchtokens &ou
     case PATCH_TOKEN_ALLOCATE_SYNC_BUFFER: {
         assignToken(out.tokens.allocateSyncBuffer, token);
     } break;
+
+    case PATCH_TOKEN_ALLOCATE_RT_GLOBAL_BUFFER:
+        assignToken(out.tokens.allocateRTGlobalBuffer, token);
+        break;
     }
 
     return out.decodeStatus != DecodeError::InvalidBinary;

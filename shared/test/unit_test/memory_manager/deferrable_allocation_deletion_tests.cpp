@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,7 +14,7 @@
 #include "shared/test/common/mocks/mock_allocation_properties.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 using namespace NEO;
 
@@ -79,6 +79,47 @@ TEST_F(DeferrableAllocationDeletionTest, givenDeferrableAllocationWhenApplyThenW
     EXPECT_EQ(1u, memoryManager->freeGraphicsMemoryCalled);
 }
 
+HWTEST_F(DeferrableAllocationDeletionTest, givenDeferrableAllocationDeletionWhenTaskCountAlreadyFlushedThenDoNotProgrammTagUpdate) {
+    struct DeferrableAllocationDeletionApplyCall : public DeferrableAllocationDeletion {
+        using DeferrableAllocationDeletion::DeferrableAllocationDeletion;
+        bool apply() override {
+            auto ret = DeferrableAllocationDeletion::apply();
+            applyCalled = true;
+            return ret;
+        }
+        bool applyCalled = false;
+    };
+    auto &nonDefaultCommandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> &>(*device->commandStreamReceivers[1]);
+    auto nonDefaultOsContextId = nonDefaultCommandStreamReceiver.getOsContext().getContextId();
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{device->getRootDeviceIndex(), MemoryConstants::pageSize});
+    *hwTag = 0u;
+    *nonDefaultCommandStreamReceiver.getTagAddress() = 0u;
+    nonDefaultCommandStreamReceiver.setLatestFlushedTaskCount(2u);
+    static_cast<UltCommandStreamReceiver<FamilyType> *>(device->getDefaultEngine().commandStreamReceiver)->setLatestFlushedTaskCount(2u);
+    nonDefaultCommandStreamReceiver.taskCount = 2u;
+    static_cast<UltCommandStreamReceiver<FamilyType> *>(device->getDefaultEngine().commandStreamReceiver)->taskCount = 2u;
+    allocation->updateTaskCount(1u, nonDefaultOsContextId);
+    allocation->updateTaskCount(1u, defaultOsContextId);
+    auto used = nonDefaultCommandStreamReceiver.getCS(0u).getUsed();
+    EXPECT_FALSE(nonDefaultCommandStreamReceiver.flushBatchedSubmissionsCalled);
+    auto usedDefault = device->getDefaultEngine().commandStreamReceiver->getCS(0u).getUsed();
+    EXPECT_FALSE(static_cast<UltCommandStreamReceiver<FamilyType> *>(device->getDefaultEngine().commandStreamReceiver)->flushBatchedSubmissionsCalled);
+    auto deferrableAlloc = new DeferrableAllocationDeletionApplyCall(*memoryManager, *allocation);
+    EXPECT_FALSE(deferrableAlloc->applyCalled);
+    asyncDeleter->deferDeletion(deferrableAlloc);
+    while (!deferrableAlloc->applyCalled)
+        std::this_thread::yield();
+    *hwTag = 2u;
+    *nonDefaultCommandStreamReceiver.getTagAddress() = 2u;
+    EXPECT_FALSE(nonDefaultCommandStreamReceiver.flushBatchedSubmissionsCalled);
+    EXPECT_EQ(used, nonDefaultCommandStreamReceiver.getCS(0u).getUsed());
+    EXPECT_FALSE(static_cast<UltCommandStreamReceiver<FamilyType> *>(device->getDefaultEngine().commandStreamReceiver)->flushBatchedSubmissionsCalled);
+    EXPECT_EQ(usedDefault, device->getDefaultEngine().commandStreamReceiver->getCS(0u).getUsed());
+    asyncDeleter->allowExit = true;
+    *hwTag = 2u;
+    *nonDefaultCommandStreamReceiver.getTagAddress() = 2u;
+}
+
 HWTEST_F(DeferrableAllocationDeletionTest, givenAllocationUsedByTwoOsContextsWhenApplyDeletionThenWaitForBothContextsAndFlushNotReadyCsr) {
     auto &nonDefaultCommandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> &>(*device->commandStreamReceivers[1]);
     auto nonDefaultOsContextId = nonDefaultCommandStreamReceiver.getOsContext().getContextId();
@@ -100,6 +141,26 @@ HWTEST_F(DeferrableAllocationDeletionTest, givenAllocationUsedByTwoOsContextsWhe
     asyncDeleter->allowExit = true;
     *hwTag = 1u;
 }
+
+HWTEST_F(DeferrableAllocationDeletionTest, givenDeferrableAllocationDeletionWhenFlushedTaskIsGreaterThanAllocationTaskCountThenDoNotProgrammTagUpdate) {
+    auto &nonDefaultCommandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> &>(*device->commandStreamReceivers[1]);
+    auto nonDefaultOsContextId = nonDefaultCommandStreamReceiver.getOsContext().getContextId();
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{device->getRootDeviceIndex(), MemoryConstants::pageSize});
+    *hwTag = 0u;
+    *nonDefaultCommandStreamReceiver.getTagAddress() = 1u;
+    nonDefaultCommandStreamReceiver.setLatestFlushedTaskCount(4u);
+    allocation->updateTaskCount(1u, nonDefaultOsContextId);
+    allocation->updateTaskCount(1u, defaultOsContextId);
+    auto used = nonDefaultCommandStreamReceiver.getCS(0u).getUsed();
+    asyncDeleter->deferDeletion(new DeferrableAllocationDeletion(*memoryManager, *allocation));
+    while (allocation->isUsedByOsContext(nonDefaultOsContextId) && !device->getUltCommandStreamReceiver<FamilyType>().flushBatchedSubmissionsCalled) // wait for second context completion signal
+        std::this_thread::yield();
+    EXPECT_FALSE(nonDefaultCommandStreamReceiver.flushBatchedSubmissionsCalled);
+    EXPECT_EQ(used, nonDefaultCommandStreamReceiver.getCS(0u).getUsed());
+    asyncDeleter->allowExit = true;
+    *hwTag = 1u;
+}
+
 TEST_F(DeferrableAllocationDeletionTest, givenNotUsedAllocationWhenApplyDeletionThenDontWait) {
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{device->getRootDeviceIndex(), MemoryConstants::pageSize});
     EXPECT_FALSE(allocation->isUsed());

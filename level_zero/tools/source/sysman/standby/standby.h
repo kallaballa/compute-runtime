@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "level_zero/core/source/device/device.h"
 #include <level_zero/zes_api.h>
 
+#include <mutex>
 #include <vector>
 
 struct _zes_standby_handle_t {
@@ -21,7 +22,7 @@ struct OsSysman;
 
 class Standby : _zes_standby_handle_t {
   public:
-    virtual ~Standby() {}
+    ~Standby() override {}
     virtual ze_result_t standbyGetProperties(zes_standby_properties_t *pProperties) = 0;
     virtual ze_result_t standbyGetMode(zes_standby_promo_mode_t *pMode) = 0;
     virtual ze_result_t standbySetMode(const zes_standby_promo_mode_t mode) = 0;
@@ -47,6 +48,7 @@ struct StandbyHandleContext {
 
   private:
     void createHandle(ze_device_handle_t deviceHandle);
+    std::once_flag initStandbyOnce;
 };
 
 } // namespace L0

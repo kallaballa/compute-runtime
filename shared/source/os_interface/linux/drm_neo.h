@@ -8,10 +8,11 @@
 #pragma once
 #include "shared/source/gmm_helper/gmm_lib.h"
 #include "shared/source/helpers/basic_math.h"
-#include "shared/source/helpers/topology_map.h"
+#include "shared/source/helpers/common_types.h"
 #include "shared/source/memory_manager/definitions/engine_limits.h"
 #include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/linux/cache_info.h"
+#include "shared/source/os_interface/linux/drm_debug.h"
 #include "shared/source/os_interface/linux/engine_info.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
 #include "shared/source/os_interface/linux/memory_info.h"
@@ -19,11 +20,11 @@
 #include "shared/source/utilities/api_intercept.h"
 #include "shared/source/utilities/stackvec.h"
 
-#include "drm/i915_drm.h"
 #include "engine_node.h"
 #include "igfxfmid.h"
 
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <fcntl.h>
 #include <limits>
@@ -38,16 +39,19 @@
 struct GT_SYSTEM_INFO;
 
 namespace NEO {
-#define I915_CONTEXT_PRIVATE_PARAM_BOOST 0x80000000
+constexpr uint32_t contextPrivateParamBoost = 0x80000000;
 
+enum class AllocationType;
 class BufferObject;
 class DeviceFactory;
 class OsContext;
+class OsContextLinux;
+class Gmm;
 struct HardwareInfo;
 struct RootDeviceEnvironment;
 struct SystemInfo;
 
-struct DeviceDescriptor { // NOLINT(clang-analyzer-optin.performance.Padding)
+struct DeviceDescriptor {
     unsigned short deviceId;
     const HardwareInfo *pHwInfo;
     void (*setupHardwareInfo)(HardwareInfo *, bool);
@@ -56,28 +60,12 @@ struct DeviceDescriptor { // NOLINT(clang-analyzer-optin.performance.Padding)
 
 extern const DeviceDescriptor deviceDescriptorTable[];
 
-namespace IoctlToStringHelper {
-std::string getIoctlParamString(int param);
-std::string getIoctlParamStringRemaining(int param);
-std::string getIoctlString(unsigned long request);
-std::string getIoctlStringRemaining(unsigned long request);
-} // namespace IoctlToStringHelper
-
 class Drm : public DriverModel {
     friend DeviceFactory;
 
   public:
     static constexpr DriverModelType driverModelType = DriverModelType::DRM;
     static constexpr size_t completionFenceOffset = 1024;
-
-    enum class ResourceClass : uint32_t {
-        Elf,
-        Isa,
-        ModuleHeapDebugArea,
-        ContextSaveArea,
-        SbaTrackingBuffer,
-        MaxSize
-    };
 
     struct QueryTopologyData {
         int sliceCount;
@@ -89,15 +77,14 @@ class Drm : public DriverModel {
         int maxEuCount;
     };
 
-    virtual ~Drm();
+    ~Drm() override;
 
-    virtual int ioctl(unsigned long request, void *arg);
+    virtual int ioctl(DrmIoctl request, void *arg);
 
-    int getDeviceID(int &devId);
     unsigned int getDeviceHandle() const override {
         return 0;
     }
-    int getDeviceRevID(int &revId);
+    PhysicalDevicePciSpeedInfo getPciSpeedInfo() const override;
     int getExecSoftPin(int &execSoftPin);
     int enableTurboBoost();
     int getEuTotal(int &euTotal);
@@ -119,8 +106,7 @@ class Drm : public DriverModel {
     int queryAdapterBDF();
     int createDrmVirtualMemory(uint32_t &drmVmId);
     void destroyDrmVirtualMemory(uint32_t drmVmId);
-    uint32_t createDrmContext(uint32_t drmVmId, bool isDirectSubmissionRequested, bool isCooperativeContextRequested);
-    void appendDrmContextFlags(drm_i915_gem_context_create_ext &gcc, bool isDirectSubmissionRequested);
+    MOCKABLE_VIRTUAL uint32_t createDrmContext(uint32_t drmVmId, bool isDirectSubmissionRequested, bool isCooperativeContextRequested);
     void destroyDrmContext(uint32_t drmContextId);
     int queryVmId(uint32_t drmContextId, uint32_t &vmId);
     void setLowPriorityContextParam(uint32_t drmContextId);
@@ -139,21 +125,21 @@ class Drm : public DriverModel {
     bool queryTopology(const HardwareInfo &hwInfo, QueryTopologyData &data);
     bool createVirtualMemoryAddressSpace(uint32_t vmCount);
     void destroyVirtualMemoryAddressSpace();
-    uint32_t getVirtualMemoryAddressSpace(uint32_t vmId);
-    int bindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
-    int unbindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
-    int setupHardwareInfo(DeviceDescriptor *, bool);
+    uint32_t getVirtualMemoryAddressSpace(uint32_t vmId) const;
+    MOCKABLE_VIRTUAL int bindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
+    MOCKABLE_VIRTUAL int unbindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
+    int setupHardwareInfo(const DeviceDescriptor *, bool);
     void setupSystemInfo(HardwareInfo *hwInfo, SystemInfo *sysInfo);
     void setupCacheInfo(const HardwareInfo &hwInfo);
     MOCKABLE_VIRTUAL void getPrelimVersion(std::string &prelimVersion);
 
     PhysicalDevicePciBusInfo getPciBusInfo() const override;
-    bool isGpuHangDetected(uint32_t contextId) override;
+    bool isGpuHangDetected(OsContext &osContext) override;
 
     bool areNonPersistentContextsSupported() const { return nonPersistentContextsSupported; }
     void checkNonPersistentContextsSupport();
     void setNonPersistentContext(uint32_t drmContextId);
-    bool isPerContextVMRequired() {
+    bool isPerContextVMRequired() const {
         return requirePerContextVM;
     }
     void setPerContextVMRequired(bool required) {
@@ -169,15 +155,18 @@ class Drm : public DriverModel {
     void setDirectSubmissionActive(bool value) { this->directSubmissionActive = value; }
     bool isDirectSubmissionActive() const { return this->directSubmissionActive; }
 
+    MOCKABLE_VIRTUAL bool isSetPairAvailable();
+    MOCKABLE_VIRTUAL bool getSetPairAvailable() { return setPairAvailable; }
+
     bool useVMBindImmediate() const;
 
     MOCKABLE_VIRTUAL bool isVmBindAvailable();
     MOCKABLE_VIRTUAL bool registerResourceClasses();
 
     MOCKABLE_VIRTUAL void queryPageFaultSupport();
-    bool hasPageFaultSupport() const;
+    MOCKABLE_VIRTUAL bool hasPageFaultSupport() const;
 
-    MOCKABLE_VIRTUAL uint32_t registerResource(ResourceClass classType, const void *data, size_t size);
+    MOCKABLE_VIRTUAL uint32_t registerResource(DrmResourceClass classType, const void *data, size_t size);
     MOCKABLE_VIRTUAL void unregisterResource(uint32_t handle);
     MOCKABLE_VIRTUAL uint32_t registerIsaCookie(uint32_t isaHandle);
 
@@ -205,7 +194,7 @@ class Drm : public DriverModel {
         return ioctlHelper.get();
     }
 
-    RootDeviceEnvironment &getRootDeviceEnvironment() {
+    const RootDeviceEnvironment &getRootDeviceEnvironment() const {
         return rootDeviceEnvironment;
     }
 
@@ -213,7 +202,7 @@ class Drm : public DriverModel {
         return classHandles.size() > 0;
     }
 
-    static bool isi915Version(int fd);
+    static bool isDrmSupported(int fileDescriptor);
 
     static Drm *create(std::unique_ptr<HwDeviceIdDrm> &&hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
     static void overrideBindSupport(bool &useVmBind);
@@ -234,16 +223,17 @@ class Drm : public DriverModel {
     };
     MOCKABLE_VIRTUAL int waitUserFence(uint32_t ctxId, uint64_t address, uint64_t value, ValueWidth dataWidth, int64_t timeout, uint16_t flags);
 
+    void waitOnUserFences(const OsContextLinux &osContext, uint64_t address, uint64_t value, uint32_t numActiveTiles, uint32_t postSyncOffset);
+
     void setNewResourceBoundToVM(uint32_t vmHandleId);
 
     const std::vector<int> &getSliceMappings(uint32_t deviceIndex);
-    const TopologyMap &getTopologyMap();
 
     static std::vector<std::unique_ptr<HwDeviceId>> discoverDevices(ExecutionEnvironment &executionEnvironment);
     static std::vector<std::unique_ptr<HwDeviceId>> discoverDevice(ExecutionEnvironment &executionEnvironment, std::string &osPciPath);
     static std::vector<std::unique_ptr<HwDeviceId>> discoverDevices(ExecutionEnvironment &executionEnvironment, std::string &osPciPath);
 
-    std::unique_lock<std::mutex> lockBindFenceMutex();
+    [[nodiscard]] std::unique_lock<std::mutex> lockBindFenceMutex();
 
     void setPciDomain(uint32_t domain) {
         pciDomain = domain;
@@ -256,18 +246,31 @@ class Drm : public DriverModel {
 
     MOCKABLE_VIRTUAL bool completionFenceSupport();
 
+    MOCKABLE_VIRTUAL uint32_t notifyFirstCommandQueueCreated(const void *data, size_t size);
+    MOCKABLE_VIRTUAL void notifyLastCommandQueueDestroyed(uint32_t handle);
+
+    uint64_t getPatIndex(Gmm *gmm, AllocationType allocationType, CacheRegion cacheRegion, CachePolicy cachePolicy, bool closEnabled) const;
+    bool isVmBindPatIndexProgrammingSupported() const { return vmBindPatIndexProgrammingSupported; }
+    MOCKABLE_VIRTUAL bool getDeviceMemoryMaxClockRateInMhz(uint32_t tileId, uint32_t &clkRate);
+    MOCKABLE_VIRTUAL bool getDeviceMemoryPhysicalSizeInBytes(uint32_t tileId, uint64_t &physicalSize);
+    void cleanup() override;
+
   protected:
     Drm(std::unique_ptr<HwDeviceIdDrm> &&hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment);
 
-    uint32_t createDrmContextExt(drm_i915_gem_context_create_ext &gcc, uint32_t drmVmId, bool isCooperativeContextRequested);
-    int getQueueSliceCount(drm_i915_gem_context_param_sseu *sseu);
-    bool translateTopologyInfo(const drm_i915_query_topology_info *queryTopologyInfo, QueryTopologyData &data, TopologyMapping &mapping);
+    int getQueueSliceCount(GemContextParamSseu *sseu);
+    bool translateTopologyInfo(const QueryTopologyInfo *queryTopologyInfo, QueryTopologyData &data, TopologyMapping &mapping);
     std::string generateUUID();
     std::string generateElfUUID(const void *data);
     std::string getSysFsPciPath();
     std::vector<uint8_t> query(uint32_t queryId, uint32_t queryItemFlags);
     void printIoctlStatistics();
     void setupIoctlHelper(const PRODUCT_FAMILY productFamily);
+    void queryAndSetVmBindPatIndexProgrammingSupport();
+    static std::string getDrmVersion(int fileDescriptor);
+    bool queryDeviceIdAndRevision();
+    bool queryI915DeviceIdAndRevision();
+    bool readSysFsAsString(const std::string &filePath, std::string &readString);
 
 #pragma pack(1)
     struct PCIConfig {
@@ -297,23 +300,22 @@ class Drm : public DriverModel {
     };
 #pragma pack()
 
-    drm_i915_gem_context_param_sseu sseu{};
+    GemContextParamSseu sseu{};
     ADAPTER_BDF adapterBDF{};
     uint32_t pciDomain = 0;
 
-    TopologyMap topologyMap;
     struct IoctlStatisticsEntry {
         long long totalTime = 0;
         uint64_t count = 0;
         long long minTime = std::numeric_limits<long long>::max();
         long long maxTime = 0;
     };
-    std::unordered_map<unsigned long, IoctlStatisticsEntry> ioctlStatistics;
+    std::unordered_map<DrmIoctl, IoctlStatisticsEntry> ioctlStatistics;
 
     std::mutex bindFenceMutex;
     std::array<uint64_t, EngineLimits::maxHandleCount> pagingFence;
     std::array<uint64_t, EngineLimits::maxHandleCount> fenceVal;
-    StackVec<uint32_t, size_t(ResourceClass::MaxSize)> classHandles;
+    StackVec<uint32_t, size_t(DrmResourceClass::MaxSize)> classHandles;
     std::vector<uint32_t> virtualMemoryIds;
 
     std::unique_ptr<HwDeviceIdDrm> hwDeviceId;
@@ -324,13 +326,11 @@ class Drm : public DriverModel {
     std::unique_ptr<MemoryInfo> memoryInfo;
 
     std::once_flag checkBindOnce;
+    std::once_flag checkSetPairOnce;
     std::once_flag checkCompletionFenceOnce;
 
     RootDeviceEnvironment &rootDeviceEnvironment;
     uint64_t uuid = 0;
-
-    int deviceId = 0;
-    int revisionId = 0;
 
     bool sliceCountChangeSupported = false;
     bool preemptionSupported = false;
@@ -338,11 +338,13 @@ class Drm : public DriverModel {
     bool requirePerContextVM = false;
     bool bindAvailable = false;
     bool directSubmissionActive = false;
+    bool setPairAvailable = false;
     bool contextDebugSupported = false;
     bool pageFaultSupported = false;
     bool completionFenceSupported = false;
+    bool vmBindPatIndexProgrammingSupported = false;
 
   private:
-    int getParamIoctl(int param, int *dstValue);
+    int getParamIoctl(DrmParam param, int *dstValue);
 };
 } // namespace NEO

@@ -55,10 +55,15 @@ TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(ExecutionEnvir
                             ? this->peekHwInfo().capabilityTable.aubDeviceId
                             : static_cast<uint32_t>(debugDeviceId);
     this->stream = &tbxStream;
+    this->downloadAllocationImpl = [this](GraphicsAllocation &graphicsAllocation) {
+        this->downloadAllocationTbx(graphicsAllocation);
+    };
 }
 
 template <typename GfxFamily>
 TbxCommandStreamReceiverHw<GfxFamily>::~TbxCommandStreamReceiverHw() {
+    this->downloadAllocationImpl = nullptr;
+
     if (streamInitialized) {
         tbxStream.close();
     }
@@ -480,27 +485,28 @@ void TbxCommandStreamReceiverHw<GfxFamily>::flushSubmissionsAndDownloadAllocatio
     volatile uint32_t *pollAddress = this->getTagAddress();
     for (uint32_t i = 0; i < this->activePartitions; i++) {
         while (*pollAddress < this->latestFlushedTaskCount) {
-            downloadAllocation(*this->getTagAllocation());
+            this->downloadAllocation(*this->getTagAllocation());
         }
         pollAddress = ptrOffset(pollAddress, this->postSyncWriteOffset);
     }
 
+    auto lockCSR = this->obtainUniqueOwnership();
     for (GraphicsAllocation *graphicsAllocation : this->allocationsForDownload) {
-        downloadAllocation(*graphicsAllocation);
+        this->downloadAllocation(*graphicsAllocation);
     }
     this->allocationsForDownload.clear();
 }
 
 template <typename GfxFamily>
-WaitStatus TbxCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
+WaitStatus TbxCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, QueueThrottle throttle) {
     flushSubmissionsAndDownloadAllocations(taskCountToWait);
-    return BaseClass::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, forcePowerSavingMode);
+    return BaseClass::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, throttle);
 }
 
 template <typename GfxFamily>
-WaitStatus TbxCommandStreamReceiverHw<GfxFamily>::waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
+WaitStatus TbxCommandStreamReceiverHw<GfxFamily>::waitForCompletionWithTimeout(const WaitParams &params, uint32_t taskCountToWait) {
     flushSubmissionsAndDownloadAllocations(taskCountToWait);
-    return BaseClass::waitForCompletionWithTimeout(enableTimeout, timeoutMicroseconds, taskCountToWait);
+    return BaseClass::waitForCompletionWithTimeout(params, taskCountToWait);
 }
 
 template <typename GfxFamily>
@@ -510,7 +516,7 @@ void TbxCommandStreamReceiverHw<GfxFamily>::processEviction() {
 }
 
 template <typename GfxFamily>
-void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {
+bool TbxCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {
     for (auto &gfxAllocation : allocationsForResidency) {
         if (dumpTbxNonWritable) {
             this->setTbxWritable(true, *gfxAllocation);
@@ -523,10 +529,11 @@ void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyCont
     }
 
     dumpTbxNonWritable = false;
+    return true;
 }
 
 template <typename GfxFamily>
-void TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocation(GraphicsAllocation &gfxAllocation) {
+void TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocationTbx(GraphicsAllocation &gfxAllocation) {
     if (hardwareContextController) {
         hardwareContextController->readMemory(gfxAllocation.getGpuAddress(), gfxAllocation.getUnderlyingBuffer(), gfxAllocation.getUnderlyingBufferSize(),
                                               this->getMemoryBank(&gfxAllocation), MemoryConstants::pageSize64k);
@@ -551,12 +558,13 @@ void TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocations() {
     volatile uint32_t *pollAddress = this->getTagAddress();
     for (uint32_t i = 0; i < this->activePartitions; i++) {
         while (*pollAddress < this->latestFlushedTaskCount) {
-            downloadAllocation(*this->getTagAllocation());
+            this->downloadAllocation(*this->getTagAllocation());
         }
         pollAddress = ptrOffset(pollAddress, this->postSyncWriteOffset);
     }
+    auto lockCSR = this->obtainUniqueOwnership();
     for (GraphicsAllocation *graphicsAllocation : this->allocationsForDownload) {
-        downloadAllocation(*graphicsAllocation);
+        this->downloadAllocation(*graphicsAllocation);
     }
     this->allocationsForDownload.clear();
 }

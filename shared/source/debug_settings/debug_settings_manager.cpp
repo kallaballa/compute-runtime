@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,16 +15,21 @@
 #include "shared/source/utilities/debug_settings_reader_creator.h"
 
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <sstream>
-
-namespace std {
-static std::string to_string(const std::string &arg) {
-    return arg;
-}
-} // namespace std
+#include <type_traits>
 
 namespace NEO {
+
+template <typename T>
+static std::string toString(const T &arg) {
+    if constexpr (std::is_convertible_v<std::string, T>) {
+        return static_cast<std::string>(arg);
+    } else {
+        return std::to_string(arg);
+    }
+}
 
 template <DebugFunctionalityLevel DebugLevel>
 DebugSettingsManager<DebugLevel>::DebugSettingsManager(const char *registryPath) {
@@ -55,11 +60,38 @@ void DebugSettingsManager<DebugLevel>::getHardwareInfoOverride(std::string &hwIn
 
 template <DebugFunctionalityLevel DebugLevel>
 template <typename DataType>
-void DebugSettingsManager<DebugLevel>::dumpNonDefaultFlag(const char *variableName, const DataType &variableValue, const DataType &defaultValue) {
+void DebugSettingsManager<DebugLevel>::dumpNonDefaultFlag(const char *variableName, const DataType &variableValue, const DataType &defaultValue, std::ostringstream &ostring) {
     if (variableValue != defaultValue) {
-        const auto variableStringValue = std::to_string(variableValue);
-        PRINT_DEBUG_STRING(true, stdout, "Non-default value of debug variable: %s = %s\n", variableName, variableStringValue.c_str());
+        const auto variableStringValue = toString(variableValue);
+        ostring << "Non-default value of debug variable: " << variableName << " = " << variableStringValue.c_str() << '\n';
     }
+}
+
+template <DebugFunctionalityLevel DebugLevel>
+void DebugSettingsManager<DebugLevel>::getStringWithFlags(std::string &allFlags, std::string &changedFlags) const {
+    std::ostringstream allFlagsStream;
+    allFlagsStream.str("");
+
+    std::ostringstream changedFlagsStream;
+    changedFlagsStream.str("");
+
+#define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description)                       \
+    allFlagsStream << getNonReleaseKeyName(#variableName) << " = " << flags.variableName.get() << '\n'; \
+    dumpNonDefaultFlag<dataType>(getNonReleaseKeyName(#variableName), flags.variableName.get(), defaultValue, changedFlagsStream);
+
+    if (registryReadAvailable() || isDebugKeysReadEnabled()) {
+#include "debug_variables.inl"
+    }
+#undef DECLARE_DEBUG_VARIABLE
+
+#define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description) \
+    allFlagsStream << #variableName << " = " << flags.variableName.get() << '\n'; \
+    dumpNonDefaultFlag<dataType>(#variableName, flags.variableName.get(), defaultValue, changedFlagsStream);
+#include "release_variables.inl"
+#undef DECLARE_DEBUG_VARIABLE
+
+    allFlags = allFlagsStream.str();
+    changedFlags = changedFlagsStream.str();
 }
 
 template <DebugFunctionalityLevel DebugLevel>
@@ -71,20 +103,13 @@ void DebugSettingsManager<DebugLevel>::dumpFlags() const {
     std::ofstream settingsDumpFile{settingsDumpFileName, std::ios::out};
     DEBUG_BREAK_IF(!settingsDumpFile.good());
 
-#define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description)                         \
-    settingsDumpFile << getNonReleaseKeyName(#variableName) << " = " << flags.variableName.get() << '\n'; \
-    dumpNonDefaultFlag<dataType>(getNonReleaseKeyName(#variableName), flags.variableName.get(), defaultValue);
+    std::string allFlags;
+    std::string changedFlags;
 
-    if (registryReadAvailable() || isDebugKeysReadEnabled()) {
-#include "debug_variables.inl"
-    }
-#undef DECLARE_DEBUG_VARIABLE
+    getStringWithFlags(allFlags, changedFlags);
+    PRINT_DEBUG_STRING(true, stdout, "%s", changedFlags.c_str());
 
-#define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description)   \
-    settingsDumpFile << #variableName << " = " << flags.variableName.get() << '\n'; \
-    dumpNonDefaultFlag<dataType>(#variableName, flags.variableName.get(), defaultValue);
-#include "release_variables.inl"
-#undef DECLARE_DEBUG_VARIABLE
+    settingsDumpFile << allFlags;
 }
 
 template <DebugFunctionalityLevel DebugLevel>

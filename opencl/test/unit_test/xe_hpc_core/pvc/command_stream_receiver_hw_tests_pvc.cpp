@@ -13,11 +13,13 @@
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/os_interface/device_factory.h"
+#include "shared/source/xe_hpc_core/hw_cmds_pvc.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/libult/ult_aub_command_stream_receiver.h"
+#include "shared/test/common/test_macros/header/per_product_test_definitions.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/helpers/cl_memory_properties_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -33,9 +35,6 @@
 
 using namespace NEO;
 
-HWTEST_EXCLUDE_PRODUCT(CommandStreamReceiverFlushTaskTests, givenOverrideThreadArbitrationPolicyDebugVariableSetWhenFlushingThenRequestRequiredMode, IGFX_PVC);
-HWTEST_EXCLUDE_PRODUCT(XeHPAndLaterAubCommandStreamReceiverWithoutFixtureTests, GivenCopyHostPtrAndHostNoAccessAndReadOnlyFlagsWhenAllocatingBufferThenAllocationIsCopiedToEveryTile, IGFX_PVC);
-
 using PvcCommandStreamReceiverFlushTaskTests = UltCommandStreamReceiverTest;
 PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenOverrideThreadArbitrationPolicyDebugVariableSetForPvcWhenFlushingThenRequestRequiredMode) {
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
@@ -48,7 +47,7 @@ PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenOverrideThreadArbitration
 
     flushTask(commandStreamReceiver);
     EXPECT_EQ(ThreadArbitrationPolicy::RoundRobin,
-              static_cast<uint32_t>(commandStreamReceiver.streamProperties.stateComputeMode.threadArbitrationPolicy.value));
+              commandStreamReceiver.streamProperties.stateComputeMode.threadArbitrationPolicy.value);
 }
 
 PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenNotExistPolicyWhenFlushingThenDefaultPolicyIsProgrammed) {
@@ -58,19 +57,19 @@ PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenNotExistPolicyWhenFlushin
 
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
-    uint32_t notExistPolicy = -2;
+    int32_t notExistPolicy = -2;
     flushTaskFlags.threadArbitrationPolicy = notExistPolicy;
 
     flushTask(commandStreamReceiver);
 
-    EXPECT_EQ(notExistPolicy, static_cast<uint32_t>(commandStreamReceiver.streamProperties.stateComputeMode.threadArbitrationPolicy.value));
+    EXPECT_EQ(notExistPolicy, commandStreamReceiver.streamProperties.stateComputeMode.threadArbitrationPolicy.value);
 }
 
-PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenRevisionBAndAboveWhenLastSpecialPipelineSelectModeIsTrueAndFlushTaskIsCalledThenDontReprogramPipelineSelect) {
+PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenRevisionBAndAboveWhenLastSystolicPipelineSelectModeIsTrueAndFlushTaskIsCalledThenDontReprogramPipelineSelect) {
     auto hwInfo = pDevice->getRootDeviceEnvironment().getMutableHardwareInfo();
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
 
-    flushTaskFlags.pipelineSelectArgs.specialPipelineSelectMode = true;
+    flushTaskFlags.pipelineSelectArgs.systolicPipelineSelectMode = true;
     flushTaskFlags.pipelineSelectArgs.mediaSamplerRequired = false;
 
     struct {
@@ -84,15 +83,22 @@ PVCTEST_F(PvcCommandStreamReceiverFlushTaskTests, givenRevisionBAndAboveWhenLast
         {0x6, false},
         {0x7, false},
     };
+    auto hwInfoConfig = HwInfoConfig::get(hwInfo->platform.eProductFamily);
     for (auto &testInput : testInputs) {
         hwInfo->platform.usRevId = testInput.revId;
+        hwInfoConfig->fillPipelineSelectPropertiesSupportStructure(commandStreamReceiver.pipelineSupportFlags, *hwInfo);
         commandStreamReceiver.isPreambleSent = true;
         commandStreamReceiver.lastMediaSamplerConfig = false;
+        commandStreamReceiver.lastSystolicPipelineSelectMode = false;
+        commandStreamReceiver.streamProperties.pipelineSelect.systolicMode.value = -1;
 
         flushTask(commandStreamReceiver);
 
-        EXPECT_EQ(testInput.expectedValue, commandStreamReceiver.lastSpecialPipelineSelectMode);
-        commandStreamReceiver.lastSpecialPipelineSelectMode = false;
+        if (testInput.expectedValue) {
+            EXPECT_TRUE(commandStreamReceiver.lastSystolicPipelineSelectMode);
+        } else {
+            EXPECT_FALSE(commandStreamReceiver.lastSystolicPipelineSelectMode);
+        }
     }
 }
 
@@ -164,7 +170,7 @@ PVCTEST_F(PVcBcsTests, givenBufferInDeviceMemoryWhenStatelessCompressionIsEnable
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto allocation = buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex());
-    EXPECT_TRUE(!MemoryPool::isSystemMemoryPool(allocation->getMemoryPool()));
+    EXPECT_TRUE(!MemoryPoolHelper::isSystemMemoryPool(allocation->getMemoryPool()));
 
     auto blitProperties = BlitProperties::constructPropertiesForCopy(allocation, allocation,
                                                                      0, 0, {BlitterConstants::maxBlitWidth - 1, 1, 1}, 0, 0, 0, 0, &clearColorAlloc);
@@ -193,7 +199,7 @@ PVCTEST_F(PVcBcsTests, givenBufferInSystemMemoryWhenStatelessCompressionIsEnable
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto allocation = buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex());
-    EXPECT_TRUE(MemoryPool::isSystemMemoryPool(allocation->getMemoryPool()));
+    EXPECT_TRUE(MemoryPoolHelper::isSystemMemoryPool(allocation->getMemoryPool()));
 
     auto blitProperties = BlitProperties::constructPropertiesForCopy(allocation, allocation,
                                                                      0, 0, {BlitterConstants::maxBlitWidth - 1, 1, 1}, 0, 0, 0, 0, &clearColorAlloc);
@@ -214,6 +220,8 @@ PVCTEST_F(PVcBcsTests, givenBufferInSystemMemoryWhenStatelessCompressionIsEnable
 
 using PvcMultiRootDeviceCommandStreamReceiverBufferTests = MultiRootDeviceFixture;
 
+HWTEST_EXCLUDE_PRODUCT(MultiRootDeviceCommandStreamReceiverBufferTests, givenMultipleEventInMultiRootDeviceEnvironmentWhenTheyArePassedToEnqueueWithSubmissionThenCsIsWaitingForEventsFromPreviousDevices, IGFX_PVC);
+
 PVCTEST_F(PvcMultiRootDeviceCommandStreamReceiverBufferTests, givenMultipleEventInMultiRootDeviceEnvironmentOnPvcWhenTheyArePassedToEnqueueWithSubmissionThenCsIsWaitingForEventsFromPreviousDevices) {
     REQUIRE_SVM_OR_SKIP(device1);
     REQUIRE_SVM_OR_SKIP(device2);
@@ -223,12 +231,12 @@ PVCTEST_F(PvcMultiRootDeviceCommandStreamReceiverBufferTests, givenMultipleEvent
     size_t offset = 0;
     size_t size = 1;
 
-    auto pCmdQ1 = context.get()->getSpecialQueue(1u);
-    auto pCmdQ2 = context.get()->getSpecialQueue(2u);
+    auto pCmdQ1 = context->getSpecialQueue(1u);
+    auto pCmdQ2 = context->getSpecialQueue(2u);
 
-    std::unique_ptr<MockProgram> program(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context.get(), context.get()->getDevices(), &retVal));
+    std::unique_ptr<MockProgram> program(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context.get(), context->getDevices(), &retVal));
     program->build(program->getDevices(), nullptr, false);
-    std::unique_ptr<MockKernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfoForKernel("FillBufferBytes"), *context.get()->getDevice(0), &retVal));
+    std::unique_ptr<MockKernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfoForKernel("FillBufferBytes"), *context->getDevice(0), &retVal));
 
     size_t svmSize = 4096;
     void *svmPtr = alignedMalloc(svmSize, MemoryConstants::pageSize);

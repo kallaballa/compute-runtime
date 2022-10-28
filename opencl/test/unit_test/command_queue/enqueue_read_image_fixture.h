@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,8 +14,6 @@
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 
-#include "gtest/gtest.h"
-
 namespace NEO {
 
 struct EnqueueReadImageTest : public CommandEnqueueFixture,
@@ -26,7 +24,7 @@ struct EnqueueReadImageTest : public CommandEnqueueFixture,
     void SetUp(void) override {
         REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
 
-        CommandEnqueueFixture::SetUp();
+        CommandEnqueueFixture::setUp();
 
         context = new MockContext(pClDevice);
         srcImage = Image2dHelper<>::create(context);
@@ -42,7 +40,7 @@ struct EnqueueReadImageTest : public CommandEnqueueFixture,
         delete srcImage;
         delete[] dstPtr;
         delete context;
-        CommandEnqueueFixture::TearDown();
+        CommandEnqueueFixture::tearDown();
     }
 
   protected:

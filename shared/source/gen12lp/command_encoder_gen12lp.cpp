@@ -12,10 +12,11 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/preamble.h"
 
-using Family = NEO::TGLLPFamily;
+using Family = NEO::Gen12LpFamily;
 
 #include "shared/source/command_container/command_encoder.inl"
 #include "shared/source/command_container/command_encoder_bdw_and_later.inl"
+#include "shared/source/command_container/command_encoder_tgllp_and_later.inl"
 #include "shared/source/command_container/encode_compute_mode_tgllp_and_later.inl"
 #include "shared/source/command_container/image_surface_state/compression_params_bdw_and_later.inl"
 #include "shared/source/command_container/image_surface_state/compression_params_tgllp_and_later.inl"
@@ -24,28 +25,27 @@ using Family = NEO::TGLLPFamily;
 namespace NEO {
 
 template <>
-size_t EncodeWA<Family>::getAdditionalPipelineSelectSize(Device &device) {
+size_t EncodeWA<Family>::getAdditionalPipelineSelectSize(Device &device, bool isRcs) {
     size_t size = 0;
-    if (device.getDefaultEngine().commandStreamReceiver->isRcs()) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(device.getHardwareInfo().platform.eProductFamily);
+    if (isRcs && hwInfoConfig.is3DPipelineSelectWARequired()) {
         size += 2 * PreambleHelper<Family>::getCmdSizeForPipelineSelect(device.getHardwareInfo());
     }
     return size;
 }
 
 template <>
-void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo) {
+void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, StateComputeModeProperties &properties, const HardwareInfo &hwInfo, LogicalStateHelper *logicalStateHelper) {
     using STATE_COMPUTE_MODE = typename Family::STATE_COMPUTE_MODE;
     using FORCE_NON_COHERENT = typename STATE_COMPUTE_MODE::FORCE_NON_COHERENT;
 
     STATE_COMPUTE_MODE stateComputeMode = Family::cmdInitStateComputeMode;
     auto maskBits = stateComputeMode.getMaskBits();
 
-    if (properties.isCoherencyRequired.isDirty) {
-        FORCE_NON_COHERENT coherencyValue = !properties.isCoherencyRequired.value ? FORCE_NON_COHERENT::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT
-                                                                                  : FORCE_NON_COHERENT::FORCE_NON_COHERENT_FORCE_DISABLED;
-        stateComputeMode.setForceNonCoherent(coherencyValue);
-        maskBits |= Family::stateComputeModeForceNonCoherentMask;
-    }
+    FORCE_NON_COHERENT coherencyValue = (properties.isCoherencyRequired.value == 1) ? FORCE_NON_COHERENT::FORCE_NON_COHERENT_FORCE_DISABLED
+                                                                                    : FORCE_NON_COHERENT::FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT;
+    stateComputeMode.setForceNonCoherent(coherencyValue);
+    maskBits |= Family::stateComputeModeForceNonCoherentMask;
 
     stateComputeMode.setMaskBits(maskBits);
 
@@ -54,11 +54,13 @@ void EncodeComputeMode<Family>::programComputeModeCommand(LinearStream &csr, Sta
 }
 
 template <>
-void EncodeWA<Family>::encodeAdditionalPipelineSelect(Device &device, LinearStream &stream, bool is3DPipeline) {
-    if (device.getDefaultEngine().commandStreamReceiver->isRcs()) {
-        PipelineSelectArgs args;
-        args.is3DPipelineRequired = is3DPipeline;
-        PreambleHelper<Family>::programPipelineSelect(&stream, args, device.getHardwareInfo());
+void EncodeWA<Family>::encodeAdditionalPipelineSelect(LinearStream &stream, const PipelineSelectArgs &args,
+                                                      bool is3DPipeline, const HardwareInfo &hwInfo, bool isRcs) {
+    const auto &hwInfoConfig = *HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    if (hwInfoConfig.is3DPipelineSelectWARequired() && isRcs) {
+        PipelineSelectArgs pipelineSelectArgs = args;
+        pipelineSelectArgs.is3DPipelineRequired = is3DPipeline;
+        PreambleHelper<Family>::programPipelineSelect(&stream, pipelineSelectArgs, hwInfo);
     }
 }
 
@@ -81,12 +83,30 @@ void EncodeSurfaceState<Family>::encodeExtraBufferParams(EncodeSurfaceStateArgs 
 }
 
 template <>
-bool EncodeSurfaceState<Family>::doBindingTablePrefetch() {
+bool EncodeSurfaceState<Family>::isBindingTablePrefetchPreferred() {
     return false;
 }
 
 template <>
 void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {
+}
+
+template <>
+void EncodeStoreMMIO<Family>::appendFlags(MI_STORE_REGISTER_MEM *storeRegMem, bool workloadPartition) {
+    storeRegMem->setMmioRemapEnable(true);
+}
+
+template <>
+void EncodeComputeMode<Family>::adjustPipelineSelect(CommandContainer &container, const NEO::KernelDescriptor &kernelDescriptor) {
+    auto &hwInfo = container.getDevice()->getHardwareInfo();
+
+    PipelineSelectArgs pipelineSelectArgs;
+    pipelineSelectArgs.systolicPipelineSelectMode = kernelDescriptor.kernelAttributes.flags.usesSystolicPipelineSelectMode;
+    pipelineSelectArgs.systolicPipelineSelectSupport = container.systolicModeSupport;
+
+    PreambleHelper<Family>::programPipelineSelect(container.getCommandStream(),
+                                                  pipelineSelectArgs,
+                                                  hwInfo);
 }
 
 template struct EncodeDispatchKernel<Family>;
@@ -111,4 +131,6 @@ template struct EncodeComputeMode<Family>;
 template struct EncodeEnableRayTracing<Family>;
 template struct EncodeNoop<Family>;
 template struct EncodeStoreMemory<Family>;
+template struct EncodeMemoryFence<Family>;
+template struct EncodeKernelArgsBuffer<Family>;
 } // namespace NEO

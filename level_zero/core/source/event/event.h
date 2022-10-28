@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,12 +9,10 @@
 
 #include "shared/source/helpers/timestamp_packet.h"
 
-#include "level_zero/core/source/cmdlist/cmdlist.h"
-#include "level_zero/core/source/context/context_imp.h"
-#include "level_zero/core/source/device/device.h"
-#include "level_zero/core/source/driver/driver_handle.h"
 #include <level_zero/ze_api.h>
 
+#include <bitset>
+#include <chrono>
 #include <limits>
 
 struct _ze_event_handle_t {};
@@ -25,6 +23,10 @@ namespace L0 {
 typedef uint64_t FlushStamp;
 struct EventPool;
 struct MetricStreamer;
+struct ContextImp;
+struct Context;
+struct DriverHandle;
+struct Device;
 
 namespace EventPacketsCount {
 constexpr uint32_t maxKernelSplit = 3;
@@ -57,11 +59,14 @@ struct Event : _ze_event_handle_t {
 
     virtual uint64_t getGpuAddress(Device *device) = 0;
     virtual uint32_t getPacketsInUse() = 0;
+    virtual uint32_t getPacketsUsedInLastKernel() = 0;
     virtual uint64_t getPacketAddress(Device *device) = 0;
     virtual void resetPackets() = 0;
     void *getHostAddress() { return hostAddress; }
     virtual void setPacketsInUse(uint32_t value) = 0;
     uint32_t getCurrKernelDataIndex() const { return kernelCount - 1; }
+    virtual void setGpuStartTimestamp() = 0;
+    virtual void setGpuEndTimestamp() = 0;
 
     size_t getContextStartOffset() const {
         return contextStartOffset;
@@ -84,33 +89,74 @@ struct Event : _ze_event_handle_t {
     void setEventTimestampFlag(bool timestampFlag) {
         isTimestampEvent = timestampFlag;
     }
+    bool isEventTimestampFlagSet() const {
+        return isTimestampEvent;
+    }
+    void setUsingContextEndOffset(bool usingContextEndOffset) {
+        this->usingContextEndOffset = usingContextEndOffset;
+    }
+    bool isUsingContextEndOffset() const {
+        return isTimestampEvent || usingContextEndOffset;
+    }
+    void setCsr(NEO::CommandStreamReceiver *csr) {
+        this->csr = csr;
+    }
 
-    bool isEventTimestampFlagSet() { return isTimestampEvent; }
+    void increaseKernelCount() {
+        kernelCount++;
+        UNRECOVERABLE_IF(kernelCount > EventPacketsCount::maxKernelSplit);
+    }
+    uint32_t getKernelCount() const {
+        return kernelCount;
+    }
+    void zeroKernelCount() {
+        kernelCount = 0;
+    }
+    bool getL3FlushForCurrenKernel() {
+        return l3FlushAppliedOnKernel.test(kernelCount - 1);
+    }
+    void setL3FlushForCurrentKernel() {
+        l3FlushAppliedOnKernel.set(kernelCount - 1);
+    }
+
+    void resetCompletion() {
+        this->isCompleted = false;
+    }
 
     uint64_t globalStartTS;
     uint64_t globalEndTS;
     uint64_t contextStartTS;
     uint64_t contextEndTS;
+    std::chrono::microseconds gpuHangCheckPeriod{500'000};
 
     // Metric streamer instance associated with the event.
     MetricStreamer *metricStreamer = nullptr;
     NEO::CommandStreamReceiver *csr = nullptr;
     void *hostAddress = nullptr;
-    bool l3FlushWaApplied = false;
 
     ze_event_scope_flags_t signalScope = 0u;
     ze_event_scope_flags_t waitScope = 0u;
 
-    uint32_t kernelCount = 1u;
-
   protected:
+    std::bitset<EventPacketsCount::maxKernelSplit> l3FlushAppliedOnKernel;
+
     size_t contextStartOffset = 0u;
     size_t contextEndOffset = 0u;
     size_t globalStartOffset = 0u;
     size_t globalEndOffset = 0u;
     size_t timestampSizeInDw = 0u;
     size_t singlePacketSize = 0u;
+    size_t eventPoolOffset = 0u;
+
+    size_t cpuStartTimestamp = 0u;
+    size_t gpuStartTimestamp = 0u;
+    size_t gpuEndTimestamp = 0u;
+
+    uint32_t kernelCount = 1u;
+
     bool isTimestampEvent = false;
+    bool usingContextEndOffset = false;
+    std::atomic<bool> isCompleted{false};
 };
 
 template <typename TagSizeT>
@@ -154,9 +200,13 @@ struct EventImp : public Event {
     uint64_t getGpuAddress(Device *device) override;
 
     void resetPackets() override;
+    void resetDeviceCompletionData();
     uint64_t getPacketAddress(Device *device) override;
     uint32_t getPacketsInUse() override;
+    uint32_t getPacketsUsedInLastKernel() override;
     void setPacketsInUse(uint32_t value) override;
+    void setGpuStartTimestamp() override;
+    void setGpuEndTimestamp() override;
 
     std::unique_ptr<KernelEventCompletionData<TagSizeT>[]> kernelEventCompletionData;
 
@@ -166,11 +216,10 @@ struct EventImp : public Event {
 
   protected:
     ze_result_t calculateProfilingData();
-    ze_result_t queryStatusKernelTimestamp();
-    ze_result_t queryStatusNonTimestamp();
-    ze_result_t hostEventSetValue(TagSizeT eventValue);
+    ze_result_t queryStatusEventPackets();
+    MOCKABLE_VIRTUAL ze_result_t hostEventSetValue(TagSizeT eventValue);
     ze_result_t hostEventSetValueTimestamps(TagSizeT eventVal);
-    void assignKernelEventCompletionData(void *address);
+    MOCKABLE_VIRTUAL void assignKernelEventCompletionData(void *address);
 };
 
 struct EventPool : _ze_event_pool_handle_t {
@@ -195,8 +244,9 @@ struct EventPool : _ze_event_pool_handle_t {
     virtual void setEventAlignment(uint32_t) = 0;
 
     bool isEventPoolTimestampFlagSet() {
-        if (NEO::DebugManager.flags.DisableTimestampEvents.get()) {
-            return false;
+        if (NEO::DebugManager.flags.OverrideTimestampEvents.get() != -1) {
+            auto timestampOverride = !!NEO::DebugManager.flags.OverrideTimestampEvents.get();
+            return timestampOverride;
         }
         if (eventPoolFlags & ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP) {
             return true;
@@ -222,7 +272,7 @@ struct EventPoolImp : public EventPool {
 
     ze_result_t initialize(DriverHandle *driver, Context *context, uint32_t numDevices, ze_device_handle_t *phDevices);
 
-    ~EventPoolImp();
+    ~EventPoolImp() override;
 
     ze_result_t destroy() override;
 
@@ -244,6 +294,7 @@ struct EventPoolImp : public EventPool {
     ContextImp *context = nullptr;
     size_t numEvents;
     bool isImportedIpcPool = false;
+    bool isShareableEventMemory = false;
 
   protected:
     uint32_t eventAlignment = 0;

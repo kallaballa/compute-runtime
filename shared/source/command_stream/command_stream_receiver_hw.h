@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/command_stream/submission_status.h"
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/direct_submission/direct_submission_hw.h"
 #include "shared/source/direct_submission/dispatchers/blitter_dispatcher.h"
 #include "shared/source/direct_submission/dispatchers/render_dispatcher.h"
@@ -15,7 +16,7 @@
 #include "shared/source/helpers/dirty_state_helpers.h"
 #include "shared/source/helpers/hw_info.h"
 
-#include "hw_cmds.h"
+#include <optional>
 
 namespace NEO {
 template <typename GfxFamily>
@@ -42,7 +43,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     SubmissionStatus flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
 
     CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
-                              const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
+                              const IndirectHeap *dsh, const IndirectHeap *ioh, const IndirectHeap *ssh,
                               uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) override;
 
     void forcePipeControl(NEO::LinearStream &commandStreamCSR);
@@ -64,7 +65,6 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForEpilogueCommands(const DispatchFlags &dispatchFlags) const;
     size_t getCmdSizeForL3Config() const;
     size_t getCmdSizeForPipelineSelect() const;
-    size_t getCmdSizeForComputeMode();
     size_t getCmdSizeForMediaSampler(bool mediaSamplerRequired) const;
     size_t getCmdSizeForEngineMode(const DispatchFlags &dispatchFlags) const;
     size_t getCmdSizeForPerDssBackedBuffer(const HardwareInfo &hwInfo);
@@ -72,20 +72,22 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForStallingCommands(const DispatchFlags &dispatchFlags) const;
     size_t getCmdSizeForStallingNoPostSyncCommands() const;
     size_t getCmdSizeForStallingPostSyncCommands() const;
+    size_t getCmdSizeForComputeMode();
+    MOCKABLE_VIRTUAL bool hasSharedHandles();
 
-    bool isComputeModeNeeded() const;
     bool isPipelineSelectAlreadyProgrammed() const;
     void programComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags, const HardwareInfo &hwInfo);
 
-    WaitStatus waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) override;
+    WaitStatus waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, QueueThrottle throttle) override;
 
     void collectStateBaseAddresPatchInfo(
         uint64_t commandBufferAddress,
         uint64_t commandOffset,
-        const LinearStream &dsh,
-        const LinearStream &ioh,
-        const LinearStream &ssh,
-        uint64_t generalStateBase);
+        const LinearStream *dsh,
+        const LinearStream *ioh,
+        const LinearStream *ssh,
+        uint64_t generalStateBase,
+        bool imagesSupported);
 
     void collectStateBaseAddresIohPatchInfo(uint64_t commandBufferAddress, uint64_t commandOffset, const LinearStream &ioh);
 
@@ -95,15 +97,11 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
         return CommandStreamReceiverType::CSR_HW;
     }
 
-    uint32_t flushBcsTask(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled, Device &device) override;
+    std::optional<uint32_t> flushBcsTask(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled, Device &device) override;
 
     void flushTagUpdate() override;
-    void flushNonKernelTask(GraphicsAllocation *eventAlloc, uint64_t immediateGpuAddress, uint64_t immediateData, PipeControlArgs &args, bool isWaitOnEvent, bool isStartOfDispatch, bool isEndOfDispatch) override;
     void flushMiFlushDW();
-    void flushMiFlushDW(GraphicsAllocation *eventAlloc, uint64_t immediateGpuAddress, uint64_t immediateData);
     void flushPipeControl();
-    void flushPipeControl(GraphicsAllocation *eventAlloc, uint64_t immediateGpuAddress, uint64_t immediateData, PipeControlArgs &args);
-    void flushSemaphoreWait(GraphicsAllocation *eventAlloc, uint64_t immediateGpuAddress, uint64_t immediateData, PipeControlArgs &args, bool isStartOfDispatch, bool isEndOfDispatch);
     void flushSmallTask(LinearStream &commandStreamTask,
                         size_t commandStreamStartTask);
     void flushHandler(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency);
@@ -127,7 +125,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     virtual bool isKmdWaitModeActive() { return true; }
 
-    bool initDirectSubmission(Device &device, OsContext &osContext) override;
+    bool initDirectSubmission() override;
     GraphicsAllocation *getClearColorAllocation() override;
 
     TagAllocatorBase *getTimestampPacketAllocator() override;
@@ -141,14 +139,20 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdsSizeForComputeBarrierCommand() const override {
         return getCmdSizeForStallingNoPostSyncCommands();
     }
+    void initializeDeviceWithFirstSubmission() override;
+
+    HeapDirtyState &getDshState() {
+        return dshState;
+    }
+    HeapDirtyState &getSshState() {
+        return sshState;
+    }
 
   protected:
     void programPreemption(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programL3(LinearStream &csr, uint32_t &newL3Config);
     void programPreamble(LinearStream &csr, Device &device, uint32_t &newL3Config);
     void programPipelineSelect(LinearStream &csr, PipelineSelectArgs &pipelineSelectArgs);
-    void programAdditionalPipelineSelect(LinearStream &csr, PipelineSelectArgs &pipelineSelectArgs, bool is3DPipeline);
-    void programAdditionalStateBaseAddress(LinearStream &csr, typename GfxFamily::STATE_BASE_ADDRESS &cmd, Device &device);
     void programEpilogue(LinearStream &csr, Device &device, void **batchBufferEndLocation, DispatchFlags &dispatchFlags);
     void programEpliogueCommands(LinearStream &csr, const DispatchFlags &dispatchFlags);
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);
@@ -165,13 +169,9 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void programEnginePrologue(LinearStream &csr);
     size_t getCmdSizeForPrologue() const;
 
-    void setPipeControlPriorToNonPipelinedStateCommandExtraProperties(PipeControlArgs &args);
-
-    void addClearSLMWorkAround(typename GfxFamily::PIPE_CONTROL *pCmd);
-    void addPipeControlBeforeStateBaseAddress(LinearStream &commandStream);
+    void setClearSlmWorkAroundParameter(PipeControlArgs &args);
     void addPipeControlBeforeStateSip(LinearStream &commandStream, Device &device);
     void addPipeControlBefore3dState(LinearStream &commandStream, DispatchFlags &dispatchFlags);
-    void addPipeControlPriorToNonPipelinedStateCommand(LinearStream &commandStream, PipeControlArgs args);
     size_t getSshHeapSize();
     bool are4GbHeapsAvailable() const;
 
@@ -182,6 +182,11 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     bool checkPlatformSupportsNewResourceImplicitFlush() const;
     bool checkPlatformSupportsGpuIdleImplicitFlush() const;
     void configurePostSyncWriteOffset();
+    void unregisterDirectSubmissionFromController();
+    constexpr bool isGlobalAtomicsProgrammingRequired(bool currentValue) const;
+    void createKernelArgsBufferAllocation() override;
+    void handleFrontEndStateTransition(DispatchFlags &dispatchFlags);
+    void handlePipelineSelectStateTransition(DispatchFlags &dispatchFlags);
 
     HeapDirtyState dshState;
     HeapDirtyState iohState;
@@ -195,6 +200,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     std::unique_ptr<DirectSubmissionHw<GfxFamily, BlitterDispatcher<GfxFamily>>> blitterDirectSubmission;
 
     size_t cmdStreamStart = 0;
+    uint32_t latestSentBcsWaValue = std::numeric_limits<uint32_t>::max();
 };
 
 } // namespace NEO

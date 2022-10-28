@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,11 +7,9 @@
 
 #pragma once
 
-#include "shared/source/os_interface/linux/drm_neo.h"
-
-#include "drm/i915_drm.h"
-
 #include <array>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -27,6 +25,7 @@ extern int drmOtherRequests(unsigned long int request, ...);
 extern int fakeFd;
 extern int haveDri;  // index of dri to serve, -1 - none
 extern int deviceId; // known DeviceID
+extern int revisionId;
 extern int haveSoftPin;
 extern int vmId;
 extern int failOnDeviceId;
@@ -49,3 +48,4 @@ extern uint32_t entryIndex;
 extern int accessCalledTimes;
 extern int readLinkCalledTimes;
 extern int fstatCalledTimes;
+extern bool forceExtraIoctlDuration;

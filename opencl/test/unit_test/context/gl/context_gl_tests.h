@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,17 +11,16 @@
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
-#include "gtest/gtest.h"
 #include <GL/gl.h>
 
 namespace NEO {
 
 struct GlContextTest : public PlatformFixture, public ::testing::Test {
 
-    using PlatformFixture::SetUp;
+    using PlatformFixture::setUp;
 
     void SetUp() override {
-        PlatformFixture::SetUp();
+        PlatformFixture::setUp();
 
         properties[0] = CL_CONTEXT_PLATFORM;
         properties[1] = reinterpret_cast<cl_context_properties>(static_cast<cl_platform_id>(pPlatform));
@@ -33,7 +32,7 @@ struct GlContextTest : public PlatformFixture, public ::testing::Test {
 
     void TearDown() override {
         delete context;
-        PlatformFixture::TearDown();
+        PlatformFixture::tearDown();
     }
 
     void testContextCreation(cl_context_properties contextType) {

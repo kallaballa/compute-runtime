@@ -7,7 +7,7 @@
 
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/test/common/mocks/mock_csr.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/helpers/task_information.h"
@@ -17,6 +17,7 @@
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 
+#include <array>
 #include <memory>
 
 using namespace NEO;
@@ -87,6 +88,65 @@ TEST(CommandTest, GivenTerminateFlagWhenSubmittingMarkerThenFlushIsAborted) {
 
     auto expectedTaskCount = 0u;
     EXPECT_EQ(expectedTaskCount, completionStamp.taskCount);
+}
+
+TEST(CommandTest, GivenGpuHangWhenSubmittingMapUnmapCommandsThenReturnedCompletionStampIndicatesGpuHang) {
+    for (const auto operationType : {MapOperationType::MAP, MapOperationType::UNMAP}) {
+        auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+        std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(nullptr, device.get(), nullptr, false));
+        cmdQ->waitUntilCompleteReturnValue = WaitStatus::GpuHang;
+
+        MemObjSizeArray size = {{1, 1, 1}};
+        MemObjOffsetArray offset = {{0, 0, 0}};
+
+        MockBuffer buffer;
+        buffer.isZeroCopy = false;
+        buffer.callBaseTransferDataToHostPtr = false;
+        buffer.callBaseTransferDataFromHostPtr = false;
+
+        std::unique_ptr<Command> command(new CommandMapUnmap(operationType, buffer, size, offset, false, *cmdQ));
+        CompletionStamp completionStamp = command->submit(20, false);
+
+        EXPECT_EQ(1, cmdQ->waitUntilCompleteCalledCount);
+        EXPECT_EQ(CompletionStamp::gpuHang, completionStamp.taskCount);
+
+        EXPECT_EQ(0, buffer.transferDataToHostPtrCalledCount);
+        EXPECT_EQ(0, buffer.transferDataFromHostPtrCalledCount);
+    }
+}
+
+TEST(CommandTest, GivenNoGpuHangWhenSubmittingMapUnmapCommandsThenReturnedCompletionStampDoesNotIndicateGpuHang) {
+    constexpr size_t operationTypesCount{2};
+    constexpr static std::array<MapOperationType, operationTypesCount> operationTypes{MapOperationType::MAP, MapOperationType::UNMAP};
+    constexpr static std::array<std::pair<int, int>, operationTypesCount> expectedCallsCounts = {
+        std::pair{1, 0}, std::pair{0, 1}};
+
+    for (auto i = 0u; i < operationTypesCount; ++i) {
+        const auto operationType = operationTypes[i];
+        auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+        std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(nullptr, device.get(), nullptr, false));
+        cmdQ->waitUntilCompleteReturnValue = WaitStatus::Ready;
+
+        MemObjSizeArray size = {{1, 1, 1}};
+        MemObjOffsetArray offset = {{0, 0, 0}};
+
+        MockBuffer buffer;
+        buffer.isZeroCopy = false;
+        buffer.callBaseTransferDataToHostPtr = false;
+        buffer.callBaseTransferDataFromHostPtr = false;
+
+        std::unique_ptr<Command> command(new CommandMapUnmap(operationType, buffer, size, offset, false, *cmdQ));
+        CompletionStamp completionStamp = command->submit(20, false);
+
+        EXPECT_EQ(1, cmdQ->waitUntilCompleteCalledCount);
+        EXPECT_NE(CompletionStamp::gpuHang, completionStamp.taskCount);
+
+        const auto &[expectedTransferDataToHostPtrCalledCount, expectedTransferDataFromHostPtrCalledCount] = expectedCallsCounts[i];
+        EXPECT_EQ(expectedTransferDataToHostPtrCalledCount, buffer.transferDataToHostPtrCalledCount);
+        EXPECT_EQ(expectedTransferDataFromHostPtrCalledCount, buffer.transferDataFromHostPtrCalledCount);
+    }
 }
 
 TEST(CommandTest, givenWaitlistRequestWhenCommandComputeKernelIsCreatedThenMakeLocalCopyOfWaitlist) {
@@ -160,8 +220,8 @@ template <typename GfxFamily>
 class MockCsr1 : public CommandStreamReceiverHw<GfxFamily> {
   public:
     CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
-                              const IndirectHeap &dsh, const IndirectHeap &ioh,
-                              const IndirectHeap &ssh, uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) override {
+                              const IndirectHeap *dsh, const IndirectHeap *ioh,
+                              const IndirectHeap *ssh, uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) override {
         passedDispatchFlags = dispatchFlags;
         return CompletionStamp();
     }
@@ -173,7 +233,7 @@ class MockCsr1 : public CommandStreamReceiverHw<GfxFamily> {
 
 HWTEST_F(DispatchFlagsTests, givenCommandMapUnmapWhenSubmitThenPassCorrectDispatchFlags) {
     using CsrType = MockCsr1<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
@@ -207,7 +267,7 @@ HWTEST_F(DispatchFlagsTests, givenCommandMapUnmapWhenSubmitThenPassCorrectDispat
 
 HWTEST_F(DispatchFlagsTests, givenCommandComputeKernelWhenSubmitThenPassCorrectDispatchFlags) {
     using CsrType = MockCsr1<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
 
@@ -234,7 +294,7 @@ HWTEST_F(DispatchFlagsTests, givenCommandComputeKernelWhenSubmitThenPassCorrectD
     std::unique_ptr<Command> command(new CommandComputeKernel(*mockCmdQ, kernelOperation, surfaces, flushDC, slmUsed, ndRangeKernel, nullptr, preemptionMode, kernel, 1));
     command->submit(20, false);
 
-    EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.specialPipelineSelectMode);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode);
     EXPECT_EQ(kernel.mockKernel->isVmeKernel(), mockCsr->passedDispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
     EXPECT_EQ(mockCmdQ->flushStamp->getStampReference(), mockCsr->passedDispatchFlags.flushStampReference);
     EXPECT_EQ(mockCmdQ->getThrottle(), mockCsr->passedDispatchFlags.throttle);
@@ -255,7 +315,7 @@ HWTEST_F(DispatchFlagsTests, givenCommandComputeKernelWhenSubmitThenPassCorrectD
 
 HWTEST_F(DispatchFlagsTests, givenClCommandCopyImageWhenSubmitThenFlushTextureCacheHasProperValue) {
     using CsrType = MockCsr1<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
 
@@ -282,7 +342,7 @@ HWTEST_F(DispatchFlagsTests, givenClCommandCopyImageWhenSubmitThenFlushTextureCa
     std::unique_ptr<Command> command(new CommandComputeKernel(*mockCmdQ, kernelOperation, surfaces, flushDC, slmUsed, commandType, nullptr, preemptionMode, kernel, 1));
     command->submit(20, false);
 
-    EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.specialPipelineSelectMode);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.systolicPipelineSelectMode);
     EXPECT_EQ(kernel.mockKernel->isVmeKernel(), mockCsr->passedDispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
     EXPECT_EQ(mockCmdQ->flushStamp->getStampReference(), mockCsr->passedDispatchFlags.flushStampReference);
     EXPECT_EQ(mockCmdQ->getThrottle(), mockCsr->passedDispatchFlags.throttle);
@@ -304,7 +364,7 @@ HWTEST_F(DispatchFlagsTests, givenClCommandCopyImageWhenSubmitThenFlushTextureCa
 
 HWTEST_F(DispatchFlagsTests, givenCommandWithoutKernelWhenSubmitThenPassCorrectDispatchFlags) {
     using CsrType = MockCsr1<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
@@ -344,7 +404,7 @@ HWTEST_F(DispatchFlagsTests, givenCommandWithoutKernelWhenSubmitThenPassCorrectD
 
 HWTEST_F(DispatchFlagsTests, givenCommandComputeKernelWhenSubmitThenPassCorrectDispatchHints) {
     using CsrType = MockCsr1<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
 
@@ -365,14 +425,11 @@ HWTEST_F(DispatchFlagsTests, givenCommandComputeKernelWhenSubmitThenPassCorrectD
     bool flushDC = false;
     bool slmUsed = false;
     bool ndRangeKernel = false;
-    bool requiresCoherency = false;
-    for (auto &surface : surfaces) {
-        requiresCoherency |= surface->IsCoherent;
-    }
     std::unique_ptr<Command> command(new CommandComputeKernel(*mockCmdQ, kernelOperation, surfaces, flushDC, slmUsed, ndRangeKernel, nullptr, preemptionMode, kernel, 1));
     command->submit(20, false);
 
     EXPECT_TRUE(mockCsr->passedDispatchFlags.epilogueRequired);
     EXPECT_EQ(1234u, mockCsr->passedDispatchFlags.engineHints);
-    EXPECT_EQ(kernel.mockKernel->getThreadArbitrationPolicy(), mockCsr->passedDispatchFlags.threadArbitrationPolicy);
+    auto expectedThreadArbitrationPolicy = kernel.mockKernel->getDescriptor().kernelAttributes.threadArbitrationPolicy;
+    EXPECT_EQ(expectedThreadArbitrationPolicy, mockCsr->passedDispatchFlags.threadArbitrationPolicy);
 }

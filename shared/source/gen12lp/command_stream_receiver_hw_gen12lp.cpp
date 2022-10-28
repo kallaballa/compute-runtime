@@ -7,10 +7,9 @@
 
 #include "shared/source/gen12lp/hw_cmds.h"
 
-using Family = NEO::TGLLPFamily;
+using Family = NEO::Gen12LpFamily;
 
 #include "shared/source/command_stream/command_stream_receiver_hw_bdw_and_later.inl"
-#include "shared/source/command_stream/command_stream_receiver_hw_tgllp_and_later.inl"
 #include "shared/source/command_stream/device_command_stream.h"
 #include "shared/source/helpers/blit_commands_helper_bdw_and_later.inl"
 #include "shared/source/helpers/populate_factory.h"
@@ -28,33 +27,6 @@ size_t CommandStreamReceiverHw<Family>::getCmdSizeForL3Config() const {
 }
 
 template <>
-size_t CommandStreamReceiverHw<Family>::getCmdSizeForComputeMode() {
-    if (!csrSizeRequestFlags.hasSharedHandles) {
-        for (const auto &allocation : this->getResidencyAllocations()) {
-            if (allocation->peekSharedHandle()) {
-                csrSizeRequestFlags.hasSharedHandles = true;
-                break;
-            }
-        }
-    }
-
-    size_t size = 0;
-    if (this->streamProperties.stateComputeMode.isDirty() || csrSizeRequestFlags.numGrfRequiredChanged) {
-        size += sizeof(typename Family::STATE_COMPUTE_MODE);
-        if (csrSizeRequestFlags.hasSharedHandles) {
-            size += sizeof(typename Family::PIPE_CONTROL);
-        }
-
-        const auto &hwInfoConfig = *HwInfoConfig::get(peekHwInfo().platform.eProductFamily);
-        if (hwInfoConfig.is3DPipelineSelectWARequired() && isRcs()) {
-            size += (2 * PreambleHelper<Family>::getCmdSizeForPipelineSelect(peekHwInfo()));
-        }
-    }
-
-    return size;
-}
-
-template <>
 void populateFactoryTable<CommandStreamReceiverHw<Family>>() {
     extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
     commandStreamReceiverFactory[gfxCore] = DeviceCommandStreamReceiver<Family>::create;
@@ -67,6 +39,7 @@ void BlitCommandsHelper<Family>::appendColorDepth(const BlitProperties &blitProp
     switch (blitProperites.bytesPerPixel) {
     default:
         UNRECOVERABLE_IF(true);
+        break;
     case 1:
         blitCmd.setColorDepth(XY_BLOCK_COPY_BLT::COLOR_DEPTH::COLOR_DEPTH_8_BIT_COLOR);
         break;
@@ -86,7 +59,10 @@ void BlitCommandsHelper<Family>::appendColorDepth(const BlitProperties &blitProp
 }
 
 template <>
-void BlitCommandsHelper<Family>::getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch, GMM_TILE_TYPE &tileType, uint32_t &mipTailLod, uint32_t &compressionDetails, const RootDeviceEnvironment &rootDeviceEnvironment) {
+void BlitCommandsHelper<Family>::getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch,
+                                                             GMM_TILE_TYPE &tileType, uint32_t &mipTailLod, uint32_t &compressionDetails,
+                                                             uint32_t &compressionType, const RootDeviceEnvironment &rootDeviceEnvironment,
+                                                             GMM_YUV_PLANE_ENUM plane) {
     if (allocation.getDefaultGmm()) {
         auto gmmResourceInfo = allocation.getDefaultGmm()->gmmResourceInfo.get();
         if (!gmmResourceInfo->getResourceFlags()->Info.Linear) {
@@ -117,9 +93,12 @@ void BlitCommandsHelper<Family>::appendBlitCommandsForImages(const BlitPropertie
     auto dstRowPitch = static_cast<uint32_t>(blitProperties.dstRowPitch);
     uint32_t mipTailLod = 0;
     auto compressionDetails = 0u;
+    auto compressionType = 0u;
 
-    getBlitAllocationProperties(*srcAllocation, srcRowPitch, srcQPitch, tileType, mipTailLod, compressionDetails, rootDeviceEnvironment);
-    getBlitAllocationProperties(*dstAllocation, dstRowPitch, dstQPitch, tileType, mipTailLod, compressionDetails, rootDeviceEnvironment);
+    getBlitAllocationProperties(*srcAllocation, srcRowPitch, srcQPitch, tileType, mipTailLod, compressionDetails,
+                                compressionType, rootDeviceEnvironment, blitProperties.srcPlane);
+    getBlitAllocationProperties(*dstAllocation, dstRowPitch, dstQPitch, tileType, mipTailLod, compressionDetails,
+                                compressionType, rootDeviceEnvironment, blitProperties.dstPlane);
 
     blitCmd.setSourcePitch(srcRowPitch);
     blitCmd.setDestinationPitch(dstRowPitch);

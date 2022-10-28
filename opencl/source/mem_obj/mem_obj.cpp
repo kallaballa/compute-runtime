@@ -22,6 +22,7 @@
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/helpers/get_info_status_mapper.h"
+#include "opencl/source/helpers/mipmap.h"
 
 #include <algorithm>
 
@@ -35,7 +36,7 @@ MemObj::MemObj(Context *context,
                size_t size,
                void *memoryStorage,
                void *hostPtr,
-               MultiGraphicsAllocation multiGraphicsAllocation,
+               MultiGraphicsAllocation &&multiGraphicsAllocation,
                bool zeroCopy,
                bool isHostPtrSVM,
                bool isObjectRedescribed)
@@ -79,6 +80,7 @@ MemObj::~MemObj() {
             peekSharingHandler()->releaseReusedGraphicsAllocation();
         }
 
+        needWait |= multiGraphicsAllocation.getGraphicsAllocations().size() > 1u;
         for (auto graphicsAllocation : multiGraphicsAllocation.getGraphicsAllocations()) {
             auto rootDeviceIndex = graphicsAllocation ? graphicsAllocation->getRootDeviceIndex() : 0;
             bool doAsyncDestructions = DebugManager.flags.EnableAsyncDestroyAllocations.get();
@@ -99,14 +101,10 @@ MemObj::~MemObj() {
             if (mcsAllocation) {
                 destroyGraphicsAllocation(mcsAllocation, false);
             }
-            if (graphicsAllocation && associatedMemObject) {
-                if (associatedMemObject->getGraphicsAllocation(graphicsAllocation->getRootDeviceIndex()) != graphicsAllocation) {
-                    destroyGraphicsAllocation(graphicsAllocation, false);
-                }
-            }
         }
         if (associatedMemObject) {
             associatedMemObject->decRefInternal();
+            context->getBufferPoolAllocator().tryFreeFromPoolBuffer(associatedMemObject, this->offset, this->size);
         }
         if (!associatedMemObject) {
             releaseAllocatedMapPtr();
@@ -115,7 +113,10 @@ MemObj::~MemObj() {
 
     destructorCallbacks.invoke(this);
 
-    context->decRefInternal();
+    const bool needDecrementContextRefCount = !context->getBufferPoolAllocator().isPoolBuffer(this);
+    if (needDecrementContextRefCount) {
+        context->decRefInternal();
+    }
 }
 
 cl_int MemObj::getMemObjectInfo(cl_mem_info paramName,
@@ -374,7 +375,7 @@ void *MemObj::getBasePtrForMap(uint32_t rootDeviceIndex) {
             AllocationProperties properties{rootDeviceIndex,
                                             false, // allocateMemory
                                             getSize(), AllocationType::MAP_ALLOCATION,
-                                            false, //isMultiStorageAllocation
+                                            false, // isMultiStorageAllocation
                                             context->getDeviceBitfieldForAllocation(rootDeviceIndex)};
 
             auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, memory);
@@ -415,7 +416,7 @@ bool MemObj::isTiledAllocation() const {
 bool MemObj::mappingOnCpuAllowed() const {
     auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
     return !isTiledAllocation() && !peekSharingHandler() && !isMipMapped(this) && !DebugManager.flags.DisableZeroCopyForBuffers.get() &&
-           !graphicsAllocation->isCompressionEnabled() && MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool());
+           !graphicsAllocation->isCompressionEnabled() && MemoryPoolHelper::isSystemMemoryPool(graphicsAllocation->getMemoryPool());
 }
 
 void MemObj::storeProperties(const cl_mem_properties *properties) {

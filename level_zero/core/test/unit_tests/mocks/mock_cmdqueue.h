@@ -6,12 +6,16 @@
  */
 
 #pragma once
+
 #include "shared/test/common/test_macros/mock_method_macros.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue_hw.h"
 #include "level_zero/core/source/cmdqueue/cmdqueue_imp.h"
 #include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/core/test/unit_tests/white_box.h"
+
+#include <cstddef>
+#include <optional>
 
 namespace L0 {
 namespace ult {
@@ -24,14 +28,16 @@ struct WhiteBox<::L0::CommandQueue> : public ::L0::CommandQueueImp {
     using BaseClass::csr;
     using BaseClass::device;
     using BaseClass::preemptionCmdSyncProgramming;
-    using BaseClass::printfFunctionContainer;
+    using BaseClass::printfKernelContainer;
     using BaseClass::submitBatchBuffer;
     using BaseClass::synchronizeByPollingForTaskCount;
     using BaseClass::taskCount;
     using CommandQueue::activeSubDevices;
-    using CommandQueue::commandQueuePreemptionMode;
+    using CommandQueue::frontEndStateTracking;
     using CommandQueue::internalUsage;
     using CommandQueue::partitionCount;
+    using CommandQueue::pipelineSelectStateTracking;
+    using CommandQueue::stateComputeModeTracking;
 
     WhiteBox(Device *device, NEO::CommandStreamReceiver *csr,
              const ze_command_queue_desc_t *desc);
@@ -50,7 +56,6 @@ struct Mock<CommandQueue> : public CommandQueue {
     ADDMETHOD_NOBASE(executeCommandLists, ze_result_t, ZE_RESULT_SUCCESS, (uint32_t numCommandLists, ze_command_list_handle_t *phCommandLists, ze_fence_handle_t hFence, bool performMigration));
     ADDMETHOD_NOBASE(executeCommands, ze_result_t, ZE_RESULT_SUCCESS, (uint32_t numCommands, void *phCommands, ze_fence_handle_t hFence));
     ADDMETHOD_NOBASE(synchronize, ze_result_t, ZE_RESULT_SUCCESS, (uint64_t timeout));
-    ADDMETHOD_NOBASE_VOIDRETURN(dispatchTaskCountWrite, (NEO::LinearStream & commandStream, bool flushDataCache));
     ADDMETHOD_NOBASE(getPreemptionCmdProgramming, bool, false, ());
 };
 
@@ -58,18 +63,31 @@ template <GFXCORE_FAMILY gfxCoreFamily>
 struct MockCommandQueueHw : public L0::CommandQueueHw<gfxCoreFamily> {
     using BaseClass = ::L0::CommandQueueHw<gfxCoreFamily>;
     using BaseClass::commandStream;
-    using BaseClass::printfFunctionContainer;
+    using BaseClass::prepareAndSubmitBatchBuffer;
+    using BaseClass::printfKernelContainer;
     using L0::CommandQueue::activeSubDevices;
+    using L0::CommandQueue::frontEndStateTracking;
     using L0::CommandQueue::internalUsage;
     using L0::CommandQueue::partitionCount;
+    using L0::CommandQueue::pipelineSelectStateTracking;
     using L0::CommandQueue::preemptionCmdSyncProgramming;
+    using L0::CommandQueue::stateComputeModeTracking;
     using L0::CommandQueueImp::csr;
+    using typename BaseClass::CommandListExecutionContext;
 
     MockCommandQueueHw(L0::Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc) : L0::CommandQueueHw<gfxCoreFamily>(device, csr, desc) {
     }
     ze_result_t synchronize(uint64_t timeout) override {
         synchronizedCalled++;
-        return ZE_RESULT_SUCCESS;
+        return synchronizeReturnValue;
+    }
+
+    NEO::WaitStatus reserveLinearStreamSize(size_t size) override {
+        if (reserveLinearStreamSizeReturnValue.has_value()) {
+            return *reserveLinearStreamSizeReturnValue;
+        }
+
+        return BaseClass::reserveLinearStreamSize(size);
     }
 
     NEO::SubmissionStatus submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr, bool isCooperative) override {
@@ -79,6 +97,8 @@ struct MockCommandQueueHw : public L0::CommandQueueHw<gfxCoreFamily> {
 
     uint32_t synchronizedCalled = 0;
     NEO::ResidencyContainer residencyContainerSnapshot;
+    ze_result_t synchronizeReturnValue{ZE_RESULT_SUCCESS};
+    std::optional<NEO::WaitStatus> reserveLinearStreamSizeReturnValue{};
 };
 
 struct Deleter {
@@ -86,5 +106,6 @@ struct Deleter {
         cmdQ->destroy();
     }
 };
+
 } // namespace ult
 } // namespace L0

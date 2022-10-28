@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,7 +32,7 @@ struct ClBlitProperties {
             GraphicsAllocation *srcAllocation = nullptr;
 
             if (!builtinOpParams.dstSvmAlloc) {
-                dstOffset += builtinOpParams.dstMemObj->getOffset();
+                dstOffset += builtinOpParams.dstMemObj->getOffset(); // NOLINT(clang-analyzer-core.CallAndMessage)
                 srcOffset += builtinOpParams.srcMemObj->getOffset();
                 dstAllocation = builtinOpParams.dstMemObj->getGraphicsAllocation(rootDeviceIndex);
                 srcAllocation = builtinOpParams.srcMemObj->getGraphicsAllocation(rootDeviceIndex);
@@ -168,26 +168,50 @@ struct ClBlitProperties {
         }
     }
 
-    static void adjustBlitPropertiesForImage(MemObj *memObj, Vec3<size_t> &size, size_t &bytesPerPixel, uint64_t &gpuAddress, size_t &rowPitch, size_t &slicePitch) {
+    static void adjustBlitPropertiesForImage(MemObj *memObj, BlitProperties &blitProperties, size_t &rowPitch, size_t &slicePitch, const bool isSource) {
         auto image = castToObject<Image>(memObj);
         const auto &imageDesc = image->getImageDesc();
-        auto image_width = imageDesc.image_width;
-        auto image_height = imageDesc.image_height;
-        auto image_depth = imageDesc.image_depth;
+        auto imageWidth = imageDesc.image_width;
+        auto imageHeight = imageDesc.image_height;
+        auto imageDepth = imageDesc.image_depth;
 
         if (imageDesc.image_type == CL_MEM_OBJECT_IMAGE2D_ARRAY) {
-            image_depth = std::max(image_depth, imageDesc.image_array_size);
+            imageDepth = std::max(imageDepth, imageDesc.image_array_size);
         }
 
         SurfaceOffsets surfaceOffsets;
+        auto &gpuAddress = isSource ? blitProperties.srcGpuAddress : blitProperties.dstGpuAddress;
+        auto &size = isSource ? blitProperties.srcSize : blitProperties.dstSize;
+        auto &copySize = blitProperties.copySize;
+        auto &bytesPerPixel = blitProperties.bytesPerPixel;
+        auto &blitDirection = blitProperties.blitDirection;
+        auto &plane = isSource ? blitProperties.srcPlane : blitProperties.dstPlane;
+
         image->getSurfaceOffsets(surfaceOffsets);
         gpuAddress += surfaceOffsets.offset;
-        size.x = image_width;
-        size.y = image_height ? image_height : 1;
-        size.z = image_depth ? image_depth : 1;
+        size.x = imageWidth;
+        size.y = imageHeight ? imageHeight : 1;
+        size.z = imageDepth ? imageDepth : 1;
         bytesPerPixel = image->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
         rowPitch = imageDesc.image_row_pitch;
         slicePitch = imageDesc.image_slice_pitch;
+        plane = image->getPlane();
+
+        if (imageDesc.image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER) {
+            if (blitDirection == BlitterConstants::BlitDirection::HostPtrToImage) {
+                blitDirection = BlitterConstants::BlitDirection::HostPtrToBuffer;
+            }
+            if (blitDirection == BlitterConstants::BlitDirection::ImageToHostPtr) {
+                blitDirection = BlitterConstants::BlitDirection::BufferToHostPtr;
+            }
+            if (blitDirection == BlitterConstants::BlitDirection::ImageToImage) {
+                blitDirection = BlitterConstants::BlitDirection::BufferToBuffer;
+            }
+
+            size.x *= bytesPerPixel;
+            copySize.x *= bytesPerPixel;
+            bytesPerPixel = 1;
+        }
     }
 
     static void setBlitPropertiesForImage(BlitProperties &blitProperties, const BuiltinOpParams &builtinOpParams) {
@@ -198,14 +222,12 @@ struct ClBlitProperties {
 
         if (blitProperties.blitDirection == BlitterConstants::BlitDirection::ImageToHostPtr ||
             blitProperties.blitDirection == BlitterConstants::BlitDirection::ImageToImage) {
-            adjustBlitPropertiesForImage(builtinOpParams.srcMemObj, blitProperties.srcSize, blitProperties.bytesPerPixel,
-                                         blitProperties.srcGpuAddress, srcRowPitch, srcSlicePitch);
+            adjustBlitPropertiesForImage(builtinOpParams.srcMemObj, blitProperties, srcRowPitch, srcSlicePitch, true);
         }
 
         if (blitProperties.blitDirection == BlitterConstants::BlitDirection::HostPtrToImage ||
             blitProperties.blitDirection == BlitterConstants::BlitDirection::ImageToImage) {
-            adjustBlitPropertiesForImage(builtinOpParams.dstMemObj, blitProperties.dstSize, blitProperties.bytesPerPixel,
-                                         blitProperties.dstGpuAddress, dstRowPitch, dstSlicePitch);
+            adjustBlitPropertiesForImage(builtinOpParams.dstMemObj, blitProperties, dstRowPitch, dstSlicePitch, false);
         }
 
         blitProperties.srcRowPitch = srcRowPitch ? srcRowPitch : blitProperties.srcSize.x * blitProperties.bytesPerPixel;

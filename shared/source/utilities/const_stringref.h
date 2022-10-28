@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2019-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -168,6 +168,39 @@ class ConstStringRef {
         return ('\0' == *rhs);
     }
 
+    constexpr bool startsWith(ConstStringRef subString) const noexcept {
+        if (subString.length() > len) {
+            return false;
+        }
+        const char *findEnd = ptr + subString.length();
+        const char *lhs = ptr;
+        const char *rhs = subString.begin();
+        while ((lhs < findEnd)) {
+            if (*lhs != *rhs) {
+                return false;
+            }
+            lhs++;
+            rhs++;
+        }
+        return true;
+    }
+
+    constexpr bool isEqualWithoutSeparator(const char separator, const char *subString) const noexcept {
+        const char *end = ptr + len;
+        const char *lhs = ptr;
+        const char *rhs = subString;
+
+        for (auto i = lhs; i != end; i++) {
+            if (*i == separator) {
+                continue;
+            }
+            if (*i != *rhs)
+                return false;
+            ++rhs;
+        }
+        return ('\0' == *rhs);
+    }
+
   protected:
     ConstStringRef(std::nullptr_t) = delete;
 
@@ -235,7 +268,7 @@ constexpr bool equalsCaseInsensitive(const ConstStringRef &lhs, const ConstStrin
     constexpr auto caseDiff = 'a' - 'A';
     for (size_t i = 0, e = lhs.size(); i < e; ++i) {
 
-        if ((lhs[i] != rhs[i]) & (lhs[i] + caseDiff != rhs[i]) & (lhs[i] != rhs[i] + caseDiff)) {
+        if ((lhs[i] != rhs[i]) && (lhs[i] + caseDiff != rhs[i]) && (lhs[i] != rhs[i] + caseDiff)) {
             return false;
         }
     }

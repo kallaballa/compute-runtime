@@ -48,7 +48,6 @@ class ZesEngineFixture : public SysmanDeviceFixture {
         pFsAccess = std::make_unique<NiceMock<Mock<EngineFsAccess>>>();
         pLinuxSysmanImp->pFsAccess = pFsAccess.get();
 
-        EngineHandleContext *pEngineHandleContext = pSysmanDeviceImp->pEngineHandleContext;
         pDrm = std::make_unique<NiceMock<Mock<EngineNeoDrm>>>(const_cast<NEO::RootDeviceEnvironment &>(neoDevice->getRootDeviceEnvironment()));
         pDrm->setupIoctlHelper(neoDevice->getRootDeviceEnvironment().getHardwareInfo()->platform.eProductFamily);
         pPmuInterface = std::make_unique<NiceMock<Mock<MockPmuInterfaceImp>>>(pLinuxSysmanImp);
@@ -69,19 +68,20 @@ class ZesEngineFixture : public SysmanDeviceFixture {
         ON_CALL(*pFsAccess.get(), read(_, _))
             .WillByDefault(::testing::Invoke(pFsAccess.get(), &Mock<EngineFsAccess>::readValSuccess));
 
-        pEngineHandleContext->init();
+        getEngineHandles(0);
     }
 
     void TearDown() override {
         if (!sysmanUltsEnable) {
             GTEST_SKIP();
         }
-        SysmanDeviceFixture::TearDown();
         device->getDriverHandle()->setMemoryManager(pMemoryManagerOriginal);
         pLinuxSysmanImp->pDrm = pOriginalDrm;
         pLinuxSysmanImp->pPmuInterface = pOriginalPmuInterface;
         pLinuxSysmanImp->pSysfsAccess = pSysfsAccessOriginal;
         pLinuxSysmanImp->pFsAccess = pFsAccessOriginal;
+
+        SysmanDeviceFixture::TearDown();
     }
 
     std::vector<zes_engine_handle_t> getEngineHandles(uint32_t count) {
@@ -228,8 +228,8 @@ TEST_F(ZesEngineFixture, givenEngineInfoQuerySupportedWhenQueryingEngineInfoThen
     auto drm = std::make_unique<DrmMockEngine>((const_cast<NEO::RootDeviceEnvironment &>(neoDevice->getRootDeviceEnvironment())));
     ASSERT_NE(nullptr, drm);
     std::vector<MemoryRegion> memRegions{
-        {{I915_MEMORY_CLASS_SYSTEM, 0}, 1024, 0}};
-    drm->memoryInfo.reset(new MemoryInfo(memRegions));
+        {{drm_i915_gem_memory_class::I915_MEMORY_CLASS_SYSTEM, 0}, 1024, 0}};
+    drm->memoryInfo.reset(new MemoryInfo(memRegions, *drm));
     drm->sysmanQueryEngineInfo();
     auto engineInfo = drm->getEngineInfo();
     ASSERT_NE(nullptr, engineInfo);
@@ -240,8 +240,8 @@ TEST_F(ZesEngineFixture, GivenEngineInfoWithVideoQuerySupportedWhenQueryingEngin
     auto drm = std::make_unique<DrmMockEngine>((const_cast<NEO::RootDeviceEnvironment &>(neoDevice->getRootDeviceEnvironment())));
     ASSERT_NE(nullptr, drm);
     std::vector<MemoryRegion> memRegions{
-        {{I915_MEMORY_CLASS_SYSTEM, 0}, 1024, 0}};
-    drm->memoryInfo.reset(new MemoryInfo(memRegions));
+        {{drm_i915_gem_memory_class::I915_MEMORY_CLASS_SYSTEM, 0}, 1024, 0}};
+    drm->memoryInfo.reset(new MemoryInfo(memRegions, *drm));
     drm->sysmanQueryEngineInfo();
     auto engineInfo = drm->getEngineInfo();
     ASSERT_NE(nullptr, engineInfo);

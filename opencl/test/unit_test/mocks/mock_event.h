@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,12 @@
 
 #pragma once
 
+#include "shared/source/command_stream/wait_status.h"
+
 #include "opencl/source/event/event_builder.h"
 #include "opencl/source/event/user_event.h"
+
+#include <optional>
 
 namespace NEO {
 
@@ -33,10 +37,21 @@ struct MockEvent : public BaseEventType {
     using BaseEventType::timeStampNode;
     using Event::calcProfilingData;
     using Event::calculateSubmitTimestampData;
+    using Event::isWaitForTimestampsEnabled;
     using Event::magic;
     using Event::queueTimeStamp;
     using Event::submitTimeStamp;
     using Event::timestampPacketContainer;
+
+    WaitStatus wait(bool blocking, bool useQuickKmdSleep) override {
+        if (waitReturnValue.has_value()) {
+            return *waitReturnValue;
+        }
+
+        return BaseEventType::wait(blocking, useQuickKmdSleep);
+    }
+
+    std::optional<WaitStatus> waitReturnValue{};
 };
 
 #undef FORWARD_CONSTRUCTOR

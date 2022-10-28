@@ -6,10 +6,13 @@
 
 set(IGDRCL_SRCS_tests_command_queue
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
-    ${CMAKE_CURRENT_SOURCE_DIR}/blit_enqueue_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/blit_enqueue_fixture.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/blit_enqueue_1_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/blit_enqueue_2_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/buffer_operations_fixture.h
     ${CMAKE_CURRENT_SOURCE_DIR}/command_enqueue_fixture.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/command_queue_hw_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/command_queue_hw_1_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/command_queue_hw_2_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/command_queue_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csr_selection_args_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_walker_tests.cpp
@@ -78,6 +81,7 @@ set(IGDRCL_SRCS_tests_command_queue
     ${CMAKE_CURRENT_SOURCE_DIR}/get_size_required_buffer_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/get_size_required_image_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/get_size_required_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/hardware_interface_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/ioq_task_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/local_work_size_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/multi_dispatch_info_tests.cpp

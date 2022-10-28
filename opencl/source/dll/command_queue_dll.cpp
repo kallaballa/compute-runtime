@@ -10,17 +10,11 @@
 namespace NEO {
 
 bool CommandQueue::isAssignEngineRoundRobinEnabled() {
-    auto assignEngineRoundRobin = false;
-
-    if (DebugManager.flags.EnableCmdQRoundRobindEngineAssign.get() != -1) {
-        assignEngineRoundRobin = DebugManager.flags.EnableCmdQRoundRobindEngineAssign.get();
-    }
-
-    return assignEngineRoundRobin;
+    return true;
 }
 
 bool CommandQueue::isTimestampWaitEnabled() {
-    return false;
+    return true;
 }
 
 } // namespace NEO

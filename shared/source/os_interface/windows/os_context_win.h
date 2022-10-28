@@ -35,13 +35,14 @@ class OsContextWin : public OsContext {
     MOCKABLE_VIRTUAL WddmResidencyController &getResidencyController() { return residencyController; }
     static OsContext *create(OSInterface *osInterface, uint32_t contextId, const EngineDescriptor &engineDescriptor);
     void reInitializeContext() override;
+    void getDeviceLuidArray(std::vector<uint8_t> &luidData, size_t arraySize);
 
   protected:
     void initializeContext() override;
 
-    D3DKMT_HANDLE wddmContextHandle = 0;
+    WddmResidencyController residencyController;
     HardwareQueue hardwareQueue;
     Wddm &wddm;
-    WddmResidencyController residencyController;
+    D3DKMT_HANDLE wddmContextHandle = 0;
 };
 } // namespace NEO

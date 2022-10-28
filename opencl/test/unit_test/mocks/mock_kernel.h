@@ -97,15 +97,18 @@ class MockKernel : public Kernel {
   public:
     using Kernel::addAllocationToCacheFlushVector;
     using Kernel::allBufferArgsStateful;
+    using Kernel::anyKernelArgumentUsingSystemMemory;
     using Kernel::auxTranslationRequired;
     using Kernel::containsStatelessWrites;
     using Kernel::dataParameterSimdSize;
     using Kernel::executionType;
     using Kernel::getDevice;
     using Kernel::getHardwareInfo;
+    using Kernel::graphicsAllocationTypeUseSystemMemory;
     using Kernel::hasDirectStatelessAccessToHostMemory;
     using Kernel::hasDirectStatelessAccessToSharedBuffer;
     using Kernel::hasIndirectStatelessAccessToHostMemory;
+    using Kernel::isUnifiedMemorySyncRequired;
     using Kernel::kernelArgHandlers;
     using Kernel::kernelArgRequiresCacheFlush;
     using Kernel::kernelArguments;
@@ -123,9 +126,9 @@ class MockKernel : public Kernel {
     using Kernel::pImplicitArgs;
     using Kernel::preferredWkgMultipleOffset;
     using Kernel::privateSurface;
+    using Kernel::setInlineSamplers;
     using Kernel::singleSubdevicePreferredInCurrentEnqueue;
     using Kernel::svmAllocationsRequireCacheFlush;
-    using Kernel::threadArbitrationPolicy;
     using Kernel::unifiedMemoryControls;
 
     using Kernel::slmSizes;
@@ -241,12 +244,16 @@ class MockKernel : public Kernel {
     void makeResident(CommandStreamReceiver &commandStreamReceiver) override;
     void getResidency(std::vector<Surface *> &dst) override;
 
-    void setSpecialPipelineSelectMode(bool value) { specialPipelineSelectMode = value; }
+    void setSystolicPipelineSelectMode(bool value) { systolicPipelineSelectMode = value; }
 
     bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const override;
 
+    cl_int setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocation *svmAlloc, uint32_t allocId) override;
+
     uint32_t makeResidentCalls = 0;
     uint32_t getResidencyCalls = 0;
+    uint32_t setArgSvmAllocCalls = 0;
+    uint32_t moveArgsToGpuDomainCalls = 0;
 
     bool canKernelTransformImages = true;
     bool isPatchedOverride = true;
@@ -255,7 +262,7 @@ class MockKernel : public Kernel {
     KernelInfo *kernelInfoAllocated = nullptr;
 };
 
-//class below have enough internals to service Enqueue operation.
+// class below have enough internals to service Enqueue operation.
 class MockKernelWithInternals {
   public:
     MockKernelWithInternals(const ClDeviceVector &deviceVector, Context *context = nullptr, bool addDefaultArg = false, SPatchExecutionEnvironment execEnv = {}) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,16 +7,12 @@
 
 #pragma once
 #include "shared/source/built_ins/built_ins.h"
-#include "shared/source/command_stream/command_stream_receiver.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
-#include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/helpers/mipmap.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/memory_manager/mem_obj_surface.h"
-
-#include <new>
 
 namespace NEO {
 
@@ -57,14 +53,13 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferToImage(
     MultiDispatchInfo dispatchInfo(dc);
     builder.buildDispatchInfos(dispatchInfo);
 
-    enqueueHandler<CL_COMMAND_COPY_BUFFER_TO_IMAGE>(
+    return enqueueHandler<CL_COMMAND_COPY_BUFFER_TO_IMAGE>(
         surfaces,
         false,
         dispatchInfo,
         numEventsInWaitList,
         eventWaitList,
         event);
-
-    return CL_SUCCESS;
 }
+
 } // namespace NEO

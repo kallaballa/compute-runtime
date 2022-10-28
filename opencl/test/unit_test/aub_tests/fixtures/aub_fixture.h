@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,14 +16,12 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_operations_handler.h"
-#include "shared/test/unit_test/tests_configuration.h"
+#include "shared/test/common/tests_configuration.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
-
-#include "gtest/gtest.h"
 
 #include <sstream>
 
@@ -55,7 +53,7 @@ class AUBFixture : public CommandQueueHwFixture {
         }
     }
 
-    void SetUp(const HardwareInfo *hardwareInfo) {
+    void setUp(const HardwareInfo *hardwareInfo) {
         const HardwareInfo &hwInfo = hardwareInfo ? *hardwareInfo : *defaultHwInfo;
 
         auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
@@ -69,6 +67,7 @@ class AUBFixture : public CommandQueueHwFixture {
         executionEnvironment = platform()->peekExecutionEnvironment();
         executionEnvironment->prepareRootDeviceEnvironments(1u);
         executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+        executionEnvironment->rootDeviceEnvironments[0]->initGmm();
         executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<MockMemoryOperationsHandler>();
 
         auto pDevice = MockDevice::create<MockDevice>(executionEnvironment, rootDeviceIndex);
@@ -78,10 +77,10 @@ class AUBFixture : public CommandQueueHwFixture {
 
         prepareCopyEngines(*pDevice, strfilename.str());
 
-        CommandQueueHwFixture::SetUp(AUBFixture::device.get(), cl_command_queue_properties(0));
+        CommandQueueHwFixture::setUp(AUBFixture::device.get(), cl_command_queue_properties(0));
     }
-    void TearDown() override {
-        CommandQueueHwFixture::TearDown();
+    void tearDown() {
+        CommandQueueHwFixture::tearDown();
     }
 
     GraphicsAllocation *createHostPtrAllocationFromSvmPtr(void *svmPtr, size_t size);
@@ -112,6 +111,20 @@ class AUBFixture : public CommandQueueHwFixture {
         CommandStreamReceiverSimulatedCommonHw<FamilyType> *csrSimulated = getSimulatedCsr<FamilyType>();
         if (csrSimulated) {
             csrSimulated->writeMMIO(offset, value);
+        }
+    }
+
+    template <typename FamilyType>
+    void expectMMIO(uint32_t mmioRegister, uint32_t expectedValue) {
+        CommandStreamReceiver *csrtemp = csr;
+        if (testMode == TestMode::AubTestsWithTbx) {
+            csrtemp = static_cast<CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<FamilyType>> *>(csr)->aubCSR.get();
+        }
+
+        if (csrtemp) {
+            // Write our pseudo-op to the AUB file
+            auto aubCsr = static_cast<AUBCommandStreamReceiverHw<FamilyType> *>(csrtemp);
+            aubCsr->expectMMIO(mmioRegister, expectedValue);
         }
     }
 
@@ -159,20 +172,20 @@ class AUBFixture : public CommandQueueHwFixture {
     ExecutionEnvironment *executionEnvironment;
 
   private:
-    using CommandQueueHwFixture::SetUp;
+    using CommandQueueHwFixture::setUp;
 }; // namespace NEO
 
 template <typename KernelFixture>
 struct KernelAUBFixture : public AUBFixture,
                           public KernelFixture {
-    void SetUp() override {
-        AUBFixture::SetUp(nullptr);
-        KernelFixture::SetUp(device.get(), context);
+    void setUp() {
+        AUBFixture::setUp(nullptr);
+        KernelFixture::setUp(device.get(), context);
     }
 
-    void TearDown() override {
-        KernelFixture::TearDown();
-        AUBFixture::TearDown();
+    void tearDown() {
+        KernelFixture::tearDown();
+        AUBFixture::tearDown();
     }
 };
 } // namespace NEO

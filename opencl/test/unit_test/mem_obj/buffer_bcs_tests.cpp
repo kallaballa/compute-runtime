@@ -5,16 +5,18 @@
  *
  */
 
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/memory_manager/allocations_list.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/engine_descriptor_helper.h"
+#include "shared/test/common/helpers/gtest_helpers.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_memory_manager.h"
 #include "shared/test/common/mocks/mock_timestamp_container.h"
-#include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/test_macros/hw_test.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/source/event/user_event.h"
@@ -36,21 +38,23 @@ struct BcsBufferTests : public ::testing::Test {
         using UltCommandStreamReceiver<FamilyType>::UltCommandStreamReceiver;
 
         WaitStatus waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait,
-                                                         bool useQuickKmdSleep, bool forcePowerSavingMode) override {
+                                                         bool useQuickKmdSleep, QueueThrottle throttle) override {
             EXPECT_EQ(this->latestFlushedTaskCount, taskCountToWait);
             EXPECT_EQ(0u, flushStampToWait);
             EXPECT_FALSE(useQuickKmdSleep);
-            EXPECT_FALSE(forcePowerSavingMode);
+            EXPECT_EQ(throttle, QueueThrottle::MEDIUM);
             EXPECT_EQ(1u, this->activePartitions);
             waitForTaskCountWithKmdNotifyFallbackCalled++;
 
             return WaitStatus::Ready;
         }
 
-        void waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount) override {
+        WaitStatus waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount) override {
             EXPECT_EQ(1u, waitForTaskCountWithKmdNotifyFallbackCalled);
             EXPECT_EQ(this->latestFlushedTaskCount, requiredTaskCount);
             waitForTaskCountAndCleanAllocationListCalled++;
+
+            return WaitStatus::Ready;
         }
 
         uint32_t waitForTaskCountAndCleanAllocationListCalled = 0;
@@ -59,7 +63,7 @@ struct BcsBufferTests : public ::testing::Test {
     };
 
     template <typename FamilyType>
-    void SetUpT() {
+    void setUpT() {
         if (is32bit) {
             GTEST_SKIP();
         }
@@ -82,7 +86,7 @@ struct BcsBufferTests : public ::testing::Test {
     }
 
     template <typename FamilyType>
-    void TearDownT() {}
+    void tearDownT() {}
 
     template <typename FamilyType>
     void waitForCacheFlushFromBcsTest(MockCommandQueueHw<FamilyType> &commandQueue);
@@ -98,7 +102,9 @@ struct BcsBufferTests : public ::testing::Test {
     cl_int retVal = CL_SUCCESS;
 };
 
-HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferWithInitializationDataAndBcsCsrWhenCreatingThenUseBlitOperation) {
+HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferWithInitializationDataAndBcsCsrAndCpuCopyDisabledWhenCreatingThenUseBlitOperation) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CopyHostPtrOnCpu.set(0);
     auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsMockContext->bcsCsr.get());
 
     static_cast<MockMemoryManager *>(device->getExecutionEnvironment()->memoryManager.get())->enable64kbpages[0] = true;
@@ -109,7 +115,9 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferWithInitializationDataAndBcsCsrWhe
     EXPECT_EQ(1u, bcsCsr->blitBufferCalled);
 }
 
-HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferWithNotDefaultRootDeviceIndexAndBcsCsrWhenCreatingThenUseBlitOperation) {
+HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferWithNotDefaultRootDeviceIndexAndBcsCsrAndCpuCopyDisabledWhenCreatingThenUseBlitOperation) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CopyHostPtrOnCpu.set(0);
     auto rootDeviceIndex = 1u;
     auto hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.blitterOperationsSupported = true;
@@ -287,7 +295,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenDebugFlagSetWhenDispatchingBlitCommandsT
              maxBlitWidth, 1, hostPtrAddr, bufferGpuAddr,
              (copySize - maxBlitWidth), 1, ptrOffset(hostPtrAddr, maxBlitWidth), ptrOffset(bufferGpuAddr, maxBlitWidth));
 
-    EXPECT_THAT(output, testing::HasSubstr(std::string(expectedStr)));
+    EXPECT_TRUE(hasSubstr(output, std::string(expectedStr)));
 }
 
 HWTEST_TEMPLATED_F(BcsBufferTests, givenBcsSupportedWhenQueueIsBlockedThenDispatchBlitWhenUnblocked) {
@@ -446,12 +454,12 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBlockedBlitEnqueueWhenUnblockingThenMake
     mockCmdQ->obtainNewTimestampPacketNodes(1, previousTimestampPackets, false, *bcsCsr);
     auto dependencyFromPreviousEnqueue = mockCmdQ->timestampPacketContainer->peekNodes()[0];
 
-    auto event = make_releaseable<Event>(mockCmdQ, CL_COMMAND_READ_BUFFER, 0, 0);
+    auto event = makeReleaseable<Event>(mockCmdQ, CL_COMMAND_READ_BUFFER, 0, 0);
     MockTimestampPacketContainer eventDependencyContainer(*bcsCsr->getTimestampPacketAllocator(), 1);
     auto eventDependency = eventDependencyContainer.getNode(0);
     event->addTimestampPacketNodes(eventDependencyContainer);
 
-    auto userEvent = make_releaseable<UserEvent>(bcsMockContext.get());
+    auto userEvent = makeReleaseable<UserEvent>(bcsMockContext.get());
     cl_event waitlist[] = {userEvent.get(), event.get()};
 
     commandQueue->enqueueReadBuffer(bufferForBlt.get(), CL_FALSE, 0, 1, &hostPtr, nullptr, 2, waitlist, nullptr);
@@ -496,7 +504,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenWriteBufferEnqueueWithGpgpuSubmissionWhe
 
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
 
-    auto queueCsr = cmdQ->gpgpuEngine->commandStreamReceiver;
+    auto queueCsr = &cmdQ->getGpgpuCommandStreamReceiver();
     auto initialTaskCount = queueCsr->peekTaskCount();
 
     cl_int retVal = CL_SUCCESS;
@@ -527,7 +535,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenReadBufferEnqueueWithGpgpuSubmissionWhen
 
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
 
-    auto queueCsr = cmdQ->gpgpuEngine->commandStreamReceiver;
+    auto queueCsr = &cmdQ->getGpgpuCommandStreamReceiver();
     auto initialTaskCount = queueCsr->peekTaskCount();
 
     cl_int retVal = CL_SUCCESS;
@@ -623,7 +631,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenPipeControlRequestWhenDispatchingBlitEnq
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
     auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(this->bcsCsr);
 
-    auto queueCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(cmdQ->gpgpuEngine->commandStreamReceiver);
+    auto queueCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(&cmdQ->getGpgpuCommandStreamReceiver());
     queueCsr->stallingCommandsOnNextFlushRequired = true;
 
     cl_int retVal = CL_SUCCESS;
@@ -722,7 +730,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenPipeControlRequestWhenDispatchingBlocked
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
     auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(this->bcsCsr);
 
-    auto queueCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(cmdQ->gpgpuEngine->commandStreamReceiver);
+    auto queueCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(&cmdQ->getGpgpuCommandStreamReceiver());
     queueCsr->stallingCommandsOnNextFlushRequired = true;
 
     cl_int retVal = CL_SUCCESS;
@@ -765,7 +773,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferOperationWithoutKernelWhenEstimati
     auto expectedSize = TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<FamilyType>();
 
     if (cmdQ->isCacheFlushForBcsRequired()) {
-        expectedSize += MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(hwInfo);
+        expectedSize += MemorySynchronizationCommands<FamilyType>::getSizeForBarrierWithPostSyncOperation(hwInfo, false);
     }
 
     EXPECT_EQ(expectedSize, readBufferCmdsSize);
@@ -1177,12 +1185,12 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenSvmToSvmCopyTypeWhenEnqueueNonBlockingSV
 struct BcsSvmTests : public BcsBufferTests {
 
     template <typename FamilyType>
-    void SetUpT() {
+    void setUpT() {
         if (is32bit) {
             GTEST_SKIP();
         }
         REQUIRE_SVM_OR_SKIP(defaultHwInfo);
-        BcsBufferTests::SetUpT<FamilyType>();
+        BcsBufferTests::setUpT<FamilyType>();
         if (IsSkipped()) {
             GTEST_SKIP();
         }
@@ -1205,11 +1213,11 @@ struct BcsSvmTests : public BcsBufferTests {
     }
 
     template <typename FamilyType>
-    void TearDownT() {
+    void tearDownT() {
         if (IsSkipped()) {
             return;
         }
-        BcsBufferTests::TearDownT<FamilyType>();
+        BcsBufferTests::tearDownT<FamilyType>();
 
         clMemFreeINTEL(bcsMockContext.get(), sharedMemAlloc);
         clMemFreeINTEL(bcsMockContext.get(), hostMemAlloc);
@@ -1242,8 +1250,8 @@ HWTEST_TEMPLATED_F(BcsSvmTests, givenSVMMAllocationWithOffsetWhenUsingBcsThenPro
                     pSrcPtr = ptrOffset(pSrcPtr, srcOffset);
                     pDstPtr = ptrOffset(pDstPtr, dstOffset);
 
-                    auto dstSvmData = bcsMockContext.get()->getSVMAllocsManager()->getSVMAlloc(pDstPtr);
-                    auto srcSvmData = bcsMockContext.get()->getSVMAllocsManager()->getSVMAlloc(pSrcPtr);
+                    auto dstSvmData = bcsMockContext->getSVMAllocsManager()->getSVMAlloc(pDstPtr);
+                    auto srcSvmData = bcsMockContext->getSVMAllocsManager()->getSVMAlloc(pSrcPtr);
 
                     auto srcGpuAllocation = srcSvmData->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());
                     auto dstGpuAllocation = dstSvmData->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());

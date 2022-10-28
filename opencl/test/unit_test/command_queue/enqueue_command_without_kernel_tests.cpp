@@ -8,11 +8,13 @@
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/surface.h"
 #include "shared/source/os_interface/os_context.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/mocks/mock_csr.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/mocks/mock_logical_state_helper.h"
 #include "shared/test/common/mocks/mock_timestamp_container.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/event/event_builder.h"
@@ -58,6 +60,67 @@ HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelWhenCommandEnqueuedT
     mockCmdQ->enqueueCommandWithoutKernel(surfaces, 1, &mockCmdQ->getCS(0), 0, blocking, enqueueProperties, timestampPacketDependencies,
                                           eventsRequest, eventBuilder, 0, csrDeps, nullptr);
     EXPECT_EQ(allocation->getTaskCount(mockCmdQ->getGpgpuCommandStreamReceiver().getOsContext().getContextId()), 1u);
+}
+
+HWTEST_F(EnqueueHandlerTest, givenLogicalStateHelperWhenDispatchingCommandsThenAddLastCommand) {
+    using MI_NOOP = typename FamilyType::MI_NOOP;
+
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pClDevice, nullptr);
+    auto logicalStateHelper = new LogicalStateHelperMock<FamilyType>();
+    logicalStateHelper->makeFakeStreamWrite = true;
+
+    auto &ultCsr = static_cast<UltCommandStreamReceiver<FamilyType> &>(mockCmdQ->getGpgpuCommandStreamReceiver());
+    ultCsr.logicalStateHelper.reset(logicalStateHelper);
+
+    auto surface = std::make_unique<NullSurface>();
+    EventsRequest eventsRequest(0, nullptr, nullptr);
+    EventBuilder eventBuilder;
+    Surface *surfaces[] = {surface.get()};
+    bool blocking = true;
+
+    TimestampPacketDependencies timestampPacketDependencies;
+
+    CsrDependencies csrDeps;
+    EnqueueProperties enqueueProperties(false, false, false, true, false, nullptr);
+
+    EXPECT_EQ(0u, logicalStateHelper->writeStreamInlineCalledCounter);
+
+    mockCmdQ->enqueueCommandWithoutKernel(surfaces, 1, &mockCmdQ->getCS(0), 0, blocking, enqueueProperties, timestampPacketDependencies,
+                                          eventsRequest, eventBuilder, 0, csrDeps, nullptr);
+
+    EXPECT_EQ(1u, logicalStateHelper->writeStreamInlineCalledCounter);
+
+    HardwareParse cmdParser;
+    cmdParser.parseCommands<FamilyType>(ultCsr.commandStream);
+
+    auto miNoop = find<MI_NOOP *>(cmdParser.cmdList.begin(), cmdParser.cmdList.end());
+    bool miNoopFound = false;
+    uint32_t cmdsAfterNoop = 0;
+
+    while (miNoop != cmdParser.cmdList.end()) {
+        auto miNoopCmd = genCmdCast<MI_NOOP *>(*miNoop);
+        if (miNoopCmd->getIdentificationNumber() == 0x123) {
+            miNoopFound = true;
+            break;
+        }
+
+        miNoop = find<MI_NOOP *>(++miNoop, cmdParser.cmdList.end());
+    }
+
+    miNoop++;
+
+    while (miNoop != cmdParser.cmdList.end()) {
+        auto miNoopCmd = genCmdCast<MI_NOOP *>(*miNoop);
+
+        if (miNoopCmd == nullptr) {
+            cmdsAfterNoop++;
+        }
+
+        miNoop++;
+    }
+
+    EXPECT_TRUE(miNoopFound);
+    EXPECT_EQ(1u, cmdsAfterNoop);
 }
 
 template <bool enabled>
@@ -215,7 +278,7 @@ HWTEST_F(EnqueueHandlerTest, givenBlitPropertyWhenEnqueueIsBlockedThenRegisterBl
 
 HWTEST_F(DispatchFlagsTests, whenEnqueueCommandWithoutKernelThenPassCorrectDispatchFlags) {
     using CsrType = MockCsrHw2<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
@@ -241,7 +304,7 @@ HWTEST_F(DispatchFlagsTests, whenEnqueueCommandWithoutKernelThenPassCorrectDispa
 
 HWTEST_F(DispatchFlagsTests, whenEnqueueCommandWithoutKernelThenPassCorrectThrottleHint) {
     using CsrType = MockCsrHw2<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     mockCmdQ->throttle = QueueThrottle::HIGH;
@@ -266,7 +329,7 @@ HWTEST_F(DispatchFlagsBlitTests, givenBlitEnqueueWhenDispatchingCommandsWithoutK
     DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(1);
     DebugManager.flags.EnableTimestampPacket.set(1);
 
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
     REQUIRE_FULL_BLITTER_OR_SKIP(&device->getHardwareInfo());
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
@@ -311,7 +374,7 @@ HWTEST_F(DispatchFlagsBlitTests, givenN1EnabledWhenDispatchingWithoutKernelThenA
     DebugManager.flags.EnableTimestampPacket.set(1);
     DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(1);
 
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
     REQUIRE_FULL_BLITTER_OR_SKIP(&device->getHardwareInfo());
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
@@ -355,7 +418,7 @@ HWTEST_F(DispatchFlagsBlitTests, givenN1EnabledWhenDispatchingWithoutKernelThenA
 
 HWTEST_F(DispatchFlagsTests, givenMockKernelWhenSettingAdditionalKernelExecInfoThenCorrectValueIsSet) {
     using CsrType = MockCsrHw2<FamilyType>;
-    SetUpImpl<CsrType>();
+    setUpImpl<CsrType>();
 
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
@@ -372,7 +435,7 @@ HWTEST_F(DispatchFlagsTests, givenMockKernelWhenSettingAdditionalKernelExecInfoT
     auto pKernel = mockKernelWithInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(device.get(), pKernel);
 
-    std::unique_ptr<PrintfHandler> printfHandler(PrintfHandler::create(multiDispatchInfo, *device.get()));
+    std::unique_ptr<PrintfHandler> printfHandler(PrintfHandler::create(multiDispatchInfo, device->getDevice()));
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;
     mockCmdQ->allocateHeapMemory(IndirectHeap::Type::DYNAMIC_STATE, 4096u, dsh);
     mockCmdQ->allocateHeapMemory(IndirectHeap::Type::INDIRECT_OBJECT, 4096u, ioh);
@@ -396,10 +459,11 @@ HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelAndZeroSurfacesWhenE
 
     mockCmdQ->commandRequireCacheFlush = true;
     MultiDispatchInfo multiDispatch;
-    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, multiDispatch, 0, nullptr, nullptr);
+    const auto enqueueResult = mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, multiDispatch, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, enqueueResult);
 
-    auto requiredCmdStreamSize = alignUp(MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(
-                                             pDevice->getHardwareInfo()),
+    auto requiredCmdStreamSize = alignUp(MemorySynchronizationCommands<FamilyType>::getSizeForBarrierWithPostSyncOperation(
+                                             pDevice->getHardwareInfo(), false),
                                          MemoryConstants::cacheLineSize);
 
     EXPECT_EQ(mockCmdQ->getCS(0).getUsed(), requiredCmdStreamSize);
@@ -417,7 +481,9 @@ HWTEST_F(EnqueueHandlerTest, givenTimestampPacketWriteEnabledAndCommandWithCache
     cl_event event;
 
     MultiDispatchInfo multiDispatch;
-    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, multiDispatch, 0, nullptr, &event);
+    const auto enqueueResult = mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, multiDispatch, 0, nullptr, &event);
+    EXPECT_EQ(CL_SUCCESS, enqueueResult);
+
     auto node1 = mockCmdQ->timestampPacketContainer->peekNodes().at(0);
     EXPECT_NE(nullptr, node1);
     clReleaseEvent(event);
@@ -434,7 +500,9 @@ HWTEST_F(EnqueueHandlerTest, givenTimestampPacketWriteDisabledAndCommandWithCach
     cl_event event;
 
     MultiDispatchInfo multiDispatch;
-    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, multiDispatch, 0, nullptr, &event);
+    const auto enqueueResult = mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, multiDispatch, 0, nullptr, &event);
+    EXPECT_EQ(CL_SUCCESS, enqueueResult);
+
     auto container = mockCmdQ->timestampPacketContainer.get();
     EXPECT_EQ(nullptr, container);
     clReleaseEvent(event);

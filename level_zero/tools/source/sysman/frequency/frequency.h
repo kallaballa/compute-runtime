@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "level_zero/core/source/device/device.h"
 #include <level_zero/zes_api.h>
 
+#include <mutex>
 #include <vector>
 
 struct _zes_freq_handle_t {
@@ -23,7 +24,7 @@ struct OsSysman;
 
 class Frequency : _zes_freq_handle_t {
   public:
-    virtual ~Frequency() {}
+    ~Frequency() override {}
 
     virtual ze_result_t frequencyGetProperties(zes_freq_properties_t *pProperties) = 0;
     virtual ze_result_t frequencyGetAvailableClocks(uint32_t *pCount, double *phFrequency) = 0;
@@ -64,6 +65,7 @@ struct FrequencyHandleContext {
 
   private:
     void createHandle(ze_device_handle_t deviceHandle, zes_freq_domain_t frequencyDomain);
+    std::once_flag initFrequencyOnce;
 };
 
 } // namespace L0

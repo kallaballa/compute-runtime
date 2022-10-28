@@ -9,7 +9,7 @@
 #include "shared/source/unified_memory/unified_memory.h"
 #include "shared/test/common/fixtures/memory_management_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/test_macros/test.h"
+#include "shared/test/common/test_macros/hw_test.h"
 
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -24,7 +24,6 @@
 
 #include "CL/cl.h"
 #include "gtest/gtest.h"
-#include "hw_cmds.h"
 
 #include <memory>
 
@@ -373,6 +372,11 @@ TEST_F(KernelArgBufferTest, givenBufferInHostMemoryWhenHasDirectStatelessAccessT
 }
 
 TEST_F(KernelArgBufferTest, givenGfxAllocationWhenHasDirectStatelessAccessToHostMemoryIsCalledThenReturnFalse) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     char data[128];
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
@@ -381,7 +385,7 @@ TEST_F(KernelArgBufferTest, givenGfxAllocationWhenHasDirectStatelessAccessToHost
     for (auto pureStatefulBufferAccess : {false, true}) {
         pKernelInfo->setBufferStateful(0, pureStatefulBufferAccess);
 
-        auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+        auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
         EXPECT_EQ(CL_SUCCESS, retVal);
 
         EXPECT_FALSE(pKernel->hasDirectStatelessAccessToHostMemory());
@@ -389,6 +393,11 @@ TEST_F(KernelArgBufferTest, givenGfxAllocationWhenHasDirectStatelessAccessToHost
 }
 
 TEST_F(KernelArgBufferTest, givenGfxAllocationInHostMemoryWhenHasDirectStatelessAccessToHostMemoryIsCalledThenReturnCorrectValue) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     char data[128];
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
@@ -397,7 +406,7 @@ TEST_F(KernelArgBufferTest, givenGfxAllocationInHostMemoryWhenHasDirectStateless
     for (auto pureStatefulBufferAccess : {false, true}) {
         pKernelInfo->setBufferStateful(0, pureStatefulBufferAccess);
 
-        auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+        auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
         EXPECT_EQ(CL_SUCCESS, retVal);
 
         EXPECT_EQ(!pureStatefulBufferAccess, pKernel->hasDirectStatelessAccessToHostMemory());
@@ -549,6 +558,11 @@ TEST_F(KernelArgBufferTest, givenSetArgBufferOnKernelWithNoDirectStatelessAccess
 }
 
 TEST_F(KernelArgBufferTest, givenSetArgSvmAllocOnKernelWithDirectStatelessAccessToHostMemoryWhenUpdateAuxTranslationRequiredIsCalledThenIsAuxTranslationRequiredShouldReturnTrue) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     DebugManagerStateRestore debugRestorer;
     DebugManager.flags.EnableStatelessCompression.set(1);
 
@@ -557,7 +571,7 @@ TEST_F(KernelArgBufferTest, givenSetArgSvmAllocOnKernelWithDirectStatelessAccess
     MockGraphicsAllocation gfxAllocation(ptr, 128);
     gfxAllocation.setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+    auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_TRUE(pKernel->hasDirectStatelessAccessToHostMemory());
@@ -570,6 +584,11 @@ TEST_F(KernelArgBufferTest, givenSetArgSvmAllocOnKernelWithDirectStatelessAccess
 }
 
 TEST_F(KernelArgBufferTest, givenSetArgSvmAllocOnKernelWithNoDirectStatelessAccessToHostMemoryWhenUpdateAuxTranslationRequiredIsCalledThenIsAuxTranslationRequiredShouldReturnFalse) {
+    const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
+    if (devInfo.svmCapabilities == 0) {
+        GTEST_SKIP();
+    }
+
     DebugManagerStateRestore debugRestorer;
     DebugManager.flags.EnableStatelessCompression.set(1);
 
@@ -577,7 +596,7 @@ TEST_F(KernelArgBufferTest, givenSetArgSvmAllocOnKernelWithNoDirectStatelessAcce
     void *ptr = &data;
     MockGraphicsAllocation gfxAllocation(ptr, 128);
 
-    auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+    auto retVal = pKernel->setArgSvmAlloc(0, ptr, &gfxAllocation, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_FALSE(pKernel->hasDirectStatelessAccessToHostMemory());
@@ -657,7 +676,7 @@ TEST_F(KernelArgBufferTest, givenSetUnifiedMemoryExecInfoOnKernelWithIndirectSta
                                                                       {AllocationType::BUFFER_HOST_MEMORY, false},
                                                                       {AllocationType::SVM_GPU, true}}};
 
-    auto gmm = std::make_unique<Gmm>(pDevice->getRootDeviceEnvironment().getGmmClientContext(), nullptr, 0, 0, false);
+    auto gmm = std::make_unique<Gmm>(pDevice->getRootDeviceEnvironment().getGmmHelper(), nullptr, 0, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, StorageInfo{}, true);
     MockGraphicsAllocation gfxAllocation;
     gfxAllocation.setDefaultGmm(gmm.get());
 
@@ -667,17 +686,16 @@ TEST_F(KernelArgBufferTest, givenSetUnifiedMemoryExecInfoOnKernelWithIndirectSta
         pKernel->setUnifiedMemoryExecInfo(&gfxAllocation);
         gmm->isCompressionEnabled = type.compressed;
 
-        KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-        pKernel->fillWithKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
+        auto kernelObjsForAuxTranslation = pKernel->fillWithKernelObjsForAuxTranslation();
 
         if (type.compressed) {
-            EXPECT_EQ(1u, kernelObjsForAuxTranslation.size());
-            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::GFX_ALLOC, &gfxAllocation});
+            EXPECT_EQ(1u, kernelObjsForAuxTranslation->size());
+            auto kernelObj = *kernelObjsForAuxTranslation->find({KernelObjForAuxTranslation::Type::GFX_ALLOC, &gfxAllocation});
             EXPECT_NE(nullptr, kernelObj.object);
             EXPECT_EQ(KernelObjForAuxTranslation::Type::GFX_ALLOC, kernelObj.type);
-            kernelObjsForAuxTranslation.erase(kernelObj);
+            kernelObjsForAuxTranslation->erase(kernelObj);
         } else {
-            EXPECT_EQ(0u, kernelObjsForAuxTranslation.size());
+            EXPECT_EQ(0u, kernelObjsForAuxTranslation->size());
         }
 
         pKernel->clearUnifiedMemoryExecInfo();
@@ -698,7 +716,7 @@ TEST_F(KernelArgBufferTest, givenSVMAllocsManagerWithCompressedSVMAllocationsWhe
                                                                       {AllocationType::BUFFER_HOST_MEMORY, false},
                                                                       {AllocationType::SVM_GPU, true}}};
 
-    auto gmm = std::make_unique<Gmm>(pDevice->getRootDeviceEnvironment().getGmmClientContext(), nullptr, 0, 0, false);
+    auto gmm = std::make_unique<Gmm>(pDevice->getRootDeviceEnvironment().getGmmHelper(), nullptr, 0, 0, GMM_RESOURCE_USAGE_OCL_BUFFER, false, StorageInfo{}, true);
 
     MockGraphicsAllocation gfxAllocation;
     gfxAllocation.setDefaultGmm(gmm.get());
@@ -714,17 +732,16 @@ TEST_F(KernelArgBufferTest, givenSVMAllocsManagerWithCompressedSVMAllocationsWhe
 
         pContext->getSVMAllocsManager()->insertSVMAlloc(allocData);
 
-        KernelObjsForAuxTranslation kernelObjsForAuxTranslation;
-        pKernel->fillWithKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
+        auto kernelObjsForAuxTranslation = pKernel->fillWithKernelObjsForAuxTranslation();
 
         if (type.compressed) {
-            EXPECT_EQ(1u, kernelObjsForAuxTranslation.size());
-            auto kernelObj = *kernelObjsForAuxTranslation.find({KernelObjForAuxTranslation::Type::GFX_ALLOC, &gfxAllocation});
+            EXPECT_EQ(1u, kernelObjsForAuxTranslation->size());
+            auto kernelObj = *kernelObjsForAuxTranslation->find({KernelObjForAuxTranslation::Type::GFX_ALLOC, &gfxAllocation});
             EXPECT_NE(nullptr, kernelObj.object);
             EXPECT_EQ(KernelObjForAuxTranslation::Type::GFX_ALLOC, kernelObj.type);
-            kernelObjsForAuxTranslation.erase(kernelObj);
+            kernelObjsForAuxTranslation->erase(kernelObj);
         } else {
-            EXPECT_EQ(0u, kernelObjsForAuxTranslation.size());
+            EXPECT_EQ(0u, kernelObjsForAuxTranslation->size());
         }
 
         pContext->getSVMAllocsManager()->removeSVMAlloc(allocData);
@@ -733,9 +750,9 @@ TEST_F(KernelArgBufferTest, givenSVMAllocsManagerWithCompressedSVMAllocationsWhe
 
 class KernelArgBufferFixtureBindless : public KernelArgBufferFixture {
   public:
-    void SetUp() {
+    void setUp() {
         DebugManager.flags.UseBindlessMode.set(1);
-        KernelArgBufferFixture::SetUp();
+        KernelArgBufferFixture::setUp();
 
         pBuffer = new MockBuffer();
         ASSERT_NE(nullptr, pBuffer);
@@ -744,9 +761,9 @@ class KernelArgBufferFixtureBindless : public KernelArgBufferFixture {
         pKernelInfo->argAsPtr(0).stateless = undefined<CrossThreadDataOffset>;
         pKernelInfo->argAsPtr(0).bindful = undefined<SurfaceStateHeapOffset>;
     }
-    void TearDown() override {
+    void tearDown() {
         delete pBuffer;
-        KernelArgBufferFixture::TearDown();
+        KernelArgBufferFixture::tearDown();
     }
     DebugManagerStateRestore restorer;
     MockBuffer *pBuffer;
@@ -764,4 +781,50 @@ HWTEST_F(KernelArgBufferTestBindless, givenUsedBindlessBuffersWhenPatchingSurfac
     retVal = pKernel->setArg(0, sizeof(memObj), &memObj);
 
     EXPECT_NE(0xdeadu, *patchLocation);
+}
+
+TEST_F(KernelArgBufferTest, givenBufferAsHostMemoryWhenSettingKernelArgThenKernelUsesSystemMemory) {
+    MockBuffer buffer;
+    buffer.getGraphicsAllocation(mockRootDeviceIndex)->setAllocationType(AllocationType::BUFFER_HOST_MEMORY);
+
+    auto memVal = (cl_mem)&buffer;
+    auto val = &memVal;
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), val);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_TRUE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+}
+
+TEST_F(KernelArgBufferTest, givenBufferAsDeviceMemoryWhenSettingKernelArgThenKernelNotUsesSystemMemory) {
+    MockBuffer buffer;
+    buffer.getGraphicsAllocation(mockRootDeviceIndex)->setAllocationType(AllocationType::BUFFER);
+
+    auto memVal = (cl_mem)&buffer;
+    auto val = &memVal;
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+
+    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), val);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+}
+
+TEST_F(KernelArgBufferTest, givenBufferAsDeviceMemoryAndKernelIsAlreadySetToUseSystemWhenSettingKernelArgThenKernelUsesSystemMemory) {
+    MockBuffer buffer;
+    buffer.getGraphicsAllocation(mockRootDeviceIndex)->setAllocationType(AllocationType::BUFFER);
+
+    auto memVal = (cl_mem)&buffer;
+    auto val = &memVal;
+
+    EXPECT_FALSE(pKernel->isAnyKernelArgumentUsingSystemMemory());
+    pKernel->anyKernelArgumentUsingSystemMemory = true;
+
+    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), val);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_TRUE(pKernel->isAnyKernelArgumentUsingSystemMemory());
 }

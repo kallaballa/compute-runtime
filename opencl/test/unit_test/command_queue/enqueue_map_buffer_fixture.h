@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,15 +11,13 @@
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 
-#include "gtest/gtest.h"
-
 namespace NEO {
 
 struct EnqueueMapBufferTypeTest : public CommandEnqueueFixture,
                                   public ::testing::Test {
 
     void SetUp() override {
-        CommandEnqueueFixture::SetUp();
+        CommandEnqueueFixture::setUp();
         BufferDefaults::context = new MockContext;
         srcBuffer = BufferHelper<>::create();
     }
@@ -27,7 +25,7 @@ struct EnqueueMapBufferTypeTest : public CommandEnqueueFixture,
     void TearDown() override {
         delete srcBuffer;
         delete BufferDefaults::context;
-        CommandEnqueueFixture::TearDown();
+        CommandEnqueueFixture::tearDown();
     }
 
   protected:

@@ -9,17 +9,13 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/unified_memory/usm_memory_support.h"
-#include "shared/source/xe_hpc_core/hw_cmds.h"
+#include "shared/source/xe_hpc_core/hw_cmds_pvc.h"
 
 #include "engine_node.h"
 
 namespace NEO {
 
 const char *HwMapper<IGFX_PVC>::abbreviation = "pvc";
-
-bool isSimulationPVC(unsigned short deviceId) {
-    return false;
-};
 
 const PLATFORM PVC::platform = {
     IGFX_PVC,
@@ -39,6 +35,7 @@ const RuntimeCapabilityTable PVC::capabilityTable{
         {aub_stream::ENGINE_CCS1, {true, false, true, true}},
         {aub_stream::ENGINE_CCS2, {true, false, true, true}},
         {aub_stream::ENGINE_CCS3, {true, false, true, true}},
+        {aub_stream::ENGINE_BCS, {true, false, true, true}},
         {aub_stream::ENGINE_BCS1, {true, false, true, true}},
         {aub_stream::ENGINE_BCS2, {true, false, true, true}},
         {aub_stream::ENGINE_BCS3, {true, false, true, true}},
@@ -52,8 +49,7 @@ const RuntimeCapabilityTable PVC::capabilityTable{
     0,                                                         // sharedSystemMemCapabilities
     83.333,                                                    // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                                 // requiredPreemptionSurfaceSize
-    &isSimulationPVC,                                          // isSimulation
-    "core",                                                    // platformType
+    "pvc",                                                     // platformType
     "",                                                        // deviceName
     PreemptionMode::ThreadGroup,                               // defaultPreemptionMode
     aub_stream::ENGINE_CCS,                                    // defaultEngineType
@@ -92,7 +88,8 @@ const RuntimeCapabilityTable PVC::capabilityTable{
     false,                                                     // supportsMediaBlock
     true,                                                      // p2pAccessSupported
     true,                                                      // p2pAtomicAccessSupported
-    false                                                      // fusedEuEnabled
+    false,                                                     // fusedEuEnabled
+    true                                                       // l0DebuggerSupported;
 };
 
 void PVC::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
@@ -138,7 +135,8 @@ void PVC::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
 void PVC::adjustHardwareInfo(HardwareInfo *hwInfo) {
     hwInfo->capabilityTable.sharedSystemMemCapabilities = (UNIFIED_SHARED_MEMORY_ACCESS | UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS | UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS);
 }
-void PVC::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, bool setupMultiTile) {
+
+void PVC::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * PVC::threadsPerEu;
     gtSysInfo->MaxFillRate = 128;
@@ -155,32 +153,37 @@ void PVC::setupHardwareInfoBase(HardwareInfo *hwInfo, bool setupFeatureTableAndW
     gtSysInfo->IsL3HashModeEnabled = false;
     gtSysInfo->IsDynamicallyPopulated = false;
 
+    PVC::adjustHardwareInfo(hwInfo);
+
+    if (setupFeatureTableAndWorkaroundTable) {
+        setupFeatureAndWorkaroundTable(hwInfo);
+    }
+}
+
+void PVC::setupHardwareInfoMultiTileBase(HardwareInfo *hwInfo, bool setupMultiTile) {
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->MultiTileArchInfo.IsValid = setupMultiTile;
     gtSysInfo->MultiTileArchInfo.TileCount = 1;
     if (DebugManager.flags.CreateMultipleSubDevices.get() > 0) {
         gtSysInfo->MultiTileArchInfo.TileCount = DebugManager.flags.CreateMultipleSubDevices.get();
     }
     gtSysInfo->MultiTileArchInfo.TileMask = static_cast<uint8_t>(maxNBitValue(gtSysInfo->MultiTileArchInfo.TileCount));
-
-    PVC::adjustHardwareInfo(hwInfo);
 }
 
 FeatureTable PVC::featureTable;
 WorkaroundTable PVC::workaroundTable;
 
-const HardwareInfo PVC_CONFIG::hwInfo = {
+const HardwareInfo PvcHwConfig::hwInfo = {
     &PVC::platform,
     &PVC::featureTable,
     &PVC::workaroundTable,
-    &PVC_CONFIG::gtSystemInfo,
+    &PvcHwConfig::gtSystemInfo,
     PVC::capabilityTable,
 };
 
-GT_SYSTEM_INFO PVC_CONFIG::gtSystemInfo = {0};
-void PVC_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
-    PVC_CONFIG::setupHardwareInfoMultiTile(hwInfo, setupFeatureTableAndWorkaroundTable, false);
-}
-void PVC_CONFIG::setupHardwareInfoMultiTile(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, bool setupMultiTile) {
+GT_SYSTEM_INFO PvcHwConfig::gtSystemInfo = {0};
+void PvcHwConfig::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
+    PVC::setupHardwareInfoBase(hwInfo, setupFeatureTableAndWorkaroundTable);
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->CsrSizeInMb = 8;
     gtSysInfo->IsL3HashModeEnabled = false;
@@ -196,6 +199,7 @@ void PVC_CONFIG::setupHardwareInfoMultiTile(HardwareInfo *hwInfo, bool setupFeat
         gtSysInfo->MaxSlicesSupported = gtSysInfo->SliceCount;
         gtSysInfo->MaxSubSlicesSupported = gtSysInfo->SubSliceCount;
 
+        gtSysInfo->L3CacheSizeInKb = 1;
         gtSysInfo->L3BankCount = 1;
 
         gtSysInfo->CCSInfo.IsValid = true;
@@ -203,7 +207,7 @@ void PVC_CONFIG::setupHardwareInfoMultiTile(HardwareInfo *hwInfo, bool setupFeat
         gtSysInfo->CCSInfo.Instances.CCSEnableMask = 0b11;
 
         hwInfo->featureTable.ftrBcsInfo = 1;
-
+        gtSysInfo->IsDynamicallyPopulated = true;
         for (uint32_t slice = 0; slice < gtSysInfo->SliceCount; slice++) {
             gtSysInfo->SliceInfo[slice].Enabled = true;
         }

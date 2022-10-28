@@ -9,13 +9,11 @@
 #include "shared/source/kernel/grf_config.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/common/fixtures/command_container_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
-#include "shared/test/common/mocks/mock_dispatch_kernel_encoder_interface.h"
 #include "shared/test/common/test_macros/test.h"
 #include "shared/test/unit_test/encoders/test_encode_dispatch_kernel_dg2_and_later.h"
-
-#include "hw_cmds.h"
+#include "shared/test/unit_test/fixtures/command_container_fixture.h"
+#include "shared/test/unit_test/mocks/mock_dispatch_kernel_encoder_interface.h"
 
 using namespace NEO;
 
@@ -40,7 +38,7 @@ HWTEST2_F(CommandEncodeStatesTestPvcAndLater, givenOverrideSlmTotalSizeDebugVari
         cmdContainer->reset();
         EncodeDispatchKernelArgs dispatchArgs = createDefaultDispatchKernelArgs(pDevice, dispatchInterface.get(), dims, requiresUncachedMocs);
 
-        EncodeDispatchKernel<FamilyType>::encode(*cmdContainer.get(), dispatchArgs);
+        EncodeDispatchKernel<FamilyType>::encode(*cmdContainer.get(), dispatchArgs, nullptr);
 
         GenCmdList commands;
         CmdParse<FamilyType>::parseCommandBuffer(commands, ptrOffset(cmdContainer->getCommandStream()->getCpuBase(), 0), cmdContainer->getCommandStream()->getUsed());
@@ -55,26 +53,36 @@ HWTEST2_F(CommandEncodeStatesTestPvcAndLater, givenOverrideSlmTotalSizeDebugVari
 
 HWTEST2_F(CommandEncodeStatesTestPvcAndLater, givenVariousValuesWhenCallingSetBarrierEnableThenCorrectValuesAreSet, IsAtLeastXeHpcCore) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+    using BARRIERS = typename INTERFACE_DESCRIPTOR_DATA::NUMBER_OF_BARRIERS;
     INTERFACE_DESCRIPTOR_DATA idd = FamilyType::cmdInitInterfaceDescriptorData;
     MockDevice device;
     auto hwInfo = device.getHardwareInfo();
 
-    uint32_t barrierCounts[] = {0, 1, 2, 7};
-
-    for (auto barrierCount : barrierCounts) {
+    struct BarrierCountToBarrierNumEnum {
+        uint32_t barrierCount;
+        uint32_t numBarriersEncoding;
+    };
+    constexpr BarrierCountToBarrierNumEnum barriers[8] = {{0, 0},
+                                                          {1, 1},
+                                                          {2, 2},
+                                                          {4, 3},
+                                                          {8, 4},
+                                                          {16, 5},
+                                                          {24, 6},
+                                                          {32, 7}};
+    for (auto &[barrierCount, numBarriersEnum] : barriers) {
         EncodeDispatchKernel<FamilyType>::programBarrierEnable(idd, barrierCount, hwInfo);
-
-        EXPECT_EQ(barrierCount, idd.getNumberOfBarriers());
+        EXPECT_EQ(numBarriersEnum, idd.getNumberOfBarriers());
     }
 }
 
 HWCMDTEST_F(IGFX_XE_HP_CORE, CommandEncodeStatesTestPvcAndLater, givenCommandContainerWhenNumGrfRequiredIsGreaterThanDefaultThenLargeGrfModeEnabled) {
     using PIPELINE_SELECT = typename FamilyType::PIPELINE_SELECT;
     using STATE_COMPUTE_MODE = typename FamilyType::STATE_COMPUTE_MODE;
-    cmdContainer->lastSentNumGrfRequired = GrfConfig::DefaultGrfNumber;
+    auto &hwInfoConfig = *HwInfoConfig::get(defaultHwInfo->platform.eProductFamily);
     StreamProperties streamProperties{};
-    streamProperties.stateComputeMode.setProperties(false, GrfConfig::LargeGrfNumber, 0u);
-    EncodeComputeMode<FamilyType>::programComputeModeCommand(*cmdContainer->getCommandStream(), streamProperties.stateComputeMode, *defaultHwInfo);
+    streamProperties.stateComputeMode.setProperties(false, GrfConfig::LargeGrfNumber, 0u, PreemptionMode::Disabled, *defaultHwInfo);
+    EncodeComputeMode<FamilyType>::programComputeModeCommand(*cmdContainer->getCommandStream(), streamProperties.stateComputeMode, *defaultHwInfo, nullptr);
     GenCmdList commands;
     CmdParse<FamilyType>::parseCommandBuffer(commands, ptrOffset(cmdContainer->getCommandStream()->getCpuBase(), 0), cmdContainer->getCommandStream()->getUsed());
 
@@ -82,10 +90,11 @@ HWCMDTEST_F(IGFX_XE_HP_CORE, CommandEncodeStatesTestPvcAndLater, givenCommandCon
     ASSERT_NE(itorCmd, commands.end());
 
     auto cmd = genCmdCast<STATE_COMPUTE_MODE *>(*itorCmd);
-    EXPECT_TRUE(cmd->getLargeGrfMode());
+    EXPECT_EQ(hwInfoConfig.isGrfNumReportedWithScm(), cmd->getLargeGrfMode());
 }
 
-HWTEST2_F(CommandEncodeStatesTestPvcAndLater, GivenVariousSlmTotalSizesAndSettingRevIDToDifferentValuesWhenSetAdditionalInfoIsCalledThenCorrectValuesAreSet, IsXeHpcCore) {
+using CommandEncodeStatesTestHpc = Test<CommandEncodeStatesFixture>;
+HWTEST2_F(CommandEncodeStatesTestHpc, GivenVariousSlmTotalSizesAndSettingRevIDToDifferentValuesWhenSetAdditionalInfoIsCalledThenCorrectValuesAreSet, IsPVC) {
     using PREFERRED_SLM_ALLOCATION_SIZE = typename FamilyType::INTERFACE_DESCRIPTOR_DATA::PREFERRED_SLM_ALLOCATION_SIZE;
 
     const std::vector<PreferredSlmTestValues<FamilyType>> valuesToTest = {
@@ -108,6 +117,7 @@ HWTEST2_F(CommandEncodeStatesTestPvcAndLater, GivenVariousSlmTotalSizesAndSettin
 
     const std::array<REVID, 5> revs{REVISION_A0, REVISION_B, REVISION_C, REVISION_D, REVISION_K};
     auto &hwInfo = *pDevice->getRootDeviceEnvironment().getMutableHardwareInfo();
+
     for (auto rev : revs) {
         hwInfo.platform.usRevId = HwInfoConfig::get(productFamily)->getHwRevIdFromStepping(rev, hwInfo);
         if ((hwInfo.platform.eProductFamily == IGFX_PVC) && (rev == REVISION_A0)) {

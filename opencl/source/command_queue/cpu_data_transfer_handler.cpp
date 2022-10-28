@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -52,8 +52,8 @@ void *CommandQueue::cpuDataTransferHandler(TransferProperties &transferPropertie
         *eventsRequest.outEvent = outEventObj;
     }
 
-    auto commandStreamReceieverOwnership = getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
     TakeOwnershipWrapper<CommandQueue> queueOwnership(*this);
+    auto commandStreamReceiverOwnership = getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
 
     auto blockQueue = false;
     auto taskLevel = 0u;
@@ -80,8 +80,8 @@ void *CommandQueue::cpuDataTransferHandler(TransferProperties &transferPropertie
                                         eventBuilder);
     }
 
+    commandStreamReceiverOwnership.unlock();
     queueOwnership.unlock();
-    commandStreamReceieverOwnership.unlock();
 
     // read/write buffers are always blocking
     if (!blockQueue || transferProperties.blocking) {

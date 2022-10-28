@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 
 #include <level_zero/zes_api.h>
 
+#include <mutex>
 #include <vector>
 
 struct _zes_fabric_port_handle_t {
@@ -30,7 +31,7 @@ class FabricDevice {
 
 class FabricPort : _zes_fabric_port_handle_t {
   public:
-    virtual ~FabricPort() = default;
+    ~FabricPort() override = default;
     virtual ze_result_t fabricPortGetProperties(zes_fabric_port_properties_t *pProperties) = 0;
     virtual ze_result_t fabricPortGetLinkType(zes_fabric_link_type_t *pLinkType) = 0;
     virtual ze_result_t fabricPortGetConfig(zes_fabric_port_config_t *pConfig) = 0;
@@ -55,6 +56,9 @@ struct FabricPortHandleContext : NEO::NonCopyableOrMovableClass {
 
     FabricDevice *pFabricDevice = nullptr;
     std::vector<FabricPort *> handleList = {};
+
+  private:
+    std::once_flag initFabricPortOnce;
 };
 
 } // namespace L0

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,7 +14,10 @@ class CommandContainer;
 class MockDebugger : public Debugger {
   public:
     MockDebugger() = default;
-    ~MockDebugger() = default;
-    void captureStateBaseAddress(CommandContainer &container, SbaAddresses sba){};
+    ~MockDebugger() override = default;
+    void captureStateBaseAddress(NEO::LinearStream &cmdStream, SbaAddresses sba) override{};
+    size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) override {
+        return 0;
+    }
 };
 } // namespace NEO

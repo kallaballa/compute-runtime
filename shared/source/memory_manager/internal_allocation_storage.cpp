@@ -14,9 +14,7 @@
 namespace NEO {
 
 InternalAllocationStorage::InternalAllocationStorage(CommandStreamReceiver &commandStreamReceiver)
-    : commandStreamReceiver(commandStreamReceiver),
-      temporaryAllocations(TEMPORARY_ALLOCATION),
-      allocationsForReuse(REUSABLE_ALLOCATION){};
+    : commandStreamReceiver(commandStreamReceiver){};
 
 void InternalAllocationStorage::storeAllocation(std::unique_ptr<GraphicsAllocation> &&gfxAllocation, uint32_t allocationUsage) {
     uint32_t taskCount = gfxAllocation->getTaskCount(commandStreamReceiver.getOsContext().getContextId());
@@ -34,13 +32,17 @@ void InternalAllocationStorage::storeAllocationWithTaskCount(std::unique_ptr<Gra
             return;
         }
     }
-    auto &allocationsList = (allocationUsage == TEMPORARY_ALLOCATION) ? temporaryAllocations : allocationsForReuse;
+    auto &allocationsList = allocationLists[allocationUsage];
     gfxAllocation->updateTaskCount(taskCount, commandStreamReceiver.getOsContext().getContextId());
     allocationsList.pushTailOne(*gfxAllocation.release());
 }
 
 void InternalAllocationStorage::cleanAllocationList(uint32_t waitTaskCount, uint32_t allocationUsage) {
-    freeAllocationsList(waitTaskCount, (allocationUsage == TEMPORARY_ALLOCATION) ? temporaryAllocations : allocationsForReuse);
+    freeAllocationsList(waitTaskCount, allocationLists[allocationUsage]);
+
+    if (allocationUsage == TEMPORARY_ALLOCATION) {
+        freeAllocationsList(waitTaskCount, allocationLists[DEFERRED_DEALLOCATION]);
+    }
 }
 
 void InternalAllocationStorage::freeAllocationsList(uint32_t waitTaskCount, AllocationsList &allocationsList) {
@@ -52,7 +54,7 @@ void InternalAllocationStorage::freeAllocationsList(uint32_t waitTaskCount, Allo
     IDList<GraphicsAllocation, false, true> allocationsLeft;
     while (curr != nullptr) {
         auto *next = curr->next;
-        if (curr->getTaskCount(commandStreamReceiver.getOsContext().getContextId()) <= waitTaskCount) {
+        if (curr->hostPtrTaskCountAssignment == 0 && curr->getTaskCount(commandStreamReceiver.getOsContext().getContextId()) <= waitTaskCount) {
             memoryManager->freeGraphicsMemory(curr);
         } else {
             allocationsLeft.pushTailOne(*curr);
@@ -66,12 +68,12 @@ void InternalAllocationStorage::freeAllocationsList(uint32_t waitTaskCount, Allo
 }
 
 std::unique_ptr<GraphicsAllocation> InternalAllocationStorage::obtainReusableAllocation(size_t requiredSize, AllocationType allocationType) {
-    auto allocation = allocationsForReuse.detachAllocation(requiredSize, nullptr, &commandStreamReceiver, allocationType);
+    auto allocation = allocationLists[REUSABLE_ALLOCATION].detachAllocation(requiredSize, nullptr, &commandStreamReceiver, allocationType);
     return allocation;
 }
 
 std::unique_ptr<GraphicsAllocation> InternalAllocationStorage::obtainTemporaryAllocationWithPtr(size_t requiredSize, const void *requiredPtr, AllocationType allocationType) {
-    auto allocation = temporaryAllocations.detachAllocation(requiredSize, requiredPtr, &commandStreamReceiver, allocationType);
+    auto allocation = allocationLists[TEMPORARY_ALLOCATION].detachAllocation(requiredSize, requiredPtr, &commandStreamReceiver, allocationType);
     return allocation;
 }
 

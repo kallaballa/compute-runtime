@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,6 @@
 #include "shared/source/helpers/file_io.h"
 #include "shared/test/common/helpers/kernel_binary_helper.h"
 #include "shared/test/common/helpers/test_files.h"
-#include "shared/test/common/test_macros/test.h"
 
 #include "opencl/test/unit_test/api/cl_api_tests.h"
 
@@ -19,7 +18,7 @@ struct clGetKernelWorkGroupInfoTest : public ApiFixture<>,
     typedef ApiFixture BaseClass;
 
     void SetUp() override {
-        BaseClass::SetUp();
+        BaseClass::setUp();
 
         std::unique_ptr<char[]> pSource = nullptr;
         size_t sourceSize = 0;
@@ -69,7 +68,7 @@ struct clGetKernelWorkGroupInfoTest : public ApiFixture<>,
         EXPECT_EQ(CL_SUCCESS, retVal);
 
         delete kbHelper;
-        BaseClass::TearDown();
+        BaseClass::tearDown();
     }
 
     cl_program pProgram = nullptr;

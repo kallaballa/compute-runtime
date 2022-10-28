@@ -5,11 +5,12 @@
  *
  */
 
+#include "shared/source/command_stream/wait_status.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/test_macros/mock_method_macros.h"
 #include "shared/test/common/test_macros/test.h"
-#include "shared/test/unit_test/utilities/base_object_utils.h"
+#include "shared/test/common/utilities/base_object_utils.h"
 
 #include "opencl/source/event/async_events_handler.h"
 #include "opencl/source/event/event.h"
@@ -38,14 +39,14 @@ class AsyncEventsHandlerTests : public ::testing::Test {
             this->updateTaskCount(taskCount, 0);
         }
 
-        bool wait(bool blocking, bool quickKmdSleep) override {
+        WaitStatus wait(bool blocking, bool quickKmdSleep) override {
             waitCalled++;
             handler->allowAsyncProcess.store(false);
             return waitResult;
         }
 
         uint32_t waitCalled = 0u;
-        bool waitResult = true;
+        WaitStatus waitResult = WaitStatus::Ready;
         std::unique_ptr<MockHandler> handler;
     };
 
@@ -57,15 +58,15 @@ class AsyncEventsHandlerTests : public ::testing::Test {
         dbgRestore.reset(new DebugManagerStateRestore());
         DebugManager.flags.EnableAsyncEventsHandler.set(false);
         handler.reset(new MockHandler());
-        context = make_releaseable<MockContext>();
+        context = makeReleaseable<MockContext>();
 
-        commandQueue = make_releaseable<MockCommandQueue>(context.get(), context->getDevice(0), nullptr, false);
+        commandQueue = makeReleaseable<MockCommandQueue>(context.get(), context->getDevice(0), nullptr, false);
 
         *(commandQueue->getGpgpuCommandStreamReceiver().getTagAddress()) = 0;
 
-        event1 = make_releaseable<MyEvent>(context.get(), commandQueue.get(), CL_COMMAND_BARRIER, CompletionStamp::notReady, CompletionStamp::notReady);
-        event2 = make_releaseable<MyEvent>(context.get(), commandQueue.get(), CL_COMMAND_BARRIER, CompletionStamp::notReady, CompletionStamp::notReady);
-        event3 = make_releaseable<MyEvent>(context.get(), commandQueue.get(), CL_COMMAND_BARRIER, CompletionStamp::notReady, CompletionStamp::notReady);
+        event1 = makeReleaseable<MyEvent>(context.get(), commandQueue.get(), CL_COMMAND_BARRIER, CompletionStamp::notReady, CompletionStamp::notReady);
+        event2 = makeReleaseable<MyEvent>(context.get(), commandQueue.get(), CL_COMMAND_BARRIER, CompletionStamp::notReady, CompletionStamp::notReady);
+        event3 = makeReleaseable<MyEvent>(context.get(), commandQueue.get(), CL_COMMAND_BARRIER, CompletionStamp::notReady, CompletionStamp::notReady);
     }
 
     std::unique_ptr<DebugManagerStateRestore> dbgRestore;
@@ -346,7 +347,7 @@ TEST_F(AsyncEventsHandlerTests, givenEventWithoutCallbacksWhenProcessedThenDontR
     event2->setStatus(CL_COMPLETE);
 }
 
-TEST_F(AsyncEventsHandlerTests, givenSleepCandidateWhenProcessedThenCallWaitWithQuickKmdSleepRequest) {
+TEST_F(AsyncEventsHandlerTests, givenNoGpuHangAndSleepCandidateWhenProcessedThenCallWaitWithQuickKmdSleepRequest) {
     event1->setTaskStamp(0, 1);
     event1->addCallback(&this->callbackFcn, CL_COMPLETE, &counter);
     event1->handler->registerEvent(event1.get());
@@ -354,8 +355,25 @@ TEST_F(AsyncEventsHandlerTests, givenSleepCandidateWhenProcessedThenCallWaitWith
 
     MockHandler::asyncProcess(event1->handler.get());
 
-    event1->setStatus(CL_COMPLETE);
     EXPECT_EQ(1u, event1->waitCalled);
+    EXPECT_NE(Event::executionAbortedDueToGpuHang, event1->peekExecutionStatus());
+
+    event1->setStatus(CL_COMPLETE);
+}
+
+TEST_F(AsyncEventsHandlerTests, givenSleepCandidateAndGpuHangWhenProcessedThenCallWaitAndSetExecutionStatusToAbortedDueToGpuHang) {
+    event1->setTaskStamp(0, 1);
+    event1->addCallback(&this->callbackFcn, CL_COMPLETE, &counter);
+    event1->handler->registerEvent(event1.get());
+    event1->handler->allowAsyncProcess.store(true);
+    event1->waitResult = WaitStatus::GpuHang;
+
+    MockHandler::asyncProcess(event1->handler.get());
+
+    EXPECT_EQ(1u, event1->waitCalled);
+    EXPECT_EQ(Event::executionAbortedDueToGpuHang, event1->peekExecutionStatus());
+
+    event1->setStatus(CL_COMPLETE);
 }
 
 TEST_F(AsyncEventsHandlerTests, WhenReturningThenAsyncProcessWillCallProcessList) {

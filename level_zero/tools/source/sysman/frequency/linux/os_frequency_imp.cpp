@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2020-2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -51,6 +51,19 @@ ze_result_t LinuxFrequencyImp::osFrequencyGetRange(zes_freq_range_t *pLimits) {
 ze_result_t LinuxFrequencyImp::osFrequencySetRange(const zes_freq_range_t *pLimits) {
     double newMin = round(pLimits->min);
     double newMax = round(pLimits->max);
+    if (newMax == -1 && newMin == -1) {
+        double maxDefault = 0, minDefault = 0;
+        ze_result_t result1, result2, result;
+        result1 = pSysfsAccess->read(maxDefaultFreqFile, maxDefault);
+        result2 = pSysfsAccess->read(minDefaultFreqFile, minDefault);
+        if (result1 == ZE_RESULT_SUCCESS && result2 == ZE_RESULT_SUCCESS) {
+            result = setMax(maxDefault);
+            if (ZE_RESULT_SUCCESS != result) {
+                return result;
+            }
+            return setMin(minDefault);
+        }
+    }
     double currentMax = 0.0;
     ze_result_t result = getMax(currentMax);
     if (ZE_RESULT_SUCCESS != result) {
@@ -71,6 +84,16 @@ ze_result_t LinuxFrequencyImp::osFrequencySetRange(const zes_freq_range_t *pLimi
         return result;
     }
     return setMax(newMax);
+}
+
+bool LinuxFrequencyImp::getThrottleReasonStatus(void) {
+    uint32_t val = 0;
+    auto result = pSysfsAccess->read(throttleReasonStatusFile, val);
+    if (ZE_RESULT_SUCCESS == result) {
+        return (val == 0 ? false : true);
+    } else {
+        return false;
+    }
 }
 
 ze_result_t LinuxFrequencyImp::osFrequencyGetState(zes_freq_state_t *pState) {
@@ -99,6 +122,26 @@ ze_result_t LinuxFrequencyImp::osFrequencyGetState(zes_freq_state_t *pState) {
     pState->pNext = nullptr;
     pState->currentVoltage = -1.0;
     pState->throttleReasons = 0u;
+    if (getThrottleReasonStatus()) {
+        uint32_t val = 0;
+        ze_result_t result;
+        result = pSysfsAccess->read(throttleReasonPL1File, val);
+        if (val && (result == ZE_RESULT_SUCCESS)) {
+            pState->throttleReasons |= ZES_FREQ_THROTTLE_REASON_FLAG_AVE_PWR_CAP;
+        }
+        result = pSysfsAccess->read(throttleReasonPL2File, val);
+        if (val && (result == ZE_RESULT_SUCCESS)) {
+            pState->throttleReasons |= ZES_FREQ_THROTTLE_REASON_FLAG_BURST_PWR_CAP;
+        }
+        result = pSysfsAccess->read(throttleReasonPL4File, val);
+        if (val && (result == ZE_RESULT_SUCCESS)) {
+            pState->throttleReasons |= ZES_FREQ_THROTTLE_REASON_FLAG_CURRENT_LIMIT;
+        }
+        result = pSysfsAccess->read(throttleReasonThermalFile, val);
+        if (val && (result == ZE_RESULT_SUCCESS)) {
+            pState->throttleReasons |= ZES_FREQ_THROTTLE_REASON_FLAG_THERMAL_LIMIT;
+        }
+    }
     return ZE_RESULT_SUCCESS;
 }
 
@@ -197,7 +240,7 @@ ze_result_t LinuxFrequencyImp::setMax(double max) {
         }
         return result;
     }
-    return ZE_RESULT_SUCCESS;
+    return pSysfsAccess->write(boostFreqFile, max);
 }
 
 ze_result_t LinuxFrequencyImp::getRequest(double &request) {
@@ -289,21 +332,35 @@ void LinuxFrequencyImp::init() {
     if (pSysfsAccess->directoryExists(baseDir)) {
         minFreqFile = baseDir + "rps_min_freq_mhz";
         maxFreqFile = baseDir + "rps_max_freq_mhz";
+        minDefaultFreqFile = baseDir + ".defaults/rps_min_freq_mhz";
+        maxDefaultFreqFile = baseDir + ".defaults/rps_max_freq_mhz";
+        boostFreqFile = baseDir + "rps_boost_freq_mhz";
         requestFreqFile = baseDir + "punit_req_freq_mhz";
         tdpFreqFile = baseDir + "rapl_PL1_freq_mhz";
         actualFreqFile = baseDir + "rps_act_freq_mhz";
         efficientFreqFile = baseDir + "rps_RP1_freq_mhz";
         maxValFreqFile = baseDir + "rps_RP0_freq_mhz";
         minValFreqFile = baseDir + "rps_RPn_freq_mhz";
+        throttleReasonStatusFile = baseDir + "throttle_reason_status";
+        throttleReasonPL1File = baseDir + "throttle_reason_pl1";
+        throttleReasonPL2File = baseDir + "throttle_reason_pl2";
+        throttleReasonPL4File = baseDir + "throttle_reason_pl4";
+        throttleReasonThermalFile = baseDir + "throttle_reason_thermal";
     } else {
         minFreqFile = "gt_min_freq_mhz";
         maxFreqFile = "gt_max_freq_mhz";
-        requestFreqFile = "punit_req_freq_mhz";
+        boostFreqFile = "gt_boost_freq_mhz";
+        requestFreqFile = "gt_cur_freq_mhz";
         tdpFreqFile = "rapl_PL1_freq_mhz";
         actualFreqFile = "gt_act_freq_mhz";
         efficientFreqFile = "gt_RP1_freq_mhz";
         maxValFreqFile = "gt_RP0_freq_mhz";
         minValFreqFile = "gt_RPn_freq_mhz";
+        throttleReasonStatusFile = "gt_throttle_reason_status";
+        throttleReasonPL1File = "gt_throttle_reason_status_pl1";
+        throttleReasonPL2File = "gt_throttle_reason_status_pl2";
+        throttleReasonPL4File = "gt_throttle_reason_status_pl4";
+        throttleReasonThermalFile = "gt_throttle_reason_status_thermal";
     }
 }
 

@@ -5,13 +5,14 @@
  *
  */
 
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/bit_helpers.h"
 #include "shared/source/helpers/memory_properties_helpers.h"
 
 namespace NEO {
 
 AllocationProperties MemoryPropertiesHelper::getAllocationProperties(
-    uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
+    uint32_t rootDeviceIndex, const MemoryProperties &memoryProperties, bool allocateMemory, size_t size,
     AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo,
     DeviceBitfield subDevicesBitfieldParam, bool deviceOnlyVisibilty) {
 
