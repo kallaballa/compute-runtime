@@ -59,7 +59,7 @@ Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl
 
     imgDesc.image_width = image_width;
     imgDesc.image_height = image_height;
-    printf("internal_format = %x\n", internal_format);
+    //printf("internal_format = %x\n", internal_format);
     switch(internal_format){
         case GL_RGBA:
         case GL_RGBA8:

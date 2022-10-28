@@ -101,7 +101,7 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
         }
 
         EGLBoolean ret = GLAcquireSharedTexture(GLHDCHandle, image, &fds, &stride, &offset);
-        fprintf(stderr, "GLAcquireSharedTexture ret=%d fds=%d stride=%d offset=%d\n", ret, fds, stride, offset);
+//        fprintf(stderr, "GLAcquireSharedTexture ret=%d fds=%d stride=%d offset=%d\n", ret, fds, stride, offset);
         if (ret == EGL_TRUE && fds > 0) {
             pResourceInfo->globalShareHandle = fds;
         } else {
