@@ -1,16 +1,16 @@
 Source: intel-compute-runtime
 Section: libs
 Priority: optional
-Maintainer: Intel Graphics Team <linux-graphics@intel.com>
+Maintainer: Amir Hassan <compute-runtime@viel-zu.org>
 XSBC-Original-Maintainer: Debian OpenCL Maintainers <pkg-opencl-devel@lists.alioth.debian.org>
 Build-Depends: debhelper (>= 11),
  cmake,
  intel-igc-opencl-devel,
  libigdgmm-dev,
-# libva-dev,
+ libva-dev,
  pkg-config
 Standards-Version: 4.3.0
-Homepage: https://github.com/intel/compute-runtime
+Homepage: https://github.com/kallaballa/compute-runtime
 
 Package: intel-opencl-icd
 Architecture: amd64 arm64
