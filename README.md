@@ -37,12 +37,12 @@ wget https://github.com/intel/compute-runtime/releases/download/22.42.24548/inte
 
 * Download unofficial *.deb packages
 ```
-wget https://github.com/intel/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-core_1.0.12260.1_amd64.deb
-wget https://github.com/intel/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-opencl_1.0.12260.1_amd64.deb
-wget https://github.com/intel/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-opencl-devel_1.0.12260.1_amd64.deb
-wget https://github.com/intel/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd_22.44.18857~unknown1_amd64.deb
-wget https://github.com/intel/compute-runtime/releases/download/22.42.24548-clgl/libigdgmm12_22.2.0_amd64.deb
-wget https://github.com/intel/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd-dbgsym_22.44.18857~unknown1_amd64.ddeb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-core_1.0.12260.1_amd64.deb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-opencl_1.0.12260.1_amd64.deb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-opencl-devel_1.0.12260.1_amd64.deb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd_22.44.18857~unknown1_amd64.deb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/libigdgmm12_22.2.0_amd64.deb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd-dbgsym_22.44.18857~unknown1_amd64.ddeb
 ```
 
 * Install the deb packages
