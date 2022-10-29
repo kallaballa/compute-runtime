@@ -83,6 +83,9 @@ dpkg -i intel-igc-core_1.0.12260.1_amd64.deb intel-igc-opencl_1.0.12260.1_amd64.
 # Clone the unofficial compute runtime with support for OpenCL/OpenGL interop
 git clone https://github.com/kallaballa/compute-runtime.git neo
 
+# Check out the release tag
+cd /neo && git checkout -b release 22.42.24548-clgl
+
 # Build the debian packages
 cd /neo/scripts/packaging/opencl/
 SPEC_FILE=ubuntu_20.04 ./build_opencl_deb.sh
