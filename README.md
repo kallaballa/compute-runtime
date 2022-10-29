@@ -41,3 +41,41 @@ wget https://github.com/intel/compute-runtime/releases/download/22.42.24548/libi
 ```
 
 * Download unofficial *.deb packages
+
+## Build debian packages
+
+```bash
+# Prepare a Ubuntu 22.04 chroot
+sudo debootstrap --variant=minbase --arch=amd64 jammy jammy http://de.archive.ubuntu.com/ubuntu
+sudo mount --bind /dev/ jammy/dev
+# Enter the chroot
+sudo chroot jammy
+
+# From here on we are working inside the chroot
+
+# Setup basic filesystems
+mount -t proc none proc
+mount -t sysfs none sys
+mount -t tmpfs none tmp
+mount -t devpts none /dev/pts
+
+# Configure apt sources
+echo deb http://de.archive.ubuntu.com/ubuntu jammy main universe > /etc/apt/sources.list
+apt-get update
+
+# Install required packages
+apt-get install cmake g++ git pkg-config sudo wget libegl-dev python3 devscripts libigdgmm-dev debhelper ninja-build libva-dev
+
+# Retrieve and install official prebuilt packages we need for building
+wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.12260.1/intel-igc-core_1.0.12260.1_amd64.deb
+wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.12260.1/intel-igc-opencl_1.0.12260.1_amd64.deb
+wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.12260.1/intel-igc-opencl-devel_1.0.12260.1_amd64.deb
+dpkg -i intel-igc-core_1.0.12260.1_amd64.deb intel-igc-opencl_1.0.12260.1_amd64.deb intel-igc-opencl-devel_1.0.12260.1_amd64.deb
+
+# Clone the unofficial compute runtime with support for OpenCL/OpenGL interop
+git clone https://github.com/kallaballa/compute-runtime.git neo
+
+# Build the debian package
+cd /neo/scripts/packaging/opencl/
+SPEC_FILE=ubuntu_20.04 ./build_opencl_deb.sh
+```
