@@ -58,7 +58,7 @@ struct ContextImp : Context {
     ze_result_t getIpcMemHandle(const void *ptr,
                                 ze_ipc_mem_handle_t *pIpcHandle) override;
     ze_result_t openIpcMemHandle(ze_device_handle_t hDevice,
-                                 ze_ipc_mem_handle_t handle,
+                                 const ze_ipc_mem_handle_t &handle,
                                  ze_ipc_memory_flags_t flags,
                                  void **ptr) override;
 
@@ -126,7 +126,7 @@ struct ContextImp : Context {
                                              size_t size,
                                              ze_memory_access_attribute_t *access,
                                              size_t *outSize) override;
-    ze_result_t openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,
+    ze_result_t openEventPoolIpcHandle(const ze_ipc_event_pool_handle_t &hIpc,
                                        ze_event_pool_handle_t *phEventPool) override;
     ze_result_t createEventPool(const ze_event_pool_desc_t *desc,
                                 uint32_t numDevices,
