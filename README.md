@@ -88,7 +88,7 @@ cd /neo && git checkout -b release 22.43.24558-clgl
 
 # Build the debian packages
 cd /neo/scripts/packaging/opencl/
-SPEC_FILE=ubuntu_20.04 ./build_opencl_deb.sh
+NEO_SKIP_UNIT_TESTS=TRUE SPEC_FILE=ubuntu_20.04 ./build_opencl_deb.sh
 
 # The resulting debian packages reside in /outout/
 ls /output/
