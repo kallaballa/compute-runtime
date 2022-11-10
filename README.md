@@ -33,16 +33,16 @@ mkdir neo
 cd neo
 wget https://github.com/intel/compute-runtime/releases/download/22.42.24548/intel-level-zero-gpu-dbgsym_1.3.24548_amd64.ddeb
 wget https://github.com/intel/compute-runtime/releases/download/22.42.24548/intel-level-zero-gpu_1.3.24548_amd64.deb
+wget https://github.com/intel/compute-runtime/releases/download/22.42.24548/libigdgmm12_22.2.0_amd64.deb
+wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.12260.1/intel-igc-core_1.0.12260.1_amd64.deb
+wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.12260.1/intel-igc-opencl_1.0.12260.1_amd64.deb
+
 ```
 
 * Download unofficial *.deb packages
 ```
-wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-core_1.0.12260.1_amd64.deb
-wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-opencl_1.0.12260.1_amd64.deb
-wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-igc-opencl-devel_1.0.12260.1_amd64.deb
-wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd_22.44.18857~unknown1_amd64.deb
-wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/libigdgmm12_22.2.0_amd64.deb
-wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd-dbgsym_22.44.18857.unknown1_amd64.ddeb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd_22.42.24548-clgl_amd64.deb
+wget https://github.com/kallaballa/compute-runtime/releases/download/22.42.24548-clgl/intel-opencl-icd-dbgsym_22.42.24548-clgl_amd64.ddeb
 ```
 
 * Install the deb packages
@@ -82,6 +82,9 @@ dpkg -i intel-igc-core_1.0.12260.1_amd64.deb intel-igc-opencl_1.0.12260.1_amd64.
 
 # Clone the unofficial compute runtime with support for OpenCL/OpenGL interop
 git clone https://github.com/kallaballa/compute-runtime.git neo
+
+# Check out the release tag
+cd /neo && git checkout -b release 22.42.24548-clgl
 
 # Build the debian packages
 cd /neo/scripts/packaging/opencl/
