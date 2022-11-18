@@ -16,7 +16,7 @@ for Intel graphics hardware architectures (HD Graphics, Xe). This repo is an **u
 
 ## Supported
 
-Only first device in platform.
+Only the first device in platform.
 * EGL (GLX is not supported)
 * GL_TEXTURE_2D target
 * GL internal_formats: GL_RGBA, GL_RGBA8, GL_RGBA16F, GL_RGB
