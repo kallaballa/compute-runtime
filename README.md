@@ -6,13 +6,20 @@ SPDX-License-Identifier: MIT
 
 -->
 
-# Unoffical Intel(R) Graphics Compute Runtime for oneAPI Level Zero and OpenCL(TM) Driver with support for OpenCL/OpenGL interoperability
+# Unoffical Intel(R) Graphics Compute Runtime for oneAPI Level Zero and OpenCL(TM) Driver with limited support for OpenCL/OpenGL interoperability
 
 ## Introduction
 
 The Intel(R) Graphics Compute Runtime for oneAPI Level Zero and OpenCL(TM) Driver
 is an open source project providing compute API support (Level Zero, OpenCL)
-for Intel graphics hardware architectures (HD Graphics, Xe). This repo is an **unoffical fork** with support for **OpenCL/OpenGL interoperability**
+for Intel graphics hardware architectures (HD Graphics, Xe). This repo is an **unoffical fork** with limited support for **OpenCL/OpenGL interoperability**
+
+## Supported
+
+Only first device in platform.
+* GL_TEXTURE_2D target
+* GL internal_formats: GL_RGBA, GL_RGBA8, GL_RGBA16F, GL_RGB
+EGL (GLX is not supported)
 
 For more information on the offical project refer to: https://github.com/intel/compute-runtime/#readme
 
