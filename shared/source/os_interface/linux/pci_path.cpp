@@ -45,7 +45,10 @@ std::optional<std::string> getPciPath(int deviceFd) {
         return std::nullopt;
     }
 
-    return deviceLinkPath->substr(deviceLinkPath->find("/drm/card1") - 12u, 12u);
+    size_t idx = deviceLinkPath->find("/drm/card1");
+    if(std::string::npos == idx)
+        idx = deviceLinkPath->find("/drm/renderD128");
+    return deviceLinkPath->substr(idx - 12u, 12u);
 }
 
 std::optional<std::string> getPciRootPath(int deviceFd) {
