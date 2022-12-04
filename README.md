@@ -25,7 +25,7 @@ For more information on the offical project refer to: https://github.com/intel/c
 
 ## Supported Platforms
 
-At the moment only Tigerlake (Gen11) is tested but it should work for all target CPUs (Gen8 - Gen12). Please provide feedback if it worked for you on another CPU than Tigerlake.
+At the moment only Tigerlake (Gen12) is tested but it should work for all target CPUs (Gen8 - Gen12). Please provide feedback if it worked for you on another CPU than Tigerlake.
 
 ## Install
 
