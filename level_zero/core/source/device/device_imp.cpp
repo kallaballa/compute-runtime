@@ -72,6 +72,11 @@ ze_result_t DeviceImp::canAccessPeer(ze_device_handle_t hPeerDevice, ze_bool_t *
     DeviceImp *pPeerDevice = static_cast<DeviceImp *>(Device::fromHandle(hPeerDevice));
     uint32_t peerRootDeviceIndex = pPeerDevice->getNEODevice()->getRootDeviceIndex();
 
+    if (NEO::DebugManager.flags.ForceZeDeviceCanAccessPerReturnValue.get() != -1) {
+        *value = !!NEO::DebugManager.flags.ForceZeDeviceCanAccessPerReturnValue.get();
+        return ZE_RESULT_SUCCESS;
+    }
+
     if (this->crossAccessEnabledDevices.find(peerRootDeviceIndex) != this->crossAccessEnabledDevices.end()) {
         *value = this->crossAccessEnabledDevices[peerRootDeviceIndex];
     } else if (this->getNEODevice()->getRootDeviceIndex() == peerRootDeviceIndex) {
@@ -358,9 +363,13 @@ ze_result_t DeviceImp::createImage(const ze_image_desc_t *desc, ze_image_handle_
 ze_result_t DeviceImp::createSampler(const ze_sampler_desc_t *desc,
                                      ze_sampler_handle_t *sampler) {
     auto productFamily = neoDevice->getHardwareInfo().platform.eProductFamily;
-    *sampler = Sampler::create(productFamily, this, desc);
 
-    return ZE_RESULT_SUCCESS;
+    *sampler = Sampler::create(productFamily, this, desc);
+    if (*sampler == nullptr) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
+    } else {
+        return ZE_RESULT_SUCCESS;
+    }
 }
 
 ze_result_t DeviceImp::createModule(const ze_module_desc_t *desc, ze_module_handle_t *module,
@@ -736,6 +745,21 @@ ze_result_t DeviceImp::getProperties(ze_device_properties_t *pDeviceProperties) 
                     return result;
                 }
                 deviceLuidProperties->nodeMask = 1;
+            }
+        }
+    }
+
+    if (NEO::DebugManager.flags.EnableL0EuCount.get()) {
+        if (pDeviceProperties->pNext) {
+            ze_base_desc_t *extendedDesc = reinterpret_cast<ze_base_desc_t *>(pDeviceProperties->pNext);
+            if (extendedDesc->stype == ZE_STRUCTURE_TYPE_EU_COUNT_EXT) {
+                ze_eu_count_ext_t *zeEuCountDesc = reinterpret_cast<ze_eu_count_ext_t *>(extendedDesc);
+                uint32_t numTotalEUs = hardwareInfo.gtSystemInfo.MaxEuPerSubSlice * hardwareInfo.gtSystemInfo.SubSliceCount * hardwareInfo.gtSystemInfo.SliceCount;
+
+                if (isImplicitScalingCapable()) {
+                    numTotalEUs *= neoDevice->getNumGenericSubDevices();
+                }
+                zeEuCountDesc->numTotalEUs = numTotalEUs;
             }
         }
     }
@@ -1474,6 +1498,21 @@ NEO::EngineGroupType DeviceImp::getEngineGroupTypeForOrdinal(uint32_t ordinal) c
         engineGroupType = this->subDeviceCopyEngineGroups[ordinal - numEngineGroups].engineGroupType;
     }
     return engineGroupType;
+}
+
+ze_result_t DeviceImp::getFabricVertex(ze_fabric_vertex_handle_t *phVertex) {
+    auto driverHandle = this->getDriverHandle();
+    DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(driverHandle);
+    if (driverHandleImp->fabricVertices.empty()) {
+        driverHandleImp->initializeVertexes();
+    }
+
+    if (fabricVertex == nullptr) {
+        return ZE_RESULT_EXP_ERROR_DEVICE_IS_NOT_VERTEX;
+    }
+
+    *phVertex = fabricVertex->toHandle();
+    return ZE_RESULT_SUCCESS;
 }
 
 } // namespace L0

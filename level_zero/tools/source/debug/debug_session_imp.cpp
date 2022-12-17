@@ -10,6 +10,7 @@
 #include "shared/source/built_ins/sip.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/sleep.h"
 #include "shared/source/helpers/string.h"
 
 #include "level_zero/core/source/device/device_imp.h"
@@ -277,12 +278,12 @@ size_t DebugSession::getPerThreadScratchOffset(size_t ptss, EuThread::ThreadId t
 
     const auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
     uint32_t threadEuRatio = hwInfoConfig.getThreadEuRatioForScratch(hwInfo);
-
+    uint32_t multiplyFactor = 1;
     if (threadEuRatio / numThreadsPerEu > 1) {
-        ptss *= threadEuRatio / numThreadsPerEu;
+        multiplyFactor = threadEuRatio / numThreadsPerEu;
     }
 
-    auto threadOffset = (((threadId.slice * numSubslicesPerSlice + threadId.subslice) * numEuPerSubslice + threadId.eu) * numThreadsPerEu + threadId.thread) * ptss;
+    auto threadOffset = (((threadId.slice * numSubslicesPerSlice + threadId.subslice) * numEuPerSubslice + threadId.eu) * numThreadsPerEu * multiplyFactor + threadId.thread) * ptss;
     return threadOffset;
 }
 
@@ -1261,7 +1262,7 @@ ze_result_t DebugSessionImp::waitForCmdReady(EuThread::ThreadId threadId, uint16
         if (sipCommand.command == static_cast<uint32_t>(NEO::SipKernel::COMMAND::READY)) {
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        NEO::sleep(std::chrono::microseconds(100));
     }
 
     if (sipCommand.command != static_cast<uint32_t>(NEO::SipKernel::COMMAND::READY)) {

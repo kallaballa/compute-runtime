@@ -1078,6 +1078,60 @@ TEST_F(DeviceTest, givenDevicePropertiesStructureWhenDebugVariableOverrideDevice
     EXPECT_STREQ(deviceProperties.name, testDeviceName.c_str());
 }
 
+TEST_F(DeviceTest, WhenRequestingZeEuCountThenExpectedEUsAreReturned) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableL0EuCount.set(true);
+    ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
+    ze_eu_count_ext_t zeEuCountDesc = {ZE_STRUCTURE_TYPE_EU_COUNT_EXT};
+    deviceProperties.pNext = &zeEuCountDesc;
+
+    uint32_t maxEuPerSubSlice = 48;
+    uint32_t subSliceCount = 8;
+    uint32_t sliceCount = 1;
+
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.MaxEuPerSubSlice = maxEuPerSubSlice;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SubSliceCount = subSliceCount;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SliceCount = sliceCount;
+
+    device->getProperties(&deviceProperties);
+
+    uint32_t expectedEUs = maxEuPerSubSlice * subSliceCount * sliceCount;
+
+    EXPECT_EQ(expectedEUs, zeEuCountDesc.numTotalEUs);
+}
+
+TEST_F(DeviceTest, WhenRequestingZeEuCountWithoutDebugKeyThenNoEusAreReturned) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableL0EuCount.set(false);
+    ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
+    ze_eu_count_ext_t zeEuCountDesc = {ZE_STRUCTURE_TYPE_EU_COUNT_EXT};
+    zeEuCountDesc.numTotalEUs = std::numeric_limits<uint32_t>::max();
+    deviceProperties.pNext = &zeEuCountDesc;
+
+    uint32_t maxEuPerSubSlice = 48;
+    uint32_t subSliceCount = 8;
+    uint32_t sliceCount = 1;
+
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.MaxEuPerSubSlice = maxEuPerSubSlice;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SubSliceCount = subSliceCount;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SliceCount = sliceCount;
+
+    device->getProperties(&deviceProperties);
+
+    uint32_t expectedEUs = maxEuPerSubSlice * subSliceCount * sliceCount;
+
+    EXPECT_NE(expectedEUs, zeEuCountDesc.numTotalEUs);
+    EXPECT_EQ(std::numeric_limits<uint32_t>::max(), zeEuCountDesc.numTotalEUs);
+}
+
+TEST_F(DeviceTest, WhenRequestingZeEuCountWithIncorrectStypeThenPNextIsIgnored) {
+    ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
+    ze_eu_count_ext_t zeEuCountDesc = {ZE_STRUCTURE_TYPE_SCHEDULING_HINT_EXP_PROPERTIES};
+    deviceProperties.pNext = &zeEuCountDesc;
+    device->getProperties(&deviceProperties);
+    EXPECT_EQ(0u, zeEuCountDesc.numTotalEUs);
+}
+
 TEST_F(DeviceTest, WhenGettingDevicePropertiesThenSubslicesPerSliceIsBasedOnSubslicesSupported) {
     ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
     deviceProperties.type = ZE_DEVICE_TYPE_GPU;
@@ -1935,6 +1989,29 @@ TEST_F(MultipleDevicesDisabledImplicitScalingTest, whenCallingGetMemoryPropertie
     EXPECT_EQ(memProperties.totalSize, device0->getNEODevice()->getDeviceInfo().globalMemSize / numSubDevices);
 }
 
+TEST_F(MultipleDevicesEnabledImplicitScalingTest, WhenRequestingZeEuCountThenExpectedEUsAreReturned) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableL0EuCount.set(true);
+    ze_device_properties_t deviceProperties = {ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES};
+    ze_eu_count_ext_t zeEuCountDesc = {ZE_STRUCTURE_TYPE_EU_COUNT_EXT};
+    deviceProperties.pNext = &zeEuCountDesc;
+
+    uint32_t maxEuPerSubSlice = 48;
+    uint32_t subSliceCount = 8;
+    uint32_t sliceCount = 1;
+
+    L0::Device *device = driverHandle->devices[0];
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.MaxEuPerSubSlice = maxEuPerSubSlice;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SubSliceCount = subSliceCount;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SliceCount = sliceCount;
+
+    device->getProperties(&deviceProperties);
+
+    uint32_t expectedEUs = maxEuPerSubSlice * subSliceCount * sliceCount;
+
+    EXPECT_EQ(expectedEUs * numSubDevices, zeEuCountDesc.numTotalEUs);
+}
+
 TEST_F(MultipleDevicesEnabledImplicitScalingTest, whenCallingGetMemoryPropertiesWithSubDevicesThenCorrectSizeReturned) {
     L0::Device *device0 = driverHandle->devices[0];
     uint32_t count = 1;
@@ -2365,6 +2442,22 @@ TEST_F(MultipleDevicesDisabledImplicitScalingTest, givenTwoRootDevicesFromSameFa
 
     ze_bool_t canAccess = false;
     ze_result_t res = device0->canAccessPeer(device1->toHandle(), &canAccess);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_TRUE(canAccess);
+}
+
+TEST_F(MultipleDevicesDisabledImplicitScalingTest, givenTwoRootDevicesFromSameFamilyThenCanAccessPeerReturnsValueBasingOnDebugVariable) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.ForceZeDeviceCanAccessPerReturnValue.set(0);
+    L0::Device *device0 = driverHandle->devices[0];
+    L0::Device *device1 = driverHandle->devices[1];
+
+    ze_bool_t canAccess = false;
+    ze_result_t res = device0->canAccessPeer(device1->toHandle(), &canAccess);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_FALSE(canAccess);
+    DebugManager.flags.ForceZeDeviceCanAccessPerReturnValue.set(1);
+    res = device0->canAccessPeer(device1->toHandle(), &canAccess);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     EXPECT_TRUE(canAccess);
 }

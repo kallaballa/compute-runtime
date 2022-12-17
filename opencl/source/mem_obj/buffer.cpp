@@ -194,8 +194,7 @@ bool inline copyHostPointer(Buffer *buffer,
         bool copyOnCpuAllowed = implicitScalingEnabled == false &&
                                 size <= Buffer::maxBufferSizeForCopyOnCpu &&
                                 isCompressionEnabled == false &&
-                                hwInfoConfig->getLocalMemoryAccessMode(hwInfo) != LocalMemoryAccessMode::CpuAccessDisallowed &&
-                                memory->storageInfo.isLockable;
+                                hwInfoConfig->getLocalMemoryAccessMode(hwInfo) != LocalMemoryAccessMode::CpuAccessDisallowed;
         if (DebugManager.flags.CopyHostPtrOnCpu.get() != -1) {
             copyOnCpuAllowed = DebugManager.flags.CopyHostPtrOnCpu.get() == 1;
         }
@@ -613,6 +612,14 @@ Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
                                 const cl_buffer_region *region,
                                 cl_int &errcodeRet) {
     DEBUG_BREAK_IF(nullptr == createFunction);
+    if (this->context->getBufferPoolAllocator().isPoolBuffer(associatedMemObject)) {
+        Buffer *poolBuffer = static_cast<Buffer *>(associatedMemObject);
+        auto regionWithAdditionalOffset = *region;
+        regionWithAdditionalOffset.origin += this->offset;
+        auto buffer = poolBuffer->createSubBuffer(flags, flagsIntel, &regionWithAdditionalOffset, errcodeRet);
+        buffer->isSubBufferFromPool = true;
+        return buffer;
+    }
     MemoryProperties memoryProperties =
         ClMemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0, &this->context->getDevice(0)->getDevice());
 

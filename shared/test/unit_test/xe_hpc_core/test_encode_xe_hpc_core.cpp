@@ -510,6 +510,28 @@ XE_HPC_CORETEST_F(EncodeKernelXeHpcCoreTest, givenCleanHeapsAndSlmNotChangedAndU
               (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED)));
 }
 
+XE_HPC_CORETEST_F(EncodeKernelXeHpcCoreTest, givenInterfaceDescriptorDataAndNonSymmetricalSkuWhenAdjustInterfaceDescriptorDataIsCalledThenThreadGroupDispatchSizeIsCorrectlySet) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+
+    INTERFACE_DESCRIPTOR_DATA iddArg = FamilyType::cmdInitInterfaceDescriptorData;
+    const auto &hwInfoConfig = *HwInfoConfig::get(productFamily);
+    auto hwInfo = pDevice->getHardwareInfo();
+    hwInfo.gtSystemInfo.DualSubSliceCount = 32u;
+    ASSERT_NE(hwInfo.gtSystemInfo.DualSubSliceCount, hwInfo.gtSystemInfo.MaxDualSubSlicesSupported);
+
+    for (const auto &revision : {REVISION_A0, REVISION_B}) {
+        hwInfo.platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(revision, hwInfo);
+
+        EncodeDispatchKernel<FamilyType>::adjustInterfaceDescriptorData(iddArg, hwInfo, 0, 0);
+
+        if (hwInfoConfig.isDisableOverdispatchAvailable(hwInfo)) {
+            EXPECT_EQ(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1, iddArg.getThreadGroupDispatchSize());
+        } else {
+            EXPECT_EQ(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_8, iddArg.getThreadGroupDispatchSize());
+        }
+    }
+}
+
 XE_HPC_CORETEST_F(EncodeKernelXeHpcCoreTest, givenDispatchSizeSmallerOrEqualToAvailableThreadCountWhenAdjustInterfaceDescriptorDataIsCalledThenThreadGroupDispatchSizeIsCorrectlySet) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
 
@@ -542,6 +564,34 @@ XE_HPC_CORETEST_F(EncodeKernelXeHpcCoreTest, givenNumberOfThreadsInThreadGroupWh
     std::array<std::pair<uint32_t, uint32_t>, 3> testParams = {{{16u, INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_8},
                                                                 {32u, INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_4},
                                                                 {64u, INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_2}}};
+
+    for (const auto &[numberOfThreadsInThreadGroup, expectedThreadGroupDispatchSize] : testParams) {
+        iddArg.setNumberOfThreadsInGpgpuThreadGroup(numberOfThreadsInThreadGroup);
+
+        EncodeDispatchKernel<FamilyType>::adjustInterfaceDescriptorData(iddArg, hwInfo, threadGroupCount, numGrf);
+
+        if (hwInfo.gtSystemInfo.MaxDualSubSlicesSupported == hwInfo.gtSystemInfo.DualSubSliceCount) {
+            EXPECT_EQ(expectedThreadGroupDispatchSize, iddArg.getThreadGroupDispatchSize());
+        } else {
+            EXPECT_EQ(INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1, iddArg.getThreadGroupDispatchSize());
+        }
+    }
+}
+
+XE_HPC_CORETEST_F(EncodeKernelXeHpcCoreTest, givenNumberOfThreadsInThreadGroupAndDebugFlagDisabledWhenCallingAdjustInterfaceDescriptorDataThenThreadGroupDispatchSizeIsDefault) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.AdjustThreadGroupDispatchSize.set(0);
+    const auto &hwInfoConfig = *HwInfoConfig::get(productFamily);
+    auto hwInfo = pDevice->getHardwareInfo();
+    hwInfo.platform.usRevId = hwInfoConfig.getHwRevIdFromStepping(REVISION_B, hwInfo);
+
+    INTERFACE_DESCRIPTOR_DATA iddArg = FamilyType::cmdInitInterfaceDescriptorData;
+    const uint32_t threadGroupCount = 512u;
+    const uint32_t numGrf = 256u;
+    std::array<std::pair<uint32_t, uint32_t>, 3> testParams = {{{16u, INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1},
+                                                                {32u, INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1},
+                                                                {64u, INTERFACE_DESCRIPTOR_DATA::THREAD_GROUP_DISPATCH_SIZE_TG_SIZE_1}}};
 
     for (const auto &[numberOfThreadsInThreadGroup, expectedThreadGroupDispatchSize] : testParams) {
         iddArg.setNumberOfThreadsInGpgpuThreadGroup(numberOfThreadsInThreadGroup);

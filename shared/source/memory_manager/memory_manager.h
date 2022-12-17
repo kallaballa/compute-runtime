@@ -91,7 +91,7 @@ class MemoryManager {
 
     virtual bool verifyHandle(osHandle handle, uint32_t rootDeviceIndex, bool) { return true; }
     virtual bool isNTHandle(osHandle handle, uint32_t rootDeviceIndex) { return false; }
-    virtual GraphicsAllocation *createGraphicsAllocationFromMultipleSharedHandles(std::vector<osHandle> handles, AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) = 0;
+    virtual GraphicsAllocation *createGraphicsAllocationFromMultipleSharedHandles(const std::vector<osHandle> &handles, AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) = 0;
     virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) = 0;
     virtual void closeSharedHandle(GraphicsAllocation *graphicsAllocation){};
     virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, AllocationType allocType) = 0;
@@ -197,6 +197,8 @@ class MemoryManager {
     void unregisterEngineForCsr(CommandStreamReceiver *commandStreamReceiver);
     HostPtrManager *getHostPtrManager() const { return hostPtrManager.get(); }
     void setDefaultEngineIndex(uint32_t rootDeviceIndex, uint32_t engineIndex) { defaultEngineIndex[rootDeviceIndex] = engineIndex; }
+    OsContext *getDefaultEngineContext(uint32_t rootDeviceIndex, DeviceBitfield subdevicesBitfield);
+
     virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy);
     virtual bool copyMemoryToAllocationBanks(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy, DeviceBitfield handleMask);
     HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useFrontWindow);

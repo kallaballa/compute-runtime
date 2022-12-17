@@ -6,15 +6,19 @@
  */
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/linux/cache_info.h"
+#include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/drm_wrappers.h"
 #include "shared/source/os_interface/linux/i915_prelim.h"
 #include "shared/source/os_interface/linux/ioctl_helper.h"
+#include "shared/source/os_interface/linux/sys_calls.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -24,6 +28,15 @@
 #include <sys/ioctl.h>
 
 namespace NEO {
+
+IoctlHelperPrelim20::IoctlHelperPrelim20(Drm &drmArg) : IoctlHelper(drmArg) {
+    auto hwHelper = HwInfoConfig::get(this->drm.getRootDeviceEnvironment().getHardwareInfo()->platform.eProductFamily);
+    if (hwHelper && hwHelper->isNonBlockingGpuSubmissionSupported()) {
+        handleExecBufferInNonBlockMode = true;
+        auto fileDescriptor = this->drm.getFileDescriptor();
+        SysCalls::fcntl(fileDescriptor, F_SETFL, SysCalls::fcntl(fileDescriptor, F_GETFL) | O_NONBLOCK);
+    }
+};
 
 bool IoctlHelperPrelim20::isSetPairAvailable() {
     int setPairSupported = 0;
@@ -643,6 +656,51 @@ std::string IoctlHelperPrelim20::getIoctlString(DrmIoctl ioctlRequest) const {
     default:
         return getIoctlStringBase(ioctlRequest);
     }
+}
+
+bool IoctlHelperPrelim20::checkIfIoctlReinvokeRequired(int error, DrmIoctl ioctlRequest) const {
+    switch (ioctlRequest) {
+    case DrmIoctl::DebuggerOpen:
+        return (error == EINTR || error == EAGAIN);
+    case DrmIoctl::GemExecbuffer2:
+        if (handleExecBufferInNonBlockMode) {
+            return (error == EINTR || error == EBUSY || error == -EBUSY);
+        } else {
+            return IoctlHelper::checkIfIoctlReinvokeRequired(error, ioctlRequest);
+        }
+    default:
+        break;
+    }
+    return IoctlHelper::checkIfIoctlReinvokeRequired(error, ioctlRequest);
+}
+
+bool IoctlHelperPrelim20::getFabricLatency(uint32_t fabricId, uint32_t &latency, uint32_t &bandwidth) {
+    Query query = {};
+    QueryItem queryItem = {};
+    PrelimI915::prelim_drm_i915_query_fabric_info info = {};
+    info.fabric_id = fabricId;
+
+    queryItem.queryId = PRELIM_DRM_I915_QUERY_FABRIC_INFO;
+    queryItem.length = static_cast<int32_t>(sizeof(info));
+    queryItem.dataPtr = reinterpret_cast<uint64_t>(&info);
+    queryItem.flags = 0;
+
+    query.itemsPtr = reinterpret_cast<uint64_t>(&queryItem);
+    query.numItems = 1;
+    auto ret = IoctlHelper::ioctl(DrmIoctl::Query, &query);
+    if (ret != 0) {
+        return false;
+    }
+
+    if (info.latency < 10 || info.bandwidth == 0) {
+        return false;
+    }
+
+    // Latency is in tenths of path length. 10 == 1 fabric link between src and dst
+    // 1 link = zero hops
+    latency = (info.latency / 10) - 1;
+    bandwidth = info.bandwidth;
+    return true;
 }
 
 static_assert(sizeof(MemoryClassInstance) == sizeof(prelim_drm_i915_gem_memory_class_instance));

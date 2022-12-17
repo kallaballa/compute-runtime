@@ -8,11 +8,14 @@
 #pragma once
 #include "shared/source/os_interface/linux/drm_buffer_object.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler_default.h"
+#include "shared/source/os_interface/linux/drm_wrappers.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/test/common/helpers/engine_descriptor_helper.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
 
 #include <memory>
+
+using namespace NEO;
 
 class TestedBufferObject : public BufferObject {
   public:
@@ -73,7 +76,7 @@ class DrmBufferObjectFixture {
         this->mock = std::make_unique<DrmClass>(*executionEnvironment.rootDeviceEnvironments[0]);
         ASSERT_NE(nullptr, this->mock);
         executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock.get(), 0u);
-        osContext.reset(new OsContextLinux(*this->mock, 0u, EngineDescriptorHelper::getDefaultDescriptor()));
+        osContext.reset(new OsContextLinux(*this->mock, 0, 0u, EngineDescriptorHelper::getDefaultDescriptor()));
         this->mock->reset();
         bo = new TestedBufferObject(this->mock.get());
         ASSERT_NE(nullptr, bo);

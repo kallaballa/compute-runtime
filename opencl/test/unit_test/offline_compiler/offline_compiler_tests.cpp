@@ -1222,7 +1222,7 @@ TEST_F(OfflineCompilerTests, givenIncorrectDeviceIdWithIncorrectHexPatternThenIn
     EXPECT_EQ(CL_INVALID_DEVICE, retVal);
 }
 
-TEST_F(OfflineCompilerTests, givenDebugOptionThenInternalOptionShouldContainKernelDebugEnable) {
+TEST_F(OfflineCompilerTests, givenDebugOptionThenInternalOptionShouldNotContainKernelDebugEnable) {
     if (gEnvironment->devicePrefix == "bdw") {
         GTEST_SKIP();
     }
@@ -1241,7 +1241,7 @@ TEST_F(OfflineCompilerTests, givenDebugOptionThenInternalOptionShouldContainKern
     mockOfflineCompiler->initialize(argv.size(), argv);
 
     std::string internalOptions = mockOfflineCompiler->internalOptions;
-    EXPECT_TRUE(hasSubstr(internalOptions, "-cl-kernel-debug-enable"));
+    EXPECT_FALSE(hasSubstr(internalOptions, "-cl-kernel-debug-enable"));
 }
 
 TEST_F(OfflineCompilerTests, givenDebugOptionAndNonSpirvInputThenOptionsShouldContainDashSOptionAppendedAutomatically) {
@@ -1483,7 +1483,7 @@ TEST_F(OfflineCompilerTests, givenExcludeIrArgumentAndExcludeIrFromZebinInternal
     EXPECT_EQ(firstExcludeIrFromZebin, lastExcludeIrFromZebin);
 }
 
-TEST_F(OfflineCompilerTests, givenExcludeIrArgumentWhenCompilingKernelThenIrShouldBeExcluded) {
+TEST_F(OfflineCompilerTests, givenExcludeIrArgumentWhenGeneratingElfBinaryFromPatchtokensThenIrSectionIsNotPresent) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -1497,8 +1497,17 @@ TEST_F(OfflineCompilerTests, givenExcludeIrArgumentWhenCompilingKernelThenIrShou
     MockOfflineCompiler mockOfflineCompiler{};
     mockOfflineCompiler.initialize(argv.size(), argv);
 
-    const auto buildResult{mockOfflineCompiler.build()};
-    ASSERT_EQ(OclocErrorCode::SUCCESS, buildResult);
+    std::vector<uint8_t> storage;
+    iOpenCL::SProgramBinaryHeader headerTok = {};
+    headerTok.Magic = iOpenCL::MAGIC_CL;
+    headerTok.Version = iOpenCL::CURRENT_ICBE_VERSION;
+    headerTok.GPUPointerSizeInBytes = sizeof(uintptr_t);
+
+    storage.insert(storage.end(), reinterpret_cast<uint8_t *>(&headerTok), reinterpret_cast<uint8_t *>(&headerTok) + sizeof(iOpenCL::SProgramBinaryHeader));
+    mockOfflineCompiler.genBinary = new char[storage.size()];
+    mockOfflineCompiler.genBinarySize = storage.size();
+    memcpy_s(mockOfflineCompiler.genBinary, mockOfflineCompiler.genBinarySize, storage.data(), storage.size());
+    mockOfflineCompiler.generateElfBinary();
 
     std::string errorReason{};
     std::string warning{};
@@ -2217,26 +2226,18 @@ TEST(OfflineCompilerTest, GivenCachedBinaryWhenBuildSourceCodeThenSuccessIsRetur
     retVal = mockOfflineCompiler->buildSourceCode();
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    if (gEnvironment->devicePrefix != "bdw") {
-        argv.push_back("-options");
-        argv.push_back("-g");
-        retVal = mockOfflineCompiler->initialize(argv.size(), argv);
-        EXPECT_EQ(CL_SUCCESS, retVal);
+    argv.push_back("-options");
+    argv.push_back("-g");
+    retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(CL_SUCCESS, retVal);
 
-        cacheMock = new CompilerCacheMock();
-        cacheMock->numberOfLoadResult = 2u;
-        mockOfflineCompiler->cache.reset(cacheMock);
-        mockOfflineCompiler->overrideBuildIrBinaryStatus = true;
-        mockOfflineCompiler->buildIrBinaryStatus = 1;
-        retVal = mockOfflineCompiler->buildSourceCode();
-        EXPECT_EQ(1, retVal);
-
-        cacheMock->numberOfLoadResult = 3u;
-        retVal = mockOfflineCompiler->buildSourceCode();
-        EXPECT_EQ(CL_SUCCESS, retVal);
-        EXPECT_NE(nullptr, mockOfflineCompiler->debugDataBinary);
-        EXPECT_NE(0u, static_cast<uint32_t>(mockOfflineCompiler->debugDataBinarySize));
-    }
+    cacheMock = new CompilerCacheMock();
+    mockOfflineCompiler->cache.reset(cacheMock);
+    cacheMock->numberOfLoadResult = 3u;
+    retVal = mockOfflineCompiler->buildSourceCode();
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_NE(nullptr, mockOfflineCompiler->debugDataBinary);
+    EXPECT_NE(0u, static_cast<uint32_t>(mockOfflineCompiler->debugDataBinarySize));
 }
 
 TEST(OfflineCompilerTest, GivenGenBinaryWhenGenerateElfBinaryThenElfIsLoaded) {

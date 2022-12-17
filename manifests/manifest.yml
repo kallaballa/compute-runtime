@@ -9,13 +9,13 @@ components:
     dest_dir: gmmlib
     type: git
     branch: gmmlib
-    revision: intel-gmmlib-22.2.0
+    revision: intel-gmmlib-22.3.0
     repository: https://github.com/intel/gmmlib.git
   igc:
     dest_dir: igc
     type: git
     branch: igc
-    revision: f5a2985e5fda451c38d2beffe26c86704663cf09
+    revision: b8fa033f17b86949d69451643563307dab596e47
     repository: https://github.com/intel/intelgraphicscompiler
   igsc:
     dest_dir: igsc
@@ -27,7 +27,7 @@ components:
     branch: master
     dest_dir: infra
     fetch_tags: true
-    revision: v4302
+    revision: v4324.rel2243.15
     type: git
   internal:
     branch: master
@@ -38,7 +38,7 @@ components:
     dest_dir: kernels_bin
     type: git
     branch: kernels_bin
-    revision: 1977-393
+    revision: 1977-447
   kmdaf:
     branch: kmdaf
     dest_dir: kmdaf

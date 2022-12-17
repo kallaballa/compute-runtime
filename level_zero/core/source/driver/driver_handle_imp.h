@@ -19,6 +19,7 @@
 namespace L0 {
 class HostPointerManager;
 struct FabricVertex;
+struct FabricEdge;
 
 struct DriverHandleImp : public DriverHandle {
     ~DriverHandleImp() override;
@@ -39,7 +40,7 @@ struct DriverHandleImp : public DriverHandle {
     NEO::MemoryManager *getMemoryManager() override;
     void setMemoryManager(NEO::MemoryManager *memoryManager) override;
     MOCKABLE_VIRTUAL void *importFdHandle(NEO::Device *neoDevice, ze_ipc_memory_flags_t flags, uint64_t handle, NEO::GraphicsAllocation **pAlloc);
-    MOCKABLE_VIRTUAL void *importFdHandles(NEO::Device *neoDevice, ze_ipc_memory_flags_t flags, std::vector<NEO::osHandle> handles, NEO::GraphicsAllocation **pAlloc);
+    MOCKABLE_VIRTUAL void *importFdHandles(NEO::Device *neoDevice, ze_ipc_memory_flags_t flags, const std::vector<NEO::osHandle> &handles, NEO::GraphicsAllocation **pAlloc);
     MOCKABLE_VIRTUAL void *importNTHandle(ze_device_handle_t hDevice, void *handle);
     ze_result_t checkMemoryAccessFromDevice(Device *device, const void *ptr) override;
     NEO::SVMAllocsManager *getSvmAllocsManager() override;
@@ -70,6 +71,7 @@ struct DriverHandleImp : public DriverHandle {
                                                NEO::SvmAllocationData *allocData,
                                                void *basePtr,
                                                uintptr_t *peerGpuAddress);
+    void initializeVertexes();
     ze_result_t fabricVertexGetExp(uint32_t *pCount, ze_fabric_vertex_handle_t *phDevices) override;
     void createHostPointerManager();
     void sortNeoDevices(std::vector<std::unique_ptr<NEO::Device>> &neoDevices);
@@ -78,6 +80,8 @@ struct DriverHandleImp : public DriverHandle {
                                 NEO::GraphicsAllocation *alloc,
                                 NEO::SvmAllocationData *allocData,
                                 Device *device);
+    ze_result_t fabricEdgeGetExp(ze_fabric_vertex_handle_t hVertexA, ze_fabric_vertex_handle_t hVertexB,
+                                 uint32_t *pCount, ze_fabric_edge_handle_t *phEdges);
 
     std::unique_ptr<HostPointerManager> hostPointerManager;
     // Experimental functions
@@ -88,6 +92,7 @@ struct DriverHandleImp : public DriverHandle {
 
     std::vector<Device *> devices;
     std::vector<FabricVertex *> fabricVertices;
+    std::vector<FabricEdge *> fabricEdges;
     // Spec extensions
     const std::vector<std::pair<std::string, uint32_t>> extensionsSupported = {
         {ZE_FLOAT_ATOMICS_EXT_NAME, ZE_FLOAT_ATOMICS_EXT_VERSION_CURRENT},

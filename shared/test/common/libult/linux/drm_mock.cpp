@@ -181,6 +181,9 @@ int DrmMock::ioctl(DrmIoctl request, void *arg) {
 
         if (receivedContextParamRequest.param == I915_CONTEXT_PARAM_VM) {
             static_cast<GemContextParam *>(arg)->value = this->storedRetValForVmId;
+            if (incrementVmId) {
+                this->storedRetValForVmId++;
+            }
             return 0u;
         }
     }
@@ -193,7 +196,7 @@ int DrmMock::ioctl(DrmIoctl request, void *arg) {
         for (uint32_t i = 0; i < execbuf->getBufferCount(); i++) {
             this->receivedBos.push_back(execObjects[i]);
         }
-        return 0;
+        return execBufferResult;
     }
     if (request == DrmIoctl::GemUserptr) {
         ioctlCount.gemUserptr++;

@@ -60,7 +60,7 @@ void Drm::queryAndSetVmBindPatIndexProgrammingSupport() {
 int Drm::ioctl(DrmIoctl request, void *arg) {
     auto requestValue = getIoctlRequestValue(request, ioctlHelper.get());
     int ret;
-    int returnedErrno;
+    int returnedErrno = 0;
     SYSTEM_ENTER();
     do {
         auto measureTime = DebugManager.flags.PrintIoctlTimes.get();
@@ -78,7 +78,9 @@ int Drm::ioctl(DrmIoctl request, void *arg) {
         }
         ret = SysCalls::ioctl(getFileDescriptor(), requestValue, arg);
 
-        returnedErrno = errno;
+        if (ret != 0) {
+            returnedErrno = getErrno();
+        }
 
         if (measureTime) {
             end = std::chrono::steady_clock::now();
@@ -108,7 +110,7 @@ int Drm::ioctl(DrmIoctl request, void *arg) {
             }
         }
 
-    } while (ret == -1 && (returnedErrno == EINTR || returnedErrno == EAGAIN || returnedErrno == EBUSY || returnedErrno == -EBUSY));
+    } while (ret == -1 && checkIfIoctlReinvokeRequired(returnedErrno, request, ioctlHelper.get()));
     SYSTEM_LEAVE(request);
     return ret;
 }
@@ -352,14 +354,14 @@ void Drm::destroyDrmContext(uint32_t drmContextId) {
     GemContextDestroy destroy{};
     destroy.contextId = drmContextId;
     auto retVal = ioctlHelper->ioctl(DrmIoctl::GemContextDestroy, &destroy);
-    UNRECOVERABLE_IF(retVal != 0);
+    UNRECOVERABLE_IF((retVal != 0) && (errno != ENODEV));
 }
 
 void Drm::destroyDrmVirtualMemory(uint32_t drmVmId) {
     GemVmControl ctl = {};
     ctl.vmId = drmVmId;
     auto ret = ioctlHelper->ioctl(DrmIoctl::GemVmDestroy, &ctl);
-    UNRECOVERABLE_IF(ret != 0);
+    UNRECOVERABLE_IF((ret != 0) && (errno != ENODEV));
 }
 
 int Drm::queryVmId(uint32_t drmContextId, uint32_t &vmId) {
@@ -1270,6 +1272,9 @@ void Drm::waitForBind(uint32_t vmHandleId) {
 }
 
 bool Drm::isSetPairAvailable() {
+    if (DebugManager.flags.EnableSetPair.get() == 0) {
+        return static_cast<bool>(DebugManager.flags.EnableSetPair.get());
+    }
     std::call_once(checkSetPairOnce, [this]() {
         int ret = ioctlHelper->isSetPairAvailable();
         setPairAvailable = ret;

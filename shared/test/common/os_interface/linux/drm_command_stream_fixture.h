@@ -20,6 +20,14 @@
 
 #include <algorithm>
 
+template <typename GfxFamily>
+struct MockDrmCsr : public DrmCommandStreamReceiver<GfxFamily> {
+    using DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver;
+    using DrmCommandStreamReceiver<GfxFamily>::dispatchMode;
+    using DrmCommandStreamReceiver<GfxFamily>::completionFenceValuePointer;
+    using DrmCommandStreamReceiver<GfxFamily>::flushInternal;
+};
+
 class DrmCommandStreamTest : public ::testing::Test {
   public:
     template <typename GfxFamily>
@@ -38,12 +46,12 @@ class DrmCommandStreamTest : public ::testing::Test {
         executionEnvironment.rootDeviceEnvironments[0]->initGmm();
 
         mock->createVirtualMemoryAddressSpace(HwHelper::getSubDevicesCount(hwInfo));
-        osContext = std::make_unique<OsContextLinux>(*mock, 0u,
+        osContext = std::make_unique<OsContextLinux>(*mock, 0, 0u,
                                                      EngineDescriptorHelper::getDefaultDescriptor(HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
                                                                                                   PreemptionHelper::getDefaultPreemptionMode(*hwInfo)));
         osContext->ensureContextInitialized();
 
-        csr = new DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, 0, 1, gemCloseWorkerMode::gemCloseWorkerActive);
+        csr = new MockDrmCsr<GfxFamily>(executionEnvironment, 0, 1, gemCloseWorkerMode::gemCloseWorkerActive);
         ASSERT_NE(nullptr, csr);
         csr->setupContext(*osContext);
 

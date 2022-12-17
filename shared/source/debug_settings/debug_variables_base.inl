@@ -221,6 +221,8 @@ DECLARE_DEBUG_VARIABLE(int32_t, PlaformSupportEvictIfNecessaryFlag, -1, "-1: def
 DECLARE_DEBUG_VARIABLE(int32_t, ForceEvictOnlyIfNecessaryFlag, -1, "-1: default - driver selects when to use, 0: force never use this flag, 1: force always use this flag")
 DECLARE_DEBUG_VARIABLE(int32_t, ForceStatelessMocsEncryptionBit, -1, "-1: default - 1: set encryption bit")
 DECLARE_DEBUG_VARIABLE(int32_t, CopyHostPtrOnCpu, -1, "-1: default, 0: disable, 1:enable, In clCreateBuffer with CL_MEM_COPY_HOST_PTR, copy memory using locked ptr on cpu")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceZeDeviceCanAccessPerReturnValue, -1, "-1: default, 0: zeDeviceCanAccessPeer always return false 1: zeDeviceCanAccessPeer always return true")
+DECLARE_DEBUG_VARIABLE(int32_t, AdjustThreadGroupDispatchSize, -1, "-1: default, 0: do not adjust thread group dispatch size 1: adjust thread group dispatch size (PVC)")
 
 /*LOGGING FLAGS*/
 DECLARE_DEBUG_VARIABLE(int32_t, PrintDriverDiagnostics, -1, "prints driver diagnostics messages to standard output, value corresponds to hint level")
@@ -332,6 +334,7 @@ DECLARE_DEBUG_VARIABLE(bool, DirectSubmissionPrintBuffers, false, "Print address
 
 /*FEATURE FLAGS*/
 DECLARE_DEBUG_VARIABLE(bool, EnableL0ReadLUIDExtension, false, "Enables Support for L0 Extension for reading the LUID from WDDM.")
+DECLARE_DEBUG_VARIABLE(bool, EnableL0EuCount, false, "Enables Support for L0 Extension for querying total nubmer of EUs.")
 DECLARE_DEBUG_VARIABLE(bool, USMEvictAfterMigration, false, "Evict USM allocation after implicit migration to GPU")
 DECLARE_DEBUG_VARIABLE(bool, EnableNV12, true, "Enables NV12 extension")
 DECLARE_DEBUG_VARIABLE(bool, EnablePackedYuv, true, "Enables cl_packed_yuv extension")
@@ -490,5 +493,6 @@ DECLARE_DEBUG_VARIABLE(int32_t, OverrideDrmRegion, -1, "-1: disable, 0+: overrid
 DECLARE_DEBUG_VARIABLE(int32_t, EnableFrontEndTracking, -1, "-1: default: disabled, 0: disabled, 1: enabled. This flag creates multiple return point from List to Queue for Front End reconfiguration on Queue buffer for single List")
 DECLARE_DEBUG_VARIABLE(int32_t, EnablePipelineSelectTracking, -1, "-1: default: disabled, 0: disabled, 1: enabled. This flag enables optimization that limits number of pipeline select dispatched by command lists")
 DECLARE_DEBUG_VARIABLE(int32_t, EnableStateComputeModeTracking, -1, "-1: default: disabled, 0: disabled, 1: enabled. This flag enables tracking state compute mode changes in command lists")
+DECLARE_DEBUG_VARIABLE(int32_t, EnableSetPair, -1, "Use SET_PAIR to pair two buffer objects behind the same file descriptor, -1: default, 0: disabled, 1: enabled")
 /* Binary Cache */
 DECLARE_DEBUG_VARIABLE(bool, BinaryCacheTrace, false, "enable cl_cache to produce .trace files with information about hash computation")

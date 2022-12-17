@@ -10,7 +10,11 @@
 #include "shared/source/os_interface/linux/i915_prelim.h"
 #include "shared/source/os_interface/linux/ioctl_helper.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/libult/linux/drm_mock.h"
 #include "shared/test/common/mocks/mock_execution_environment.h"
+#include "shared/test/common/os_interface/linux/sys_calls_linux_ult.h"
+#include "shared/test/common/test_macros/hw_test.h"
 #include "shared/test/common/test_macros/test.h"
 
 using namespace NEO;
@@ -347,4 +351,117 @@ TEST_F(IoctlPrelimHelperTests, givenPrelimWhenGettingEuStallPropertiesThenCorrec
 
 TEST_F(IoctlPrelimHelperTests, givenPrelimWhenGettingEuStallFdParameterThenCorrectIoctlValueIsReturned) {
     EXPECT_EQ(static_cast<uint32_t>(PRELIM_I915_PERF_FLAG_FD_EU_STALL), ioctlHelper.getEuStallFdParameter());
+}
+
+class DrmMockIoctl : public DrmMock {
+  public:
+    DrmMockIoctl(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(rootDeviceEnvironment) {
+        rootDeviceEnvironment.setHwInfo(defaultHwInfo.get());
+    }
+    int handleRemainingRequests(DrmIoctl request, void *arg) override {
+        if (request == DrmIoctl::Query) {
+
+            Query *query = static_cast<Query *>(arg);
+            QueryItem *queryItem = reinterpret_cast<QueryItem *>(query->itemsPtr);
+            PrelimI915::prelim_drm_i915_query_fabric_info *info =
+                reinterpret_cast<PrelimI915::prelim_drm_i915_query_fabric_info *>(queryItem->dataPtr);
+
+            info->latency = mockLatency;
+            info->bandwidth = mockBandwidth;
+            return mockIoctlReturn;
+        }
+        return 0;
+    }
+    int mockIoctlReturn = 0;
+    uint32_t mockLatency = 10;
+    uint32_t mockBandwidth = 100;
+};
+
+TEST(IoctlPrelimHelperFabricLatencyTest, givenPrelimWhenGettingFabricLatencyThenSuccessIsReturned) {
+
+    MockExecutionEnvironment executionEnvironment{};
+    std::unique_ptr<DrmMockIoctl> drm = std::make_unique<DrmMockIoctl>(*executionEnvironment.rootDeviceEnvironments[0]);
+    IoctlHelperPrelim20 ioctlHelper{*drm};
+
+    uint32_t latency = std::numeric_limits<uint32_t>::max(), fabricId = 0, bandwidth = 0;
+    EXPECT_TRUE(ioctlHelper.getFabricLatency(fabricId, latency, bandwidth));
+    EXPECT_NE(latency, std::numeric_limits<uint32_t>::max());
+    EXPECT_NE(bandwidth, 0u);
+}
+
+TEST(IoctlPrelimHelperFabricLatencyTest, givenPrelimWhenGettingFabricLatencyAndIoctlFailsThenErrorIsReturned) {
+
+    MockExecutionEnvironment executionEnvironment{};
+    std::unique_ptr<DrmMockIoctl> drm = std::make_unique<DrmMockIoctl>(*executionEnvironment.rootDeviceEnvironments[0]);
+    IoctlHelperPrelim20 ioctlHelper{*drm};
+
+    uint32_t latency = 0, fabricId = 0, bandwidth = 0;
+    drm->mockIoctlReturn = 1;
+    EXPECT_FALSE(ioctlHelper.getFabricLatency(fabricId, latency, bandwidth));
+}
+
+TEST(IoctlPrelimHelperFabricLatencyTest, givenPrelimWhenGettingFabricLatencyAndIoctlSetsZeroForLatencyThenErrorIsReturned) {
+
+    MockExecutionEnvironment executionEnvironment{};
+    std::unique_ptr<DrmMockIoctl> drm = std::make_unique<DrmMockIoctl>(*executionEnvironment.rootDeviceEnvironments[0]);
+    IoctlHelperPrelim20 ioctlHelper{*drm};
+
+    uint32_t latency = 0, fabricId = 0, bandwidth = 0;
+    drm->mockIoctlReturn = 0;
+    drm->mockLatency = 0;
+    drm->mockBandwidth = 10;
+    EXPECT_FALSE(ioctlHelper.getFabricLatency(fabricId, latency, bandwidth));
+}
+
+TEST(IoctlPrelimHelperFabricLatencyTest, givenPrelimWhenGettingFabricLatencyAndIoctlSetsZeroForBandwidthThenErrorIsReturned) {
+
+    MockExecutionEnvironment executionEnvironment{};
+    std::unique_ptr<DrmMockIoctl> drm = std::make_unique<DrmMockIoctl>(*executionEnvironment.rootDeviceEnvironments[0]);
+    IoctlHelperPrelim20 ioctlHelper{*drm};
+
+    uint32_t latency = 0, fabricId = 0, bandwidth = 0;
+    drm->mockIoctlReturn = 0;
+    drm->mockLatency = 10;
+    drm->mockBandwidth = 0;
+    EXPECT_FALSE(ioctlHelper.getFabricLatency(fabricId, latency, bandwidth));
+}
+HWTEST2_F(IoctlPrelimHelperTests, givenXeHpcWhenCallingIoctlWithGemExecbufferThenShouldBreakOnWouldBlock, IsXeHpcCore) {
+    EXPECT_FALSE(ioctlHelper.checkIfIoctlReinvokeRequired(EAGAIN, DrmIoctl::GemExecbuffer2));
+    EXPECT_TRUE(ioctlHelper.checkIfIoctlReinvokeRequired(EAGAIN, DrmIoctl::GemVmBind));
+    EXPECT_TRUE(ioctlHelper.checkIfIoctlReinvokeRequired(EBUSY, DrmIoctl::GemExecbuffer2));
+}
+
+HWTEST2_F(IoctlPrelimHelperTests, givenNonXeHpcWhenCallingIoctlWithGemExecbufferThenShouldBreakOnWouldBlock, IsNotXeHpcCore) {
+    EXPECT_TRUE(ioctlHelper.checkIfIoctlReinvokeRequired(EAGAIN, DrmIoctl::GemExecbuffer2));
+    EXPECT_TRUE(ioctlHelper.checkIfIoctlReinvokeRequired(EAGAIN, DrmIoctl::GemVmBind));
+    EXPECT_TRUE(ioctlHelper.checkIfIoctlReinvokeRequired(EBUSY, DrmIoctl::GemExecbuffer2));
+}
+
+HWTEST2_F(IoctlPrelimHelperTests, givenXeHpcWhenCreatingIoctlHelperThenProperFlagsAreSetToFileDescriptor, IsXeHpcCore) {
+    MockExecutionEnvironment executionEnvironment{};
+    std::unique_ptr<Drm> drm{Drm::create(std::make_unique<HwDeviceIdDrm>(0, ""), *executionEnvironment.rootDeviceEnvironments[0])};
+
+    VariableBackup<decltype(SysCalls::getFileDescriptorFlagsCalled)> backupGetFlags(&SysCalls::getFileDescriptorFlagsCalled, 0);
+    VariableBackup<decltype(SysCalls::setFileDescriptorFlagsCalled)> backupSetFlags(&SysCalls::setFileDescriptorFlagsCalled, 0);
+    VariableBackup<decltype(SysCalls::passedFileDescriptorFlagsToSet)> backupPassedFlags(&SysCalls::passedFileDescriptorFlagsToSet, 0);
+
+    IoctlHelperPrelim20 ioctlHelper{*drm};
+
+    EXPECT_EQ(1, SysCalls::getFileDescriptorFlagsCalled);
+    EXPECT_EQ(1, SysCalls::setFileDescriptorFlagsCalled);
+    EXPECT_EQ((O_RDWR | O_NONBLOCK), SysCalls::passedFileDescriptorFlagsToSet);
+}
+
+HWTEST2_F(IoctlPrelimHelperTests, givenNonXeHpcWhenCreatingIoctlHelperThenProperFlagsAreSetToFileDescriptor, IsNotXeHpcCore) {
+    MockExecutionEnvironment executionEnvironment{};
+    std::unique_ptr<Drm> drm{Drm::create(std::make_unique<HwDeviceIdDrm>(0, ""), *executionEnvironment.rootDeviceEnvironments[0])};
+
+    VariableBackup<decltype(SysCalls::getFileDescriptorFlagsCalled)> backupGetFlags(&SysCalls::getFileDescriptorFlagsCalled, 0);
+    VariableBackup<decltype(SysCalls::setFileDescriptorFlagsCalled)> backupSetFlags(&SysCalls::setFileDescriptorFlagsCalled, 0);
+    VariableBackup<decltype(SysCalls::passedFileDescriptorFlagsToSet)> backupPassedFlags(&SysCalls::passedFileDescriptorFlagsToSet, 0);
+
+    IoctlHelperPrelim20 ioctlHelper{*drm};
+
+    EXPECT_EQ(0, SysCalls::getFileDescriptorFlagsCalled);
+    EXPECT_EQ(0, SysCalls::setFileDescriptorFlagsCalled);
 }

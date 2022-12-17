@@ -276,8 +276,10 @@ OsContext *MemoryManager::createAndRegisterOsContext(CommandStreamReceiver *comm
     updateLatestContextIdForRootDevice(rootDeviceIndex);
 
     auto contextId = ++latestContextId;
-    auto osContext = OsContext::create(peekExecutionEnvironment().rootDeviceEnvironments[rootDeviceIndex]->osInterface.get(), contextId, engineDescriptor);
+    auto osContext = OsContext::create(peekExecutionEnvironment().rootDeviceEnvironments[rootDeviceIndex]->osInterface.get(), rootDeviceIndex, contextId, engineDescriptor);
     osContext->incRefInternal();
+
+    UNRECOVERABLE_IF(rootDeviceIndex != osContext->getRootDeviceIndex());
 
     registeredEngines.emplace_back(commandStreamReceiver, osContext);
 
@@ -876,6 +878,22 @@ bool MemoryManager::isLocalMemoryUsedForIsa(uint32_t rootDeviceIndex) {
     });
 
     return isaInLocalMemory[rootDeviceIndex];
+}
+
+OsContext *MemoryManager::getDefaultEngineContext(uint32_t rootDeviceIndex, DeviceBitfield subdevicesBitfield) {
+    OsContext *defaultContext = nullptr;
+    for (auto engineIndex = 0u; engineIndex < this->getRegisteredEnginesCount(); engineIndex++) {
+        OsContext *engine = this->getRegisteredEngines()[engineIndex].osContext;
+        if ((engine->getRootDeviceIndex() == rootDeviceIndex) &&
+            (engine->isDefaultContext() && engine->getDeviceBitfield() == subdevicesBitfield)) {
+            defaultContext = engine;
+            break;
+        }
+    }
+    if (!defaultContext) {
+        defaultContext = registeredEngines[defaultEngineIndex[rootDeviceIndex]].osContext;
+    }
+    return defaultContext;
 }
 
 bool MemoryTransferHelper::transferMemoryToAllocation(bool useBlitter, const Device &device, GraphicsAllocation *dstAllocation, size_t dstOffset, const void *srcMemory, size_t srcSize) {

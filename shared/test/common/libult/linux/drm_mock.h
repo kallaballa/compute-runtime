@@ -194,6 +194,7 @@ class DrmMock : public Drm {
     bool callBaseGetSetPairAvailable = false;
 
     bool capturedCooperativeContextRequest = false;
+    bool incrementVmId = false;
 
     uint32_t passedContextDebugId = std::numeric_limits<uint32_t>::max();
     std::vector<ResetStats> resetStatsToReturn{};
@@ -212,6 +213,7 @@ class DrmMock : public Drm {
     //DRM_IOCTL_I915_GEM_EXECBUFFER2
     std::vector<MockExecBuffer> execBuffers{};
     std::vector<MockExecObject> receivedBos{};
+    int execBufferResult = 0;
     //DRM_IOCTL_I915_GEM_CREATE
     uint64_t createParamsSize = 0;
     uint32_t createParamsHandle = 0;

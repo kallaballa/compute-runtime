@@ -238,6 +238,8 @@ GraphicsAllocation *WddmMemoryManager::allocateSystemMemoryAndCreateGraphicsAllo
         return allocateHugeGraphicsMemory(allocationData, true);
     }
     void *pSysMem = allocateSystemMemory(sizeAligned, newAlignment);
+    zeroCpuMemoryIfRequested(allocationData, pSysMem, sizeAligned);
+
     Gmm *gmm = nullptr;
 
     if (pSysMem == nullptr) {
@@ -467,7 +469,7 @@ GraphicsAllocation *WddmMemoryManager::createAllocationFromHandle(osHandle handl
     return allocation.release();
 }
 
-GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromMultipleSharedHandles(std::vector<osHandle> handles, AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) {
+GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromMultipleSharedHandles(const std::vector<osHandle> &handles, AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) {
     return nullptr;
 }
 
