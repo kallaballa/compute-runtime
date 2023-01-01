@@ -13,6 +13,7 @@
 
 #include <GL/gl.h>
 #include <EGL/eglext.h>
+#include <unistd.h>
 
 //from windows
 #define BOOL unsigned char
@@ -104,15 +105,17 @@ class GLSharingFunctionsLinux : public GLSharingFunctions {
 //        fprintf(stderr, "GLAcquireSharedTexture ret=%d fds=%d stride=%d offset=%d\n", ret, fds, stride, offset);
         if (ret == EGL_TRUE && fds > 0) {
             pResourceInfo->globalShareHandle = fds;
+            pResourceInfo->pReleaseData = image;
         } else {
             eglDestroyImage(GLHDCHandle, image);
             ret = EGL_FALSE;
         }
-
         return ret;
     }
     GLboolean releaseSharedTexture(GLvoid *pResourceInfo) {
-        return 1;
+	CL_GL_RESOURCE_INFO* info = reinterpret_cast<CL_GL_RESOURCE_INFO*>(pResourceInfo);
+	close(info->globalShareHandle);
+	return eglDestroyImage(GLHDCHandle, info->pReleaseData);
     }
     GLboolean retainSync(GLvoid *pSyncInfo) {
         return GLRetainSync(GLHDCHandle, GLHGLRCHandle, GLHGLRCHandleBkpCtx, pSyncInfo);
