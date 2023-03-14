@@ -20,6 +20,7 @@ void populateIgcPlatform<>(IGC::Platform<1> &igcPlatform, const HardwareInfo &hw
     IGC::PlatformHelper::PopulateInterfaceWith(igcPlatform, hwInfo.platform);
 }
 
+/*
 template <>
 void populateIgcPlatform<>(IGC::Platform<2> &igcPlatform, const HardwareInfo &hwInfo) {
     igcPlatform.SetProductFamily(hwInfo.platform.eProductFamily);
@@ -34,5 +35,5 @@ void populateIgcPlatform<>(IGC::Platform<2> &igcPlatform, const HardwareInfo &hw
     igcPlatform.SetGTType(hwInfo.platform.eGTType);
     igcPlatform.SetRenderBlockID(hwInfo.ipVersion.value);
 }
-
+*/
 } // namespace NEO
