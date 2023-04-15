@@ -5,6 +5,7 @@ Copyright (C) 2018-2021 Intel Corporation
 SPDX-License-Identifier: MIT
 
 -->
+# ***Archived since it finally got merged! :D***
 
 # Unoffical Intel(R) Graphics Compute Runtime for oneAPI Level Zero and OpenCL(TM) Driver with limited support for OpenCL/OpenGL interoperability
 
